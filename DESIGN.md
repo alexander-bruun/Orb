@@ -57,39 +57,39 @@ Orb is a self-hosted, lossless music streaming platform — a personal Spotify b
 
 ```text
  Browser (SvelteKit)
- ┌─────────────────────────────────────────────────────────────┐
- │  Web Audio API + libflac.js WASM decoder                    │
- │  HTTP range requests for audio chunks                       │
- │  REST API calls for library, search, playlists, queue       │
- └───────────────────┬─────────────────────────────────────────┘
-                     │ HTTPS
-          ┌──────────▼───────────┐
-          │    Load Balancer     │
-          └──────────┬───────────┘
-                     │
-        ┌────────────▼──────────────┐
-        │      API Service          │  ← stateless, N replicas
-        │    (Go, net/http)         │
-        │                           │
-        │  /auth     user auth      │
-        │  /library  browse         │
-        │  /stream   range serve    │
-        │  /playlists               │
-        │  /queue    playback state │
-        └──┬──────────────┬─────────┘
-           │              │
-     ┌─────▼──────┐  ┌─────▼──────────┐
-     │  Postgres  │  │  Object Store  │
-     │ (pgBouncer │  │ (MinIO / local │
-     │ + replica) │  │   disk)        │
-     └────────────┘  └────────────────┘
-           │
-     ┌─────▼───────┐
-     │   KeyVal    │
-     │  (Valkey)   │
-     │  sessions   │
-     │  + cache    │
-     └────────────-┘
+┌─────────────────────────────────────────────────────────────┐ 
+│  Web Audio API + libflac.js WASM decoder                    │ 
+│  HTTP range requests for audio chunks                       │ 
+│  REST API calls for library, search, playlists, queue       │ 
+└───────────────────┬─────────────────────────────────────────┘ 
+                    │ HTTPS                                     
+         ┌──────────▼───────────┐                               
+         │    Load Balancer     │                               
+         └──────────┬───────────┘                               
+                    │                                           
+       ┌────────────▼──────────────┐                            
+       │      API Service          │  ← stateless, N replicas   
+       │    (Go, net/http)         │                            
+       │                           │                            
+       │  /auth     user auth      │                            
+       │  /library  browse         │                            
+       │  /stream   range serve    │                            
+       │  /playlists               │                            
+       │  /queue    playback state │    ┌────────┐              
+       └──┬───────────────┬────────┘    │        │              
+          │  ┌────────────┼─────────────┤ Ingest │              
+    ┌─────▼──▼───┐  ┌─────▼──────────┐  │        │              
+    │  Postgres  │  │  Object Store  │  └────┬───┘              
+    │ (pgBouncer │  │ (MinIO / local ├───────┘                  
+    │ + replica) │  │   disk)        │                          
+    └────────────┘  └────────────────┘                          
+          │                                                     
+    ┌─────▼───────┐                                             
+    │   KeyVal    │                                             
+    │  (Valkey)   │                                             
+    │  sessions   │                                             
+    │  + cache    │                                             
+    └────────────-┘                                             
 ```
 
 ### Key decisions
