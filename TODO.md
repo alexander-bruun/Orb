@@ -1,3 +1,5 @@
+# TODO: GOGOGO!
+
 Artist should also sort by characters like album title. Currently it just says #.
 Year should show the numerical years in the right hand side. Currently it just says #
 Remove sort by labe, i dont care for that.
@@ -17,3 +19,11 @@ Remember the state of the cover size. Large / small in the local browser storage
 Add shuffle button to the artist page and playlist pages.
 
 Update search frontend to show search results, and update the backend to search for both artists and albums at the same time, and show both in the search results.
+
+Implement sound visualizers that are toggleable.
+
+Implement OpenLyrics for lyrics synced to the playing music, shown in a toggleable modal.
+
+Implement metadata retrieval from something like musicbrainz.
+
+Implement algorithm for suggested similar tracks. This should be used for user specific generated playlists based on their listen history. We should also use it for when a album or playlist runs out of tracks to play, afterwards recommended tracks should start playing.
