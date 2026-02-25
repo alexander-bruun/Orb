@@ -43,8 +43,6 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
-// --- Manual query implementations replacing sqlc ---
-
 // GetUserByID returns a user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User

@@ -651,7 +651,7 @@ orb/
 ├── README.md
 │
 ├── pkg/
-│   ├── store/                       # sqlc DB layer + Store interface
+│   ├── store/
 │   │   ├── go.mod
 │   │   ├── store.go
 │   │   ├── db.go                    # Atlas generated
@@ -765,8 +765,6 @@ make migrate-up                                # apply schema
 
 ### Database schema & migrations
 
-Orb now uses **Atlas** for schema management and migrations in all environments (development and production). Atlas replaces sqlc as the source of truth for the database schema and migration workflow.
-
 **Migration workflow:**
 - Edit `db/schema.sql` (single authoritative schema file)
 - Run `make migrate-diff` to generate a new migration (Atlas auto-generates versioned migration files)
@@ -774,8 +772,6 @@ Orb now uses **Atlas** for schema management and migrations in all environments 
 - Run `make migrate-status` to view applied/pending migrations
 
 **Never write migration SQL by hand.** Always edit `schema.sql` and let Atlas generate the diff.
-
-**sqlc is deprecated:** All sqlc-generated code and configuration have been removed. Database access is now implemented using manual SQL queries via the pgx driver, or helper functions as needed. See `pkg/store` for the new approach.
 
 **References:**
 - [Atlas documentation](https://atlasgo.io/)
@@ -834,9 +830,6 @@ migrate-status: ; atlas migrate status --env local
 migrate-diff:
  @read -p "Migration name: " name; \
  atlas migrate diff --env local --name $$name
-
-generate:
- sqlc generate
 
 test:
  go test ./...
