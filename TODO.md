@@ -27,3 +27,11 @@ Implement OpenLyrics for lyrics synced to the playing music, shown in a toggleab
 Implement metadata retrieval from something like musicbrainz.
 
 Implement algorithm for suggested similar tracks. This should be used for user specific generated playlists based on their listen history. We should also use it for when a album or playlist runs out of tracks to play, afterwards recommended tracks should start playing.
+
+Add a badge to albums that are singles in the librar viewer.
+
+Add a favorites section to the left sidebar, that shows a page of the logged in users favorite tracks.
+
+Make sure to track the user's track listens so we can feature it on the home page.
+
+On the home page, add a recently added section showin the last N albums added.
