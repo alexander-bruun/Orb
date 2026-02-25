@@ -1,0 +1,84 @@
+services:
+  postgres-primary:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: orb, POSTGRES_PASSWORD: orb, POSTGRES_DB: orb }
+    volumes: [postgres_primary_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orb"]
+      interval: 5s
+      retries: 5
+
+  postgres-replica:
+    image: postgres:16-alpine
+    environment: { PGUSER: replicator, PGPASSWORD: replicator, PRIMARY_HOST: postgres-primary }
+    volumes: [postgres_replica_data:/var/lib/postgresql/data]
+    depends_on: { postgres-primary: { condition: service_healthy } }
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    environment:
+      DATABASES_HOST: postgres-primary
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "25"
+    ports: ["5432:5432"]
+    depends_on: { postgres-primary: { condition: service_healthy } }
+
+  migrate:
+    image: arigaio/atlas:latest
+    volumes: [./db/migrations:/migrations]
+    command: migrate apply --url "postgres://orb:orb@postgres-primary:5432/orb?sslmode=disable" --dir "file:///migrations"
+    depends_on: { postgres-primary: { condition: service_healthy } }
+    restart: on-failure
+
+  valkey-primary:
+    image: valkey/valkey:7-alpine
+    command: valkey-server --appendonly yes
+    volumes: [valkey_data:/data]
+
+  valkey-replica:
+    image: valkey/valkey:7-alpine
+    command: valkey-server --replicaof valkey-primary 6379
+    depends_on: [valkey-primary]
+
+  valkey-sentinel-1: &sentinel
+    image: valkey/valkey:7-alpine
+    command: valkey-sentinel /etc/valkey/sentinel.conf
+    volumes: [./docker/valkey/sentinel.conf:/etc/valkey/sentinel.conf:ro]
+  valkey-sentinel-2: *sentinel
+  valkey-sentinel-3: *sentinel
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment: { MINIO_ROOT_USER: orb, MINIO_ROOT_PASSWORD: orbsecret }
+    volumes: [minio_data:/data]
+    ports: ["9000:9000", "9001:9001"]
+
+  api:
+    build: { context: ., dockerfile: docker/api.Dockerfile }
+    environment:
+      KV_MODE: sentinel
+      DATABASE_URL: postgres://orb:orb@postgres-primary:5432/orb?sslmode=disable
+      KV_SENTINEL_ADDRS: valkey-sentinel-1:26379,valkey-sentinel-2:26379,valkey-sentinel-3:26379
+      KV_SENTINEL_MASTER: mymaster
+      STORE_BACKEND: s3
+      STORE_BUCKET: orb-audio
+      S3_ENDPOINT: minio:9000
+      S3_ACCESS_KEY: orb
+      S3_SECRET_KEY: orbsecret
+      JWT_SECRET: "${JWT_SECRET}"
+      HTTP_PORT: "8080"
+    ports: ["8080:8080"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    restart: unless-stopped
+
+  ui:
+    build: { context: ., dockerfile: docker/ui.Dockerfile }
+    ports: ["3000:80"]
+
+volumes:
+  postgres_primary_data:
+  postgres_replica_data:
+  valkey_data:
+  minio_data:

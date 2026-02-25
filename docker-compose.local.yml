@@ -1,0 +1,92 @@
+# Local single-server deployment — no Atlas, no pgBouncer, no Sentinel.
+# Schema is applied automatically by Postgres on first start via initdb.
+# Music is served directly from the local filesystem via a shared volume.
+#
+# Usage:
+#   docker compose -f docker-compose.local.yml up -d
+#
+# To reset the database (e.g. after a schema change):
+#   docker compose -f docker-compose.local.yml down -v
+#   docker compose -f docker-compose.local.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orb
+      POSTGRES_PASSWORD: orb
+      POSTGRES_DB: orb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Mount the whole db/ directory so Docker Desktop doesn't cache a
+      # stale single-file bind-mount path. Postgres only executes .sql files
+      # directly in initdb.d (not subdirectories), so schema.sql runs once on
+      # a fresh volume; migrations/, queries/, and atlas.hcl are ignored.
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orb"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:7-alpine
+    command: valkey-server --appendonly yes
+    volumes:
+      - valkey_data:/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment:
+      DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
+      KV_MODE: standalone
+      KV_ADDR: valkey:6379
+      STORE_BACKEND: local
+      STORE_ROOT: /data/audio
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      HTTP_PORT: "8080"
+    volumes:
+      - audio_data:/data/audio
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: docker/ui.Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  ingest:
+    build:
+      context: .
+      dockerfile: docker/ingest.Dockerfile
+    environment:
+      DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
+      STORE_BACKEND: local
+      STORE_ROOT: /data/audio
+    command: ["--dir", "/music", "--recursive", "--watch"]
+    volumes:
+      - audio_data:/data/audio
+      - /mnt/d/Music:/music:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  valkey_data:
+  audio_data:

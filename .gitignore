@@ -1,0 +1,79 @@
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+.claude/
+
+# Go build outputs
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+
+# Temporary files and editor swap files
+tmp/
+/tmp/
+*.swp
+*~
+
+# Air / dev tooling
+/tmp/main
+tmp/main
+
+# Node / frontend
+web/ui/node_modules/
+web/ui/.svelte-kit/
+web/ui/.vite/
+web/ui/.parcel-cache/
+web/ui/.turbo/
+web/ui/npm-debug.log*
+web/ui/yarn-debug.log*
+web/ui/yarn-error.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs
+logs/
+*.log
+
+# Docker / compose overrides
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# Secrets / keys
+*.key
+*.pem
+*.crt
+*.asc
+secrets.*
+secret-*.json
+
+# Database files
+*.sqlite
+*.db
+*.sql.gz
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Test / coverage
+coverage/
+*.coverprofile
+*.prof
+
+# Misc
+.cache/
+.parcel-cache/
+.DS_Store

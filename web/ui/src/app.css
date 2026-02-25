@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Instrument+Serif:ital@0;1&family=Syne:wght@400;500;600;700;800&display=swap');
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg:          #080809;
+  --surface:     #0f0f12;
+  --surface-2:   #16161b;
+  --border:      #1c1c22;
+  --border-2:    #252530;
+  --text:        #e2e2ec;
+  --text-2:      #9090a8;
+  --muted:       #50505f;
+  --accent:      #c084fc;
+  --accent-dim:  rgba(192,132,252,0.12);
+  --accent-glow: rgba(192,132,252,0.25);
+  --sidebar-w:   232px;
+  --top-h:       52px;
+  --bottom-h:    76px;
+
+  /* page padding so content doesn't hug the window edges */
+  --page-padding: 1rem;
+  /* legacy aliases kept for components not yet updated */
+  --bg-elevated: var(--surface);
+  --bg-hover:    var(--surface-2);
+  --text-muted:  var(--text-2);
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Syne', sans-serif;
+}
+
+button { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+input, select, textarea { font-family: inherit; }
