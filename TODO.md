@@ -35,3 +35,7 @@ Add a favorites section to the left sidebar, that shows a page of the logged in 
 Make sure to track the user's track listens so we can feature it on the home page.
 
 On the home page, add a recently added section showin the last N albums added.
+
+Make the media playback controls be in line with other controls.
+
+Add a user page with user customizations and a personal settings panel. Here there should be a color scheme selector that works globally for the color scheme and dark / light mode.
