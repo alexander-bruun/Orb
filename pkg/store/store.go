@@ -964,3 +964,25 @@ func scanPlaylists(rows pgx.Rows) ([]Playlist, error) {
 	}
 	return out, rows.Err()
 }
+
+// ListPlaylistTopPlayedTracks returns the top 4 most played tracks in a playlist.
+func (s *Store) ListPlaylistTopPlayedTracks(ctx context.Context, playlistID string) ([]Track, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+FROM tracks t
+JOIN playlist_tracks pt ON pt.track_id = t.id
+LEFT JOIN (
+  SELECT track_id, COUNT(*) AS play_count
+  FROM play_history
+  GROUP BY track_id
+) ph ON ph.track_id = t.id
+WHERE pt.playlist_id = $1
+ORDER BY ph.play_count DESC NULLS LAST, pt.position ASC
+LIMIT 4`,
+		playlistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}

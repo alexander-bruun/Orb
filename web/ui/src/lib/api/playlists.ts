@@ -1,3 +1,7 @@
+// Returns up to 4 cover URLs for a playlist (for grid display)
+export function getPlaylistCoverGrid(id: string): Promise<string[]> {
+	return apiFetch<string[]>(`/covers/playlist/${id}/composite`);
+}
 import { apiFetch } from './client';
 import type { Playlist, Track } from '$lib/types';
 

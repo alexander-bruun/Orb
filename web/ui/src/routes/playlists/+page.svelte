@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { playlists as playlistApi } from '$lib/api/playlists';
+  import { getPlaylistCoverGrid } from '$lib/api/playlists';
   import PlaylistCard from '$lib/components/playlist/PlaylistCard.svelte';
   import type { Playlist } from '$lib/types';
 
+
   let items: Playlist[] = [];
+  let coverGrids: Record<string, string[]> = {};
   let loading = true;
   let creating = false;
   let newName = '';
@@ -12,6 +15,14 @@
   onMount(async () => {
     try {
       items = await playlistApi.list();
+      // Fetch cover grids for all playlists in parallel
+      await Promise.all(items.map(async (pl) => {
+        try {
+          coverGrids[pl.id] = await getPlaylistCoverGrid(pl.id);
+        } catch (e) {
+          coverGrids[pl.id] = [];
+        }
+      }));
     } finally {
       loading = false;
     }
@@ -45,7 +56,7 @@
     <p class="muted">No playlists yet</p>
   {:else}
     {#each items as pl (pl.id)}
-      <PlaylistCard playlist={pl} />
+      <PlaylistCard playlist={pl} coverGrid={coverGrids[pl.id]} />
     {/each}
   {/if}
 </div>

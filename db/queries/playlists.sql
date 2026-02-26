@@ -1,3 +1,15 @@
+-- name: ListPlaylistTopPlayedTracks :many
+SELECT t.*
+FROM tracks t
+JOIN playlist_tracks pt ON pt.track_id = t.id
+LEFT JOIN (
+    SELECT track_id, COUNT(*) AS play_count
+    FROM play_history
+    GROUP BY track_id
+) ph ON ph.track_id = t.id
+WHERE pt.playlist_id = $1
+ORDER BY ph.play_count DESC NULLS LAST, pt.position ASC
+LIMIT 4;
 -- name: CreatePlaylist :one
 INSERT INTO playlists (id, user_id, name, description, cover_art_key)
 VALUES ($1, $2, $3, $4, $5)

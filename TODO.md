@@ -12,14 +12,14 @@ Implement metadata retrieval from something like musicbrainz or discogs as we in
 
 Implement algorithm for suggested similar tracks. This should be used for user specific generated playlists based on their listen history. We should also use it for when a album or playlist runs out of tracks to play, afterwards recommended tracks should start playing. It should be based on the track audio similarity to other tracks in addition to comparing metadata.
 
-Add a user page with user customizations and a personal settings panel. Here there should be a color scheme selector that works globally for the color scheme and dark / light mode maybe mult ui has a color scheme palette picker ui component?
+Add a user page with user customizations and a personal settings panel. Here there should be a color scheme selector that works globally for the color scheme and dark / light mode maybe melt ui has a color scheme palette picker ui component?
 
 Deprecate S3 support, i only want it to consume files mounted locally within the container. So remove all S3 and minio related things. And make sure we have a robust way to support many directories inside the container, since if the user has a lot of music across drives they wont all be inside the same directory.
 
-Improve ingest performance, it is currently very slow to go through the data directory.
-
 Implement a build for Tauri binaries and update the setup process to include a host configuration for where the server is hosted so the standalone app can find the backend from anywhere.
 
-Something weird happens to the sound volume level when refreshing, it's not staying what it was when refreshing but it stays in the same visual position as before the refresh.
-
 Investigate how we can bundle the backend and ingest in the same pod where N+1 pods are in secondary mode, and the primary is the only one running ingest duty. So we need to generate a quorom to determine the leader who writes to the database with newly ingested tracks / music. Or maybe we can use N+1 containers to distribute ingest load onto each replica like round robin. Where the primary pod distributes ingest load while also taking ingest load itself.
+
+Improve ingest performance, it is currently very slow to go through the data directory.
+
+Implement listen along with invite link for many friends that have a simplified audio player without access to the rest of the UI but the invitee and inviter listen to the same music synced.

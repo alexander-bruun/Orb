@@ -109,13 +109,45 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 // Cover serves album cover art.
 func (s *Service) Cover(w http.ResponseWriter, r *http.Request) {
 	albumID := chi.URLParam(r, "album_id")
-	s.serveCover(w, r, fmt.Sprintf("covers/%s.jpg", albumID))
+	s.serveCover(w, r, fmt.Sprintf("covers/%s", albumID))
 }
 
 // PlaylistCover serves playlist cover art.
 func (s *Service) PlaylistCover(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	s.serveCover(w, r, fmt.Sprintf("covers/playlist/%s.jpg", id))
+	s.serveCover(w, r, fmt.Sprintf("covers/playlist/%s", id))
+}
+
+// PlaylistCoverComposite generates and serves a composite cover for a playlist from its top 4 most played tracks.
+func (s *Service) PlaylistCoverComposite(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	// Fetch top 4 most played tracks in the playlist
+	tracks, err := s.db.ListPlaylistTopPlayedTracks(r.Context(), id)
+	if err != nil || len(tracks) == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	// Collect up to 4 cover URLs (without .jpg extension)
+	var coverURLs []string
+	baseURL := "/api/covers/"
+	for _, t := range tracks {
+		if t.AlbumID != nil {
+			coverURLs = append(coverURLs, baseURL+url.PathEscape(*t.AlbumID))
+		}
+		if len(coverURLs) == 4 {
+			break
+		}
+	}
+
+	if len(coverURLs) == 0 {
+		http.Error(w, "no covers", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_ = json.NewEncoder(w).Encode(coverURLs)
 }
 
 func (s *Service) serveCover(w http.ResponseWriter, r *http.Request, key string) {

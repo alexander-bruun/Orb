@@ -2,20 +2,29 @@
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { playlists as playlistApi } from '$lib/api/playlists';
+  import { getPlaylistCoverGrid } from '$lib/api/playlists';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import type { Playlist, Track } from '$lib/types';
   import { playTrack, shuffle } from '$lib/stores/player';
 
   let playlist: Playlist | null = null;
   let tracks: Track[] = [];
+
+  let coverGrid: string[] = [];
   let loading = true;
 
   onMount(async () => {
-    const id = $page.params.id;
+    const id = String($page.params.id);
     try {
       const res = await playlistApi.get(id);
       playlist = res.playlist;
       tracks = res.tracks;
+      // Fetch cover grid
+      try {
+        coverGrid = await getPlaylistCoverGrid(id);
+      } catch (e) {
+        coverGrid = [];
+      }
     } finally {
       loading = false;
     }
@@ -37,7 +46,21 @@
   <p class="muted">Loading…</p>
 {:else if playlist}
   <div class="header">
-    <div class="cover-placeholder">♪</div>
+    <div class="cover-placeholder cover-grid">
+      {#if coverGrid.length > 0}
+        <div class="grid">
+          {#each Array(4) as _, i}
+            {#if coverGrid[i]}
+              <img src={coverGrid[i]} alt="cover" class="grid-img" />
+            {:else}
+              <span class="grid-fallback">♪</span>
+            {/if}
+          {/each}
+        </div>
+      {:else}
+        <span class="grid-fallback">♪</span>
+      {/if}
+    </div>
     <div class="meta">
       <p class="type">Playlist</p>
       <h1 class="title">{playlist.name}</h1>
@@ -57,10 +80,46 @@
       </div>
     </div>
   </div>
-  <TrackList {tracks} />
+  <TrackList {tracks} showCover={true} />
 {/if}
 
 <style>
+  .cover-grid {
+    position: relative;
+    width: 180px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-hover);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .cover-grid .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    width: 100%;
+    height: 100%;
+    gap: 0;
+  }
+  .cover-grid .grid-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 0;
+    display: block;
+  }
+  .cover-grid .grid-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+  }
   .header { display: flex; gap: 24px; align-items: flex-end; margin-bottom: 32px; }
   .cover-placeholder {
     width: 180px; height: 180px;

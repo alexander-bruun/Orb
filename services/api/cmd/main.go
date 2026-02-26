@@ -122,6 +122,7 @@ func run(ctx context.Context) error {
 	// Public cover routes (browser <img> can't set Authorization header)
 	r.Get("/covers/{album_id}", streamSvc.Cover)
 	r.Get("/covers/playlist/{id}", streamSvc.PlaylistCover)
+	r.Get("/covers/playlist/{id}/composite", streamSvc.PlaylistCoverComposite)
 
 	// Protected routes
 	jwtMW := auth.JWTMiddleware(jwtSecret, kv)
