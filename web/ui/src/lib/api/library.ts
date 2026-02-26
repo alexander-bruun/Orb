@@ -15,7 +15,26 @@ export const library = {
 	removeTrack: (id: string) => apiFetch(`/library/tracks/${id}`, { method: 'DELETE' }),
 	search: (q: string) =>
 		apiFetch<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>(`/library/search?q=${encodeURIComponent(q)}`),
-	recentlyPlayed: () => apiFetch<Track[]>('/library/recently-played'),
+	recentlyPlayed: (limit = 100, from?: string, to?: string) => {
+		const p = new URLSearchParams({ limit: String(limit) });
+		if (from) p.set('from', from);
+		if (to) p.set('to', to);
+		return apiFetch<Track[]>(`/library/recently-played?${p}`);
+	},
+	mostPlayed: (limit = 100, from?: string, to?: string) => {
+		const p = new URLSearchParams({ limit: String(limit) });
+		if (from) p.set('from', from);
+		if (to) p.set('to', to);
+		return apiFetch<Track[]>(`/library/most-played?${p}`);
+	},
+	recentlyPlayedAlbums: () => apiFetch<Album[]>('/library/recently-played/albums'),
+	recentlyAddedAlbums: (limit = 20) => apiFetch<Album[]>(`/library/recently-added/albums?limit=${limit}`),
+	recordPlay: (trackId: string, durationPlayedMs = 0) =>
+		apiFetch('/library/history', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ track_id: trackId, duration_played_ms: durationPlayedMs })
+		}),
 	favorites: () => apiFetch<Track[]>('/library/favorites'),
 	favoriteIDs: () => apiFetch<string[]>('/library/favorites/ids'),
 	addFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'POST' }),

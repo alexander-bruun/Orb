@@ -46,6 +46,9 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    width: 100%;
+    max-width: 240px;
+    box-sizing: border-box;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -58,14 +61,19 @@
   .cover-wrap {
     position: relative;
     width: 100%;
-  }
-  .cover {
-    width: 100%;
-    aspect-ratio: 1;
-    object-fit: cover;
+    height: 0;
+    padding-bottom: 100%;
+    overflow: hidden;
     border-radius: 4px;
   }
-  .placeholder { width: 100%; aspect-ratio: 1; background: var(--bg-hover); border-radius: 4px; }
+  .cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .placeholder { position: absolute; inset: 0; background: var(--bg-hover); }
   .badge-single {
     position: absolute;
     top: 6px;

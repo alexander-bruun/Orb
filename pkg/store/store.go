@@ -422,20 +422,114 @@ func (s *Store) UpdatePlaylistTrackOrder(ctx context.Context, p UpdatePlaylistTr
 	return err
 }
 
+// RecordPlay records a track play event for a user.
+func (s *Store) RecordPlay(ctx context.Context, p RecordPlayParams) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO play_history (user_id, track_id, duration_played_ms) VALUES ($1, $2, $3)`,
+		p.UserID, p.TrackID, p.DurationPlayedMs)
+	return err
+}
+
 func (s *Store) ListRecentlyPlayed(ctx context.Context, p ListRecentlyPlayedParams) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT ON (ph.track_id) t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
-FROM play_history ph
-JOIN tracks t ON t.id = ph.track_id
-WHERE ph.user_id = $1
-ORDER BY ph.track_id, ph.played_at DESC
-LIMIT $2`,
-		p.UserID, p.Limit)
+		`SELECT sub.id, sub.album_id, sub.artist_id, sub.title, sub.track_number, sub.disc_number,
+		        sub.duration_ms, sub.file_key, sub.file_size, sub.format, sub.bit_depth,
+		        sub.sample_rate, sub.channels, sub.bitrate_kbps, sub.seek_table, sub.fingerprint, sub.created_at
+		FROM (
+		  SELECT DISTINCT ON (ph.track_id)
+		    t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		    t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
+		    t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		    ph.played_at
+		  FROM play_history ph
+		  JOIN tracks t ON t.id = ph.track_id
+		  WHERE ph.user_id = $1
+		    AND ($3::timestamptz IS NULL OR ph.played_at >= $3)
+		    AND ($4::timestamptz IS NULL OR ph.played_at < $4)
+		  ORDER BY ph.track_id, ph.played_at DESC
+		) sub
+		ORDER BY sub.played_at DESC
+		LIMIT $2`,
+		p.UserID, p.Limit, p.From, p.To)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	return scanTracks(rows)
+}
+
+// ListMostPlayed returns the most-played tracks for a user in the given date range.
+func (s *Store) ListMostPlayed(ctx context.Context, p ListMostPlayedParams) ([]Track, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
+		        t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		FROM tracks t
+		JOIN (
+		  SELECT track_id, COUNT(*) AS play_count
+		  FROM play_history
+		  WHERE user_id = $1
+		    AND ($3::timestamptz IS NULL OR played_at >= $3)
+		    AND ($4::timestamptz IS NULL OR played_at < $4)
+		  GROUP BY track_id
+		) ph ON ph.track_id = t.id
+		ORDER BY ph.play_count DESC
+		LIMIT $2`,
+		p.UserID, p.Limit, p.From, p.To)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}
+
+// ListRecentlyPlayedAlbums returns distinct albums played by the user, ordered by most recent play.
+func (s *Store) ListRecentlyPlayedAlbums(ctx context.Context, p ListRecentlyPlayedParams) ([]Album, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT al.id, al.artist_id, ar.name AS artist_name, al.title, al.release_year,
+		        al.label, al.cover_art_key, al.mbid, al.created_at,
+		        COUNT(DISTINCT tr.id) AS track_count
+		FROM (
+		  SELECT DISTINCT ON (t.album_id) t.album_id, ph.played_at
+		  FROM play_history ph
+		  JOIN tracks t ON t.id = ph.track_id
+		  WHERE ph.user_id = $1 AND t.album_id IS NOT NULL
+		  ORDER BY t.album_id, ph.played_at DESC
+		) ra
+		JOIN albums al ON al.id = ra.album_id
+		LEFT JOIN artists ar ON ar.id = al.artist_id
+		LEFT JOIN tracks tr ON tr.album_id = al.id
+		GROUP BY al.id, al.artist_id, ar.name, al.title, al.release_year,
+		         al.label, al.cover_art_key, al.mbid, al.created_at, ra.played_at
+		ORDER BY ra.played_at DESC
+		LIMIT $2`,
+		p.UserID, p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlbums(rows)
+}
+
+// ListRecentAlbums returns the most recently added albums.
+func (s *Store) ListRecentAlbums(ctx context.Context, p ListRecentAlbumsParams) ([]Album, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT al.id, al.artist_id, ar.name AS artist_name, al.title, al.release_year,
+		        al.label, al.cover_art_key, al.mbid, al.created_at,
+		        COUNT(t.id) AS track_count
+		FROM albums al
+		LEFT JOIN artists ar ON ar.id = al.artist_id
+		LEFT JOIN tracks t ON t.album_id = al.id
+		GROUP BY al.id, al.artist_id, ar.name, al.title, al.release_year,
+		         al.label, al.cover_art_key, al.mbid, al.created_at
+		ORDER BY al.created_at DESC
+		LIMIT $1`,
+		p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlbums(rows)
 }
 
 // HasAnyUser returns true if at least one user exists in the database.

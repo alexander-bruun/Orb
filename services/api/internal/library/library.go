@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/alexander-bruun/orb/services/api/internal/auth"
@@ -34,6 +35,10 @@ func (s *Service) Routes(r chi.Router) {
 	r.Delete("/tracks/{id}", s.removeTrack)
 	r.Get("/search", s.search)
 	r.Get("/recently-played", s.recentlyPlayed)
+	r.Get("/recently-played/albums", s.recentlyPlayedAlbums)
+	r.Get("/most-played", s.mostPlayed)
+	r.Get("/recently-added/albums", s.recentlyAddedAlbums)
+	r.Post("/history", s.recordPlay)
 	r.Get("/favorites", s.listFavorites)
 	r.Get("/favorites/ids", s.listFavoriteIDs)
 	r.Post("/favorites/{track_id}", s.addFavorite)
@@ -190,7 +195,45 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
 	rows, err := s.db.ListRecentlyPlayed(r.Context(), store.ListRecentlyPlayedParams{
+		UserID: userID,
+		Limit:  limit,
+		From:   parseDateParam(r.URL.Query().Get("from")),
+		To:     parseDateParam(r.URL.Query().Get("to")),
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Service) mostPlayed(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	rows, err := s.db.ListMostPlayed(r.Context(), store.ListMostPlayedParams{
+		UserID: userID,
+		Limit:  limit,
+		From:   parseDateParam(r.URL.Query().Get("from")),
+		To:     parseDateParam(r.URL.Query().Get("to")),
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Service) recentlyPlayedAlbums(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	albums, err := s.db.ListRecentlyPlayedAlbums(r.Context(), store.ListRecentlyPlayedParams{
 		UserID: userID,
 		Limit:  20,
 	})
@@ -198,7 +241,38 @@ func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, rows)
+	writeJSON(w, http.StatusOK, albums)
+}
+
+func (s *Service) recentlyAddedAlbums(w http.ResponseWriter, r *http.Request) {
+	limit := 20
+	albums, err := s.db.ListRecentAlbums(r.Context(), store.ListRecentAlbumsParams{Limit: limit})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, albums)
+}
+
+func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		TrackID          string `json:"track_id"`
+		DurationPlayedMs int    `json:"duration_played_ms"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TrackID == "" {
+		writeErr(w, http.StatusBadRequest, "track_id required")
+		return
+	}
+	if err := s.db.RecordPlay(r.Context(), store.RecordPlayParams{
+		UserID:           userID,
+		TrackID:          body.TrackID,
+		DurationPlayedMs: body.DurationPlayedMs,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Service) listFavorites(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +325,19 @@ func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- helpers ---
+
+func parseDateParam(s string) *time.Time {
+	if s == "" {
+		return nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return &t
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return &t
+	}
+	return nil
+}
 
 func pagination(r *http.Request) (limit, offset int) {
 	limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))

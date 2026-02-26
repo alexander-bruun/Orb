@@ -80,6 +80,8 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	try {
 		await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
 		playbackState.set('playing');
+		// Record the play fire-and-forget; ignore errors so playback is never blocked.
+		libraryApi.recordPlay(track.id, 0).catch(() => {});
 	} catch (err) {
 		console.error('playTrack error', err);
 		playbackState.set('idle');

@@ -218,12 +218,34 @@ type UpdatePlaylistTrackOrderParams struct {
 type ListRecentlyPlayedParams struct {
 	UserID string
 	Limit  int
+	From   *time.Time
+	To     *time.Time
+}
+
+// ListMostPlayedParams for most-played tracks.
+type ListMostPlayedParams struct {
+	UserID string
+	Limit  int
+	From   *time.Time
+	To     *time.Time
 }
 
 // FavoriteParams for adding or removing a favorite.
 type FavoriteParams struct {
 	UserID  string
 	TrackID string
+}
+
+// RecordPlayParams for recording a track play.
+type RecordPlayParams struct {
+	UserID          string
+	TrackID         string
+	DurationPlayedMs int
+}
+
+// ListRecentAlbumsParams for listing recently added albums.
+type ListRecentAlbumsParams struct {
+	Limit int
 }
 
 // IngestStateRow is a row from the ingest_state table.
