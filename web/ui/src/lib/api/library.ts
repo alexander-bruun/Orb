@@ -15,5 +15,9 @@ export const library = {
 	removeTrack: (id: string) => apiFetch(`/library/tracks/${id}`, { method: 'DELETE' }),
 	search: (q: string) =>
 		apiFetch<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>(`/library/search?q=${encodeURIComponent(q)}`),
-	recentlyPlayed: () => apiFetch<Track[]>('/library/recently-played')
+	recentlyPlayed: () => apiFetch<Track[]>('/library/recently-played'),
+	favorites: () => apiFetch<Track[]>('/library/favorites'),
+	favoriteIDs: () => apiFetch<string[]>('/library/favorites/ids'),
+	addFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'POST' }),
+	removeFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'DELETE' })
 };

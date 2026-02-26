@@ -2,6 +2,7 @@
   import { contextMenu, closeContextMenu } from '$lib/stores/contextMenu';
   import { playTrack, playNext, addToQueue } from '$lib/stores/player';
   import { playlists as playlistsApi } from '$lib/api/playlists';
+  import { favorites } from '$lib/stores/favorites';
   import type { Playlist } from '$lib/types';
 
   let showPlaylists = false;
@@ -13,6 +14,14 @@
     showPlaylists = false;
     playlists = [];
     addedId = null;
+  }
+
+  $: isFav = $contextMenu.track ? $favorites.has($contextMenu.track.id) : false;
+
+  async function handleFavorite() {
+    const t = $contextMenu.track;
+    if (!t) return;
+    await favorites.toggle(t.id);
   }
 
   async function loadPlaylists() {
@@ -126,11 +135,18 @@
 
       <div class="sep"></div>
 
-      <button class="item" role="menuitem">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
-        </svg>
-        Favorite
+      <button class="item" class:fav={isFav} on:click={handleFavorite} role="menuitem">
+        {#if isFav}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+          </svg>
+          Unfavorite
+        {:else}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+          </svg>
+          Favorite
+        {/if}
       </button>
       <button class="item" on:click={handleShare} role="menuitem">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -218,6 +234,7 @@
   .item:hover { background: var(--surface-2); }
   .item.dim { color: var(--text-2); }
   .item.done { color: var(--accent); }
+  .item.fav { color: var(--accent); }
 
   .ml-auto { margin-left: auto; color: var(--text-2); }
   .pl-name { overflow: hidden; text-overflow: ellipsis; max-width: 120px; }

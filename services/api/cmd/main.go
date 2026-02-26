@@ -58,6 +58,11 @@ func run(ctx context.Context) error {
 	defer db.Close()
 	slog.Info("postgres connected")
 
+	if err := db.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
+	slog.Info("schema up to date")
+
 	// --- KeyVal (Valkey/Redis) ---
 	var kv *redis.Client
 	if kvMode == "sentinel" {

@@ -8,6 +8,9 @@
   export let track: Track;
   export let trackList: Track[] = [];
   export let index: number = 0;
+  export let showCover: boolean = false;
+
+  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
   $: isPlaying = $currentTrack?.id === track.id && $playbackState === 'playing';
 
@@ -56,6 +59,15 @@
       {index + 1}
     {/if}
   </span>
+  {#if showCover}
+    <div class="cover-thumb">
+      {#if track.album_id}
+        <img src="{BASE}/covers/{track.album_id}" alt="" loading="lazy" />
+      {:else}
+        <div class="cover-placeholder"></div>
+      {/if}
+    </div>
+  {/if}
   <div class="track-info">
     <span class="title">{track.title}</span>
     {#if artistName || featuredNames.length}
@@ -94,6 +106,9 @@
     25% { transform: translateY(-5px); }
     50% { transform: translateY(0); }
   }
+  .cover-thumb { width: 38px; height: 38px; flex-shrink: 0; }
+  .cover-thumb img { width: 38px; height: 38px; border-radius: 4px; object-fit: cover; display: block; }
+  .cover-placeholder { width: 38px; height: 38px; border-radius: 4px; background: var(--bg-hover); }
   .track-info { flex: 1; overflow: hidden; }
   .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 0.9rem; }
   .meta { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

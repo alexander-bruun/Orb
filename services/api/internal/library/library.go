@@ -34,6 +34,10 @@ func (s *Service) Routes(r chi.Router) {
 	r.Delete("/tracks/{id}", s.removeTrack)
 	r.Get("/search", s.search)
 	r.Get("/recently-played", s.recentlyPlayed)
+	r.Get("/favorites", s.listFavorites)
+	r.Get("/favorites/ids", s.listFavoriteIDs)
+	r.Post("/favorites/{track_id}", s.addFavorite)
+	r.Delete("/favorites/{track_id}", s.removeFavorite)
 }
 
 func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +199,55 @@ func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Service) listFavorites(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	tracks, err := s.db.ListFavorites(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tracks)
+}
+
+func (s *Service) listFavoriteIDs(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	ids, err := s.db.ListFavoriteIDs(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, http.StatusOK, ids)
+}
+
+func (s *Service) addFavorite(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	trackID := chi.URLParam(r, "track_id")
+	if err := s.db.AddFavorite(r.Context(), store.FavoriteParams{
+		UserID:  userID,
+		TrackID: trackID,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	trackID := chi.URLParam(r, "track_id")
+	if err := s.db.RemoveFavorite(r.Context(), store.FavoriteParams{
+		UserID:  userID,
+		TrackID: trackID,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- helpers ---

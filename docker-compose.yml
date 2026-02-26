@@ -24,13 +24,6 @@ services:
     ports: ["5432:5432"]
     depends_on: { postgres-primary: { condition: service_healthy } }
 
-  migrate:
-    image: arigaio/atlas:latest
-    volumes: [./db/migrations:/migrations]
-    command: migrate apply --url "postgres://orb:orb@postgres-primary:5432/orb?sslmode=disable" --dir "file:///migrations"
-    depends_on: { postgres-primary: { condition: service_healthy } }
-    restart: on-failure
-
   valkey-primary:
     image: valkey/valkey:7-alpine
     command: valkey-server --appendonly yes
@@ -70,7 +63,7 @@ services:
       JWT_SECRET: "${JWT_SECRET}"
       HTTP_PORT: "8080"
     ports: ["8080:8080"]
-    depends_on: { migrate: { condition: service_completed_successfully } }
+    depends_on: { postgres-primary: { condition: service_healthy } }
     restart: unless-stopped
 
   ui:

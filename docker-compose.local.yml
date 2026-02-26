@@ -1,12 +1,9 @@
-# Local single-server deployment — no Atlas, no pgBouncer, no Sentinel.
-# Schema is applied automatically by Postgres on first start via initdb.
+# Local single-server deployment — no pgBouncer, no Sentinel.
+# On a fresh volume Postgres runs schema.sql via initdb; on an existing volume
+# the API applies any schema changes automatically on startup via store.Migrate().
 # Music is served directly from the local filesystem via a shared volume.
 #
 # Usage:
-#   docker compose -f docker-compose.local.yml up -d
-#
-# To reset the database (e.g. after a schema change):
-#   docker compose -f docker-compose.local.yml down -v
 #   docker compose -f docker-compose.local.yml up -d
 
 services:

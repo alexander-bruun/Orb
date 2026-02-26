@@ -20,6 +20,7 @@ export interface Album {
 	cover_art_key?: string;
     artist_name?: string;
     artist?: Artist;
+    track_count?: number;
 }
 
 export interface Track {

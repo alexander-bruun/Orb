@@ -41,6 +41,7 @@ type Album struct {
 	Label       *string   `json:"label,omitempty"`
 	CoverArtKey *string   `json:"cover_art_key,omitempty"`
 	Mbid        *string   `json:"mbid,omitempty"`
+	TrackCount  int       `json:"track_count"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -217,6 +218,12 @@ type UpdatePlaylistTrackOrderParams struct {
 type ListRecentlyPlayedParams struct {
 	UserID string
 	Limit  int
+}
+
+// FavoriteParams for adding or removing a favorite.
+type FavoriteParams struct {
+	UserID  string
+	TrackID string
 }
 
 // IngestStateRow is a row from the ingest_state table.

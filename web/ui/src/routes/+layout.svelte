@@ -7,6 +7,7 @@
   import ContextMenu from '$lib/components/ui/ContextMenu.svelte';
   import QueueModal from '$lib/components/ui/QueueModal.svelte';
   import { isAuthenticated } from '$lib/stores/auth';
+  import { favorites } from '$lib/stores/favorites';
   import { setupRequired } from '$lib/stores/setup';
   import { apiFetch } from '$lib/api/client';
   import { page } from '$app/stores';
@@ -51,6 +52,8 @@
       } else if (path !== '/login' && !$isAuthenticated) {
         // Token expired or logged out — send to login.
         goto('/login');
+      } else if ($isAuthenticated) {
+        favorites.load();
       }
     }
   });

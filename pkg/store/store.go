@@ -181,9 +181,11 @@ func (s *Store) ListAlbums(ctx context.Context, p ListAlbumsParams) ([]Album, er
 		orderBy = `regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
 	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
+LEFT JOIN tracks t ON t.album_id = al.id
+GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
 ORDER BY `+orderBy+` LIMIT $1 OFFSET $2`,
 		p.Limit, p.Offset)
 	if err != nil {
@@ -235,11 +237,13 @@ func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, err
 
 func (s *Store) ListAlbumsByArtist(ctx context.Context, artistID string) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT DISTINCT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t2.id) as track_count
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
+LEFT JOIN tracks t2 ON t2.album_id = al.id
 WHERE al.artist_id = $1
    OR EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.artist_id = $1)
+GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
 ORDER BY al.release_year ASC, al.title ASC`,
 		artistID)
 	if err != nil {
@@ -368,10 +372,12 @@ LIMIT $2`,
 
 func (s *Store) SearchAlbums(ctx context.Context, p SearchAlbumsParams) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
+LEFT JOIN tracks t ON t.album_id = al.id
 WHERE al.search_vector @@ websearch_to_tsquery('english', $1)
+GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
 ORDER BY ts_rank(al.search_vector, websearch_to_tsquery('english', $1)) DESC LIMIT $2`,
 		p.ToTsquery, p.Limit)
 	if err != nil {
@@ -641,6 +647,58 @@ func (s *Store) GetTrackByFingerprint(ctx context.Context, fingerprint string) (
 	return t, err
 }
 
+// AddFavorite marks a track as a favorite for a user.
+func (s *Store) AddFavorite(ctx context.Context, p FavoriteParams) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_favorites (user_id, track_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		p.UserID, p.TrackID)
+	return err
+}
+
+// RemoveFavorite removes a track from a user's favorites.
+func (s *Store) RemoveFavorite(ctx context.Context, p FavoriteParams) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM user_favorites WHERE user_id = $1 AND track_id = $2`,
+		p.UserID, p.TrackID)
+	return err
+}
+
+// ListFavorites returns all favorited tracks for a user, newest first.
+func (s *Store) ListFavorites(ctx context.Context, userID string) ([]Track, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+FROM tracks t
+JOIN user_favorites uf ON uf.track_id = t.id
+WHERE uf.user_id = $1
+ORDER BY uf.added_at DESC`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}
+
+// ListFavoriteIDs returns all favorited track IDs for a user.
+func (s *Store) ListFavoriteIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT track_id FROM user_favorites WHERE user_id = $1`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // CountAlbums returns the total number of albums.
 func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 	var count int
@@ -651,10 +709,10 @@ func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 // GetAlbumByID returns an album by ID.
 func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	var alb Album
-	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, created_at FROM albums WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count FROM albums WHERE id = $1`, id)
 	var artistID, label, coverArtKey, mbid sql.NullString
 	var releaseYear sql.NullInt64
-	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt)
+	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt, &alb.TrackCount)
 	if artistID.Valid {
 		alb.ArtistID = &artistID.String
 	}
@@ -732,7 +790,7 @@ func scanAlbums(rows pgx.Rows) ([]Album, error) {
 		var alb Album
 		var artistID, artistName, label, coverArtKey, mbid sql.NullString
 		var releaseYear sql.NullInt64
-		if err := rows.Scan(&alb.ID, &artistID, &artistName, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt); err != nil {
+		if err := rows.Scan(&alb.ID, &artistID, &artistName, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt, &alb.TrackCount); err != nil {
 			return nil, err
 		}
 		if artistID.Valid {
