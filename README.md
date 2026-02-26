@@ -3,8 +3,6 @@
 
 Orb is a self-hosted, lossless music streaming platform - a personal Spotify backed by your own audio library. Stream FLAC, WAV, and other lossless formats at full fidelity to a modern web client. Multi-user, playlists, and queue support.
 
-> Orb is in VERY early development, and is provided as-is for now.
-
 ![Orb Example UI](example.png)
 
 ## ✨ Features

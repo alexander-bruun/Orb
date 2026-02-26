@@ -22,7 +22,7 @@
         {/each}
       </div>
     {:else}
-      <img src="{BASE}/covers/playlist/{playlist.id}" alt="cover" style="width:100%;height:100%;object-fit:cover;border-radius:4px;" on:error={(e) => { e.target.style.display = 'none'; }} />
+      <img src="{BASE}/covers/playlist/{playlist.id}" alt="cover" style="width:100%;height:100%;object-fit:cover;border-radius:4px;" on:error={(e) => { if (e.target) (e.target as HTMLImageElement).style.display = 'none'; }} />
       <span class="placeholder" style="position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;">♪</span>
     {/if}
   </div>

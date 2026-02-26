@@ -21,5 +21,3 @@ Implement a build for Tauri binaries and update the setup process to include a h
 Investigate how we can bundle the backend and ingest in the same pod where N+1 pods are in secondary mode, and the primary is the only one running ingest duty. So we need to generate a quorom to determine the leader who writes to the database with newly ingested tracks / music. Or maybe we can use N+1 containers to distribute ingest load onto each replica like round robin. Where the primary pod distributes ingest load while also taking ingest load itself.
 
 Improve ingest performance, it is currently very slow to go through the data directory.
-
-Implement listen along with invite link for many friends that have a simplified audio player without access to the rest of the UI but the invitee and inviter listen to the same music synced.

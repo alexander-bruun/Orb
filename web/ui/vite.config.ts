@@ -3,5 +3,15 @@ import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-	plugins: [tailwindcss(), sveltekit()]
+	plugins: [tailwindcss(), sveltekit()],
+	server: {
+		proxy: {
+			'/api': {
+				target: 'http://localhost:8080',
+				rewrite: (path) => path.replace(/^\/api/, ''),
+				changeOrigin: true,
+				ws: true,
+			}
+		}
+	}
 });

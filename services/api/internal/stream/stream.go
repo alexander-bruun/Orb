@@ -106,10 +106,63 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.CopyBuffer(w, rc, buf)
 }
 
+// ServeByTrackID serves an audio track by its ID without relying on a chi URL
+// parameter — intended for use by other packages (e.g. listenparty).
+func (s *Service) ServeByTrackID(w http.ResponseWriter, r *http.Request, trackID string) {
+	meta, err := s.resolveMeta(r, trackID)
+	if err != nil {
+		http.Error(w, "track not found", http.StatusNotFound)
+		return
+	}
+
+	fileSize := meta.FileSize
+	rangeHeader := r.Header.Get("Range")
+
+	var offset, length int64
+	if rangeHeader != "" {
+		var end int64
+		offset, end, err = parseRange(rangeHeader, fileSize)
+		if err != nil {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		length = end - offset + 1
+	} else {
+		offset = 0
+		length = fileSize
+	}
+
+	rc, err := s.obj.GetRange(r.Context(), meta.FileKey, offset, length)
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	defer rc.Close()
+
+	contentType := mimeForFormat(meta.Format)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("X-Orb-Bit-Depth", strconv.Itoa(int(meta.BitDepth)))
+	w.Header().Set("X-Orb-Sample-Rate", strconv.Itoa(int(meta.SampleRate)))
+
+	if rangeHeader != "" {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, fileSize))
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
+	}
+
+	buf := make([]byte, 64*1024)
+	_, _ = io.CopyBuffer(w, rc, buf)
+}
+
 // Cover serves album cover art.
 func (s *Service) Cover(w http.ResponseWriter, r *http.Request) {
 	albumID := chi.URLParam(r, "album_id")
-	s.serveCover(w, r, fmt.Sprintf("covers/%s", albumID))
+	s.serveCover(w, r, fmt.Sprintf("covers/%s.jpg", albumID))
 }
 
 // PlaylistCover serves playlist cover art.
@@ -148,6 +201,12 @@ func (s *Service) PlaylistCoverComposite(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	_ = json.NewEncoder(w).Encode(coverURLs)
+}
+
+// ServeCover serves album cover art by album ID — intended for use by other
+// packages (e.g. listenparty) that need to serve covers without chi URL params.
+func (s *Service) ServeCover(w http.ResponseWriter, r *http.Request, albumID string) {
+	s.serveCover(w, r, fmt.Sprintf("covers/%s.jpg", albumID))
 }
 
 func (s *Service) serveCover(w http.ResponseWriter, r *http.Request, key string) {

@@ -24,6 +24,13 @@
   import { library } from '$lib/api/library';
   import { writable } from 'svelte/store';
   import { expanded } from './coverExpandStore';
+  import {
+    lpRole,
+    lpPanelOpen,
+    lpParticipants,
+    lpConnected,
+    createAndConnect,
+  } from '$lib/stores/listenParty';
 
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
   const BASE = import.meta.env.VITE_API_BASE ?? '/api';
@@ -159,6 +166,36 @@
     </div>
 
     <div class="right-controls">
+      <!-- Listen Along button -->
+      {#if $lpRole === 'host'}
+        <button
+          class="ctrl-btn icon-btn party-btn"
+          class:active={$lpPanelOpen}
+          on:click={() => lpPanelOpen.update(v => !v)}
+          title="Listen Along"
+          aria-label="Listen Along panel"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+            <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+          </svg>
+          {#if $lpParticipants.length > 0}
+            <span class="party-count">{$lpParticipants.length}</span>
+          {/if}
+        </button>
+      {:else if $lpRole === null}
+        <button
+          class="ctrl-btn icon-btn party-btn"
+          on:click={createAndConnect}
+          title="Start Listen Along"
+          aria-label="Start Listen Along"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+            <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+          </svg>
+        </button>
+      {/if}
       <input
         type="range"
         min="0"
@@ -473,6 +510,19 @@
   .seek-bar-wrap:hover .seek-input::-moz-range-thumb { opacity: 1; }
 
   .right-controls { flex-shrink: 0; display: flex; align-items: center; gap: 12px; }
+
+  /* Listen Along button */
+  .party-btn { position: relative; padding: 6px; }
+  .party-count {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    pointer-events: none;
+  }
   .volume-bar { width: 80px; height: 4px; accent-color: var(--accent); cursor: pointer; }
 
   /* Queue button with item count badge */

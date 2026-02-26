@@ -16,6 +16,7 @@ import (
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/alexander-bruun/orb/services/api/internal/auth"
 	"github.com/alexander-bruun/orb/services/api/internal/library"
+	"github.com/alexander-bruun/orb/services/api/internal/listenparty"
 	"github.com/alexander-bruun/orb/services/api/internal/playlist"
 	"github.com/alexander-bruun/orb/services/api/internal/queue"
 	"github.com/alexander-bruun/orb/services/api/internal/stream"
@@ -140,7 +141,12 @@ func run(ctx context.Context) error {
 
 		qSvc := queue.New(db, kv)
 		r.Route("/queue", qSvc.Routes)
+
 	})
+
+	// Listen party routes (auth validated per-handler internally)
+	lpSvc := listenparty.New(db, kv, streamSvc, jwtSecret)
+	r.Route("/listen", lpSvc.Routes)
 
 	// --- HTTP server ---
 	srv := &http.Server{
