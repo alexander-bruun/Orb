@@ -342,8 +342,13 @@
     color: var(--text-muted);
     cursor: pointer;
     font-size: 1.2rem;
-    padding: 6px;
+    line-height: 1;
+    padding: 0 6px;
+    height: 28px;
     transition: color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .ctrl-btn:hover { color: var(--text); }
   .play-btn { font-size: 1.6rem; color: var(--text); width: 36px; text-align: center; }
