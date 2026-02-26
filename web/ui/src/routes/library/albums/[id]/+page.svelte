@@ -49,7 +49,11 @@
   <p class="muted">Loading…</p>
 {:else if album}
   <div class="header">
-    <img src="{BASE}/covers/{album.id}" alt={album.title} class="cover" />
+    {#if album.cover_art_key}
+      <img src="{BASE}/covers/{album.id}" alt={album.title} class="cover" />
+    {:else}
+      <div class="cover album-fallback">♪</div>
+    {/if}
     <div class="meta">
       <p class="type">Album</p>
       <h1 class="title">{album.title}</h1>
@@ -81,7 +85,22 @@
 
 <style>
   .header { display: flex; gap: 24px; align-items: flex-end; margin-bottom: 32px; }
-  .cover { width: 180px; height: 180px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+  .cover {
+    width: 180px;
+    height: 180px;
+    object-fit: cover;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+  .album-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 4.5rem;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    user-select: none;
+  }
   .meta { display: flex; flex-direction: column; gap: 4px; }
   .type { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); }
   .title { font-size: 2rem; font-weight: 700; margin: 0; }

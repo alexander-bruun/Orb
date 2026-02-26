@@ -26,7 +26,7 @@
     {#if album.cover_art_key}
       <img src="{BASE}/covers/{album.id}" alt={album.title} class="cover" />
     {:else}
-      <div class="cover placeholder" />
+      <div class="cover placeholder album-fallback">♪</div>
     {/if}
     {#if album.track_count === 1}
       <span class="badge-single">Single</span>
@@ -73,7 +73,19 @@
     height: 100%;
     object-fit: cover;
   }
-  .placeholder { position: absolute; inset: 0; background: var(--bg-hover); }
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-hover);
+  }
+  .album-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    color: var(--text-muted);
+    user-select: none;
+  }
   .badge-single {
     position: absolute;
     top: 6px;
