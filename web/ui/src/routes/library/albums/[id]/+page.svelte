@@ -4,6 +4,7 @@
   import { library as libApi } from '$lib/api/library';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import type { Album, Track } from '$lib/types';
+  import { playTrack, shuffle } from '$lib/stores/player';
 
   const BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -31,6 +32,17 @@
         loading = false;
       }
   });
+
+  function playAll() {
+    if (tracks.length > 0) playTrack(tracks[0], tracks);
+  }
+
+  function shuffleAll() {
+    if (tracks.length === 0) return;
+    shuffle.set(true);
+    const idx = Math.floor(Math.random() * tracks.length);
+    playTrack(tracks[idx], tracks);
+  }
 </script>
 
 {#if loading}
@@ -51,6 +63,17 @@
       {#if album.release_year}
         <p class="year">{album.release_year}</p>
       {/if}
+      <div class="actions">
+        <button class="btn-play" on:click={playAll} disabled={tracks.length === 0}>▶ Play</button>
+        <button class="btn-shuffle" on:click={shuffleAll} disabled={tracks.length === 0} title="Shuffle">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+            <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+            <line x1="4" y1="4" x2="9" y2="9"/>
+          </svg>
+          Shuffle
+        </button>
+      </div>
     </div>
   </div>
   <TrackList {tracks} />
@@ -65,5 +88,33 @@
   .artist { color: var(--text-muted); font-size: 0.9rem; font-weight: 600; text-decoration: none; }
   a.artist:hover { text-decoration: underline; color: var(--text); }
   .year { color: var(--text-muted); font-size: 0.875rem; }
+  .actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+  .btn-play {
+    background: var(--accent);
+    border: none;
+    border-radius: 20px;
+    padding: 8px 20px;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-play:hover { background: var(--accent-hover); }
+  .btn-play:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-shuffle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 7px 16px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-shuffle:hover { color: var(--text); border-color: var(--text); }
+  .btn-shuffle:disabled { opacity: 0.6; cursor: not-allowed; }
   .muted { color: var(--text-muted); }
 </style>

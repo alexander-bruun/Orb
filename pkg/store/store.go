@@ -168,8 +168,23 @@ LIMIT $2 OFFSET $3`,
 }
 
 func (s *Store) ListAlbums(ctx context.Context, p ListAlbumsParams) ([]Album, error) {
+	// Build ORDER BY from a whitelist — no user input reaches the query string.
+	var orderBy string
+	switch p.SortBy {
+	case "artist":
+		orderBy = `regexp_replace(lower(coalesce(ar.sort_name, ar.name, '')), '^(the |a |an )\s*', '') ASC,` +
+			` regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
+	case "year":
+		orderBy = `al.release_year DESC NULLS LAST,` +
+			` regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
+	default: // "title"
+		orderBy = `regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
+	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, created_at FROM albums ORDER BY title ASC LIMIT $1 OFFSET $2`,
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+FROM albums al
+LEFT JOIN artists ar ON ar.id = al.artist_id
+ORDER BY `+orderBy+` LIMIT $1 OFFSET $2`,
 		p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
@@ -220,7 +235,12 @@ func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, err
 
 func (s *Store) ListAlbumsByArtist(ctx context.Context, artistID string) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, created_at FROM albums WHERE artist_id = $1 ORDER BY release_year ASC, title ASC`,
+		`SELECT DISTINCT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+FROM albums al
+LEFT JOIN artists ar ON ar.id = al.artist_id
+WHERE al.artist_id = $1
+   OR EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.artist_id = $1)
+ORDER BY al.release_year ASC, al.title ASC`,
 		artistID)
 	if err != nil {
 		return nil, err
@@ -331,13 +351,14 @@ func (s *Store) GetMaxPlaylistPosition(ctx context.Context, playlistID string) (
 
 func (s *Store) SearchTracks(ctx context.Context, p SearchTracksParams) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT DISTINCT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
 FROM tracks t
-JOIN user_library ul ON ul.track_id = t.id
-WHERE ul.user_id = $1 AND t.search_vector @@ to_tsquery('english', $2)
-ORDER BY ts_rank(t.search_vector, to_tsquery('english', $2)) DESC
-LIMIT $3`,
-		p.UserID, p.ToTsquery, p.Limit)
+LEFT JOIN artists ar ON ar.id = t.artist_id
+WHERE t.search_vector @@ websearch_to_tsquery('english', $1)
+   OR ar.search_vector @@ websearch_to_tsquery('english', $1)
+ORDER BY ts_rank(t.search_vector, websearch_to_tsquery('english', $1)) DESC
+LIMIT $2`,
+		p.ToTsquery, p.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +368,11 @@ LIMIT $3`,
 
 func (s *Store) SearchAlbums(ctx context.Context, p SearchAlbumsParams) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, created_at FROM albums WHERE search_vector @@ to_tsquery('english', $1) ORDER BY ts_rank(search_vector, to_tsquery('english', $1)) DESC LIMIT $2`,
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+FROM albums al
+LEFT JOIN artists ar ON ar.id = al.artist_id
+WHERE al.search_vector @@ websearch_to_tsquery('english', $1)
+ORDER BY ts_rank(al.search_vector, websearch_to_tsquery('english', $1)) DESC LIMIT $2`,
 		p.ToTsquery, p.Limit)
 	if err != nil {
 		return nil, err
@@ -358,7 +383,10 @@ func (s *Store) SearchAlbums(ctx context.Context, p SearchAlbumsParams) ([]Album
 
 func (s *Store) SearchArtists(ctx context.Context, p SearchArtistsParams) ([]Artist, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, sort_name, mbid, created_at FROM artists WHERE search_vector @@ to_tsquery('english', $1) ORDER BY ts_rank(search_vector, to_tsquery('english', $1)) DESC LIMIT $2`,
+		`SELECT id, name, sort_name, mbid, created_at FROM artists
+WHERE search_vector @@ websearch_to_tsquery('english', $1)
+  AND EXISTS (SELECT 1 FROM albums WHERE artist_id = artists.id)
+ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', $1)) DESC LIMIT $2`,
 		p.ToTsquery, p.Limit)
 	if err != nil {
 		return nil, err
@@ -402,6 +430,13 @@ LIMIT $2`,
 	}
 	defer rows.Close()
 	return scanTracks(rows)
+}
+
+// HasAnyUser returns true if at least one user exists in the database.
+func (s *Store) HasAnyUser(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users LIMIT 1)`).Scan(&exists)
+	return exists, err
 }
 
 // CreateUser inserts a new user.
@@ -606,6 +641,13 @@ func (s *Store) GetTrackByFingerprint(ctx context.Context, fingerprint string) (
 	return t, err
 }
 
+// CountAlbums returns the total number of albums.
+func (s *Store) CountAlbums(ctx context.Context) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM albums`).Scan(&count)
+	return count, err
+}
+
 // GetAlbumByID returns an album by ID.
 func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	var alb Album
@@ -688,13 +730,16 @@ func scanAlbums(rows pgx.Rows) ([]Album, error) {
 	out := make([]Album, 0)
 	for rows.Next() {
 		var alb Album
-		var artistID, label, coverArtKey, mbid sql.NullString
+		var artistID, artistName, label, coverArtKey, mbid sql.NullString
 		var releaseYear sql.NullInt64
-		if err := rows.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt); err != nil {
+		if err := rows.Scan(&alb.ID, &artistID, &artistName, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt); err != nil {
 			return nil, err
 		}
 		if artistID.Valid {
 			alb.ArtistID = &artistID.String
+		}
+		if artistName.Valid {
+			alb.ArtistName = &artistName.String
 		}
 		if releaseYear.Valid {
 			y := int(releaseYear.Int64)

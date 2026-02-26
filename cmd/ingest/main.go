@@ -422,10 +422,16 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		slog.Debug("no cover art", "album", albumTitle, "path", path)
 	}
 
+	var releaseYearPtr *int
+	if y := m.Year(); y > 0 {
+		releaseYearPtr = &y
+	}
+
 	if _, err = g.db.UpsertAlbum(ctx, store.UpsertAlbumParams{
 		ID:          albumID,
 		ArtistID:    &albumArtistID,
 		Title:       albumTitle,
+		ReleaseYear: releaseYearPtr,
 		CoverArtKey: coverArtKeyPtr,
 	}); err != nil {
 		return "", fmt.Errorf("upsert album: %w", err)

@@ -24,7 +24,7 @@
 
   .section-header {
     position: sticky;
-    top: 0;
+    top: calc(-1 * var(--page-padding));
     z-index: 10;
     background: var(--bg);
     font-size: 0.8125rem;

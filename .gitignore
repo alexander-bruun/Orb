@@ -18,6 +18,7 @@ Thumbs.db
 *.test
 *.out
 coverage.out
+ingest
 
 # Temporary files and editor swap files
 tmp/

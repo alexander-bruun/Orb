@@ -53,15 +53,28 @@ func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) listAlbums(w http.ResponseWriter, r *http.Request) {
 	limit, offset := pagination(r)
+	sortBy := r.URL.Query().Get("sort_by")
+	switch sortBy {
+	case "artist", "year":
+		// valid
+	default:
+		sortBy = "title"
+	}
 	albums, err := s.db.ListAlbums(r.Context(), store.ListAlbumsParams{
 		Limit:  int32(limit),
 		Offset: int32(offset),
+		SortBy: sortBy,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, albums)
+	total, err := s.db.CountAlbums(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": albums, "total": total})
 }
 
 func (s *Service) listArtists(w http.ResponseWriter, r *http.Request) {
@@ -147,26 +160,21 @@ func (s *Service) removeTrack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) search(w http.ResponseWriter, r *http.Request) {
-	userID := auth.UserIDFromCtx(r.Context())
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		writeErr(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	// Convert to tsquery format.
-	tsq := strings.Join(strings.Fields(q), " & ")
-
 	tracks, _ := s.db.SearchTracks(r.Context(), store.SearchTracksParams{
-		UserID:    userID,
-		ToTsquery: tsq,
+		ToTsquery: q,
 		Limit:     20,
 	})
 	albums, _ := s.db.SearchAlbums(r.Context(), store.SearchAlbumsParams{
-		ToTsquery: tsq,
+		ToTsquery: q,
 		Limit:     20,
 	})
 	artists, _ := s.db.SearchArtists(r.Context(), store.SearchArtistsParams{
-		ToTsquery: tsq,
+		ToTsquery: q,
 		Limit:     20,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -194,7 +202,7 @@ func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
 func pagination(r *http.Request) (limit, offset int) {
 	limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	return

@@ -85,6 +85,13 @@
         {/if}
         <div class="song-title">{$currentTrack.title}</div>
       </div>
+    {:else}
+      <!-- Skeleton placeholder when no track is loaded -->
+      <div class="skeleton-cover"></div>
+      <div class="track-meta">
+        <div class="skeleton-line skeleton-album"></div>
+        <div class="skeleton-line skeleton-title"></div>
+      </div>
     {/if}
   </div>
 
@@ -248,6 +255,34 @@
   }
   .placeholder { background: var(--bg-hover); }
 
+  /* Skeleton placeholders */
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .skeleton-cover {
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    flex-shrink: 0;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+  .skeleton-line {
+    border-radius: 3px;
+    background: var(--bg-hover);
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+  .skeleton-album {
+    width: 60%;
+    height: 10px;
+    animation-delay: 0.1s;
+  }
+  .skeleton-title {
+    width: 85%;
+    height: 13px;
+  }
+
   .animate-in {
     animation: fadeInSlide 0.25s cubic-bezier(0.4,0,0.2,1);
   }
@@ -311,7 +346,7 @@
     transition: color 0.15s;
   }
   .ctrl-btn:hover { color: var(--text); }
-  .play-btn { font-size: 1.6rem; color: var(--text); }
+  .play-btn { font-size: 1.6rem; color: var(--text); width: 36px; text-align: center; }
 
   /* Shuffle / repeat icon buttons */
   .icon-btn {
@@ -320,7 +355,7 @@
     align-items: center;
     justify-content: center;
     font-size: 0; /* suppress any stray text sizing */
-    padding: 8px 6px 10px;
+    padding: 6px;
   }
   .icon-btn.active { color: var(--accent); }
   .icon-btn.active::after {
@@ -451,12 +486,14 @@
     pointer-events: none;
   }
   .format-badge {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    background: var(--bg-hover);
-    border: 1px solid var(--border);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-glow);
     border-radius: 4px;
-    padding: 2px 6px;
+    padding: 3px 8px;
     white-space: nowrap;
   }
 </style>

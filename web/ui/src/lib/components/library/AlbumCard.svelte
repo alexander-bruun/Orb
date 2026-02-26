@@ -29,12 +29,10 @@
   {/if}
   <div class="info">
     <span class="title">{album.title}</span>
-    {#if artistName}
-      <span class="artist">{artistName}</span>
-    {/if}
-    {#if album.release_year}
-      <span class="year">{album.release_year}</span>
-    {/if}
+    <div class="meta">
+      {#if artistName}<span class="artist">{artistName}</span>{/if}
+      {#if album.release_year}<span class="year">{album.release_year}</span>{/if}
+    </div>
   </div>
 </button>
 
@@ -61,6 +59,7 @@
   .placeholder { width: 100%; aspect-ratio: 1; background: var(--bg-hover); border-radius: 4px; }
   .info { display: flex; flex-direction: column; gap: 2px; }
   .title { font-size: 0.875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-  .artist { font-size: 0.75rem; color: var(--text-muted); }
-  .year { font-size: 0.75rem; color: var(--text-muted); }
+  .meta { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; min-width: 0; }
+  .artist { font-size: 0.75rem; color: var(--text-muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .year { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
 </style>

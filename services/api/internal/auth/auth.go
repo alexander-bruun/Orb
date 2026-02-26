@@ -40,6 +40,7 @@ func New(db *store.Store, kv *redis.Client, jwtSecret string) *Service {
 
 // Routes registers auth endpoints on the given router.
 func (s *Service) Routes(r chi.Router) {
+	r.Get("/setup", s.setup)
 	r.Post("/register", s.register)
 	r.Post("/login", s.login)
 	r.Post("/refresh", s.refresh)
@@ -48,6 +49,15 @@ func (s *Service) Routes(r chi.Router) {
 
 // --- handlers ---
 
+func (s *Service) setup(w http.ResponseWriter, r *http.Request) {
+	has, err := s.db.HasAnyUser(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": !has})
+}
+
 type registerReq struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
@@ -55,6 +65,16 @@ type registerReq struct {
 }
 
 func (s *Service) register(w http.ResponseWriter, r *http.Request) {
+	has, err := s.db.HasAnyUser(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	if has {
+		writeErr(w, http.StatusForbidden, "registration is closed")
+		return
+	}
+
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")

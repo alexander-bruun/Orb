@@ -45,7 +45,17 @@
   role="button"
   tabindex="0"
 >
-  <span class="index">{isPlaying ? '▶' : index + 1}</span>
+  <span class="index">
+    {#if isPlaying}
+      <span class="playing-dots">
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </span>
+    {:else}
+      {index + 1}
+    {/if}
+  </span>
   <div class="track-info">
     <span class="title">{track.title}</span>
     {#if artistName || featuredNames.length}
@@ -73,8 +83,17 @@
   }
   .track-row:hover { background: var(--bg-hover); }
   .track-row.playing { background: var(--bg-hover); color: var(--accent); }
-  .index { width: 24px; text-align: center; font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
+  .index { width: 24px; text-align: center; font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .playing .index { color: var(--accent); }
+  .playing-dots { display: flex; align-items: flex-end; gap: 2px; height: 12px; }
+  .dot { width: 3px; height: 3px; background: currentColor; border-radius: 50%; animation: dot-jump 1.2s ease-in-out infinite; }
+  .dot:nth-child(2) { animation-delay: 0.4s; }
+  .dot:nth-child(3) { animation-delay: 0.8s; }
+  @keyframes dot-jump {
+    0%, 100% { transform: translateY(0); }
+    25% { transform: translateY(-5px); }
+    50% { transform: translateY(0); }
+  }
   .track-info { flex: 1; overflow: hidden; }
   .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 0.9rem; }
   .meta { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

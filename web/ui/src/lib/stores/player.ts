@@ -291,6 +291,74 @@ volume.subscribe(() => scheduleStateSave());
 repeatMode.subscribe(() => scheduleStateSave());
 shuffle.subscribe(() => scheduleStateSave());
 
+// ─── Media Session API ───────────────────────────────────────────────────────
+// Wires hardware media keys (Play/Pause, Next, Previous on keyboard/headphones)
+// and OS-level media overlays to the player store.
+
+function mediaSessionSupported(): boolean {
+	return typeof navigator !== 'undefined' && 'mediaSession' in navigator;
+}
+
+function syncMediaMetadata(track: Track | null) {
+	if (!mediaSessionSupported() || !track) return;
+	const artwork: MediaImage[] = [];
+	if (track.album_id) {
+		const base = typeof location !== 'undefined' ? location.origin : '';
+		const apiBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
+		artwork.push({ src: `${base}${apiBase}/covers/${track.album_id}`, sizes: '512x512', type: 'image/jpeg' });
+	}
+	navigator.mediaSession.metadata = new MediaMetadata({
+		title: track.title,
+		artist: track.artist_name ?? '',
+		artwork,
+	});
+}
+
+function syncMediaSessionPlaybackState(state: PlaybackState) {
+	if (!mediaSessionSupported()) return;
+	navigator.mediaSession.playbackState =
+		state === 'playing' ? 'playing' :
+		state === 'paused' || state === 'idle' ? 'paused' : 'none';
+}
+
+function syncPositionState(posMs: number, durMs: number) {
+	if (!mediaSessionSupported()) return;
+	const duration = durMs / 1000;
+	const position = Math.min(posMs / 1000, Math.max(0, duration));
+	if (duration > 0) {
+		try {
+			navigator.mediaSession.setPositionState({ duration, position, playbackRate: 1 });
+		} catch {
+			// Some browsers throw if values are out of range.
+		}
+	}
+}
+
+if (mediaSessionSupported()) {
+	navigator.mediaSession.setActionHandler('play', () => togglePlayPause());
+	navigator.mediaSession.setActionHandler('pause', () => togglePlayPause());
+	navigator.mediaSession.setActionHandler('previoustrack', () => { previous(); });
+	navigator.mediaSession.setActionHandler('nexttrack', () => { next(); });
+	navigator.mediaSession.setActionHandler('seekto', (details) => {
+		if (details.seekTime !== undefined) seek(details.seekTime);
+	});
+}
+
+currentTrack.subscribe(syncMediaMetadata);
+playbackState.subscribe(syncMediaSessionPlaybackState);
+
+// Throttle position state updates — positionMs fires every ~250 ms.
+let _posStateTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePositionStateSync() {
+	if (_posStateTimer) return;
+	_posStateTimer = setTimeout(() => {
+		_posStateTimer = null;
+		syncPositionState(get(positionMs), get(durationMs));
+	}, 500);
+}
+positionMs.subscribe(schedulePositionStateSync);
+durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
+
 // Restore previous state on load. Always restores as paused — the user must
 // press play to resume. This avoids autoplay policy violations and the
 // play-from-0-then-seek glitch from the prior approach of calling playTrack

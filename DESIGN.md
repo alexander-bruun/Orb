@@ -735,12 +735,11 @@ orb/
 ### Prerequisites
 
 ```bash
-# Go 1.22+      https://go.dev/dl/
-# Node 20+      https://nodejs.org/
+# Go 1.26+      https://go.dev/dl/
+# Node 22+      https://nodejs.org/
 # Docker + Compose v2
 
 curl -sSf https://atlasgo.sh | sh
-go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 ```
 
 ### Environment variables

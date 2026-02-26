@@ -35,6 +35,7 @@ type Artist struct {
 type Album struct {
 	ID          string    `json:"id"`
 	ArtistID    *string   `json:"artist_id,omitempty"`
+	ArtistName  *string   `json:"artist_name,omitempty"`
 	Title       string    `json:"title"`
 	ReleaseYear *int      `json:"release_year,omitempty"`
 	Label       *string   `json:"label,omitempty"`
@@ -128,6 +129,7 @@ type ListTracksByUserParams struct {
 type ListAlbumsParams struct {
 	Limit  int32
 	Offset int32
+	SortBy string // "title" | "artist" | "year"; defaults to "title"
 }
 
 // ListArtistsParams for listing artists.
@@ -175,7 +177,6 @@ type RemoveTrackFromLibraryParams struct {
 
 // SearchTracksParams for searching tracks.
 type SearchTracksParams struct {
-	UserID    string
 	ToTsquery string
 	Limit     int
 }

@@ -35,7 +35,7 @@
     right: 0;
     top: var(--top-h);
     bottom: var(--bottom-h);
-    width: 28px;
+    width: 36px;
     display: flex;
     flex-direction: column;
     align-items: center;

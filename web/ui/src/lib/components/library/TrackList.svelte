@@ -12,5 +12,5 @@
 </div>
 
 <style>
-  .track-list { display: flex; flex-direction: column; }
+  .track-list { display: flex; flex-direction: column; gap: 2px; }
 </style>
