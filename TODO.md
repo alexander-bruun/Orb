@@ -12,8 +12,6 @@ Implement metadata retrieval from something like musicbrainz or discogs as we in
 
 Implement algorithm for suggested similar tracks. This should be used for user specific generated playlists based on their listen history. We should also use it for when a album or playlist runs out of tracks to play, afterwards recommended tracks should start playing. It should be based on the track audio similarity to other tracks in addition to comparing metadata.
 
-Add a user page with user customizations and a personal settings panel. Here there should be a color scheme selector that works globally for the color scheme and dark / light mode maybe melt ui has a color scheme palette picker ui component?
-
 Deprecate S3 support, i only want it to consume files mounted locally within the container. So remove all S3 and minio related things. And make sure we have a robust way to support many directories inside the container, since if the user has a lot of music across drives they wont all be inside the same directory.
 
 Implement a build for Tauri binaries and update the setup process to include a host configuration for where the server is hosted so the standalone app can find the backend from anywhere.

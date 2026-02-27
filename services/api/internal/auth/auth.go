@@ -45,6 +45,13 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/login", s.login)
 	r.Post("/refresh", s.refresh)
 	r.Post("/logout", s.logout)
+
+	// Account-management endpoints require a valid JWT.
+	r.Group(func(r chi.Router) {
+		r.Use(JWTMiddleware(string(s.jwtSecret), s.kv))
+		r.Patch("/password", s.changePassword)
+		r.Patch("/email", s.changeEmail)
+	})
 }
 
 // --- handlers ---
@@ -165,6 +172,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user_id":       user.ID,
+		"username":      user.Username,
 	})
 }
 
@@ -214,6 +222,93 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.kv.Del(r.Context(), kvkeys.Session(userID))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type changePasswordReq struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
+	userID := UserIDFromCtx(r.Context())
+
+	var req changePasswordReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		writeErr(w, http.StatusBadRequest, "current_password and new_password required")
+		return
+	}
+	if len(req.NewPassword) < 8 {
+		writeErr(w, http.StatusBadRequest, "new password must be at least 8 characters")
+		return
+	}
+
+	user, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		writeErr(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "hash error")
+		return
+	}
+	if err := s.db.UpdateUserPassword(r.Context(), userID, string(hash)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type changeEmailReq struct {
+	NewEmail        string `json:"new_email"`
+	CurrentPassword string `json:"current_password"`
+}
+
+func (s *Service) changeEmail(w http.ResponseWriter, r *http.Request) {
+	userID := UserIDFromCtx(r.Context())
+
+	var req changeEmailReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if req.NewEmail == "" || req.CurrentPassword == "" {
+		writeErr(w, http.StatusBadRequest, "new_email and current_password required")
+		return
+	}
+	if !strings.Contains(req.NewEmail, "@") {
+		writeErr(w, http.StatusBadRequest, "invalid email address")
+		return
+	}
+
+	user, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		writeErr(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+
+	if err := s.db.UpdateUserEmail(r.Context(), userID, req.NewEmail); err != nil {
+		if strings.Contains(err.Error(), "unique") {
+			writeErr(w, http.StatusConflict, "email already in use")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

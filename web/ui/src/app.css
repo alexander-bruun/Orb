@@ -32,6 +32,21 @@
   --text-muted:  var(--text-2);
 }
 
+/* ── Light theme ──────────────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  --bg:        #f0f0f5;
+  --surface:   #ffffff;
+  --surface-2: #e8e8f0;
+  --border:    #d8d8e8;
+  --border-2:  #c4c4d8;
+  --text:      #18182e;
+  --text-2:    #52527a;
+  --muted:     #9090b0;
+  --bg-elevated: var(--surface);
+  --bg-hover:    var(--surface-2);
+  --text-muted:  var(--text-2);
+}
+
 html, body {
   height: 100%;
   background: var(--bg);

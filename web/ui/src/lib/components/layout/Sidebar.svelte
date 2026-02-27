@@ -17,6 +17,7 @@
     <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists')}>Playlists</a>
     <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
     <a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>
+    <a href="/settings" class:active={$page.url.pathname === '/settings'}>Settings</a>
   </nav>
 
   <div class="spacer"></div>

@@ -565,6 +565,18 @@ func (s *Store) UpdateLastLogin(ctx context.Context, userID string) error {
 	return err
 }
 
+// UpdateUserPassword sets a new bcrypt password hash for a user.
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET password_hash = $2 WHERE id = $1`, userID, passwordHash)
+	return err
+}
+
+// UpdateUserEmail sets a new email for a user.
+func (s *Store) UpdateUserEmail(ctx context.Context, userID, email string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET email = $2 WHERE id = $1`, userID, email)
+	return err
+}
+
 // UpsertTrack inserts or updates a track.
 func (s *Store) UpsertTrack(ctx context.Context, p UpsertTrackParams) (Track, error) {
 	var t Track

@@ -14,6 +14,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { togglePlayPause, next, previous } from '$lib/stores/player';
+  import { themeStore } from '$lib/stores/theme';
 
   function onKeydown(e: KeyboardEvent) {
     // Ignore when focus is inside a text field.
@@ -29,6 +30,7 @@
   let { children } = $props();
 
   onMount(async () => {
+    themeStore.init();
     try {
       const data = await apiFetch<{ setup_required: boolean }>('/auth/setup');
       setupRequired.set(data.setup_required);
