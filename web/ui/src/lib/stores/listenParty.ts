@@ -117,13 +117,16 @@ function _connectHost(sessionId: string) {
 	};
 
 	ws.onmessage = (ev) => {
-		try { _handleHostMessage(JSON.parse(ev.data as string)); } catch { /* ignore */ }
+		try { _handleHostMessage(JSON.parse(ev.data as string)); }
+		catch { /* ignore */ }
 	};
 
 	ws.onclose = () => {
 		lpConnected.set(false);
 		_stopPlayerWatch();
 	};
+
+	ws.onerror = () => {};
 }
 
 function _handleHostMessage(msg: Record<string, unknown>) {
@@ -160,12 +163,7 @@ function _watchPlayerForHost() {
 			// Clear any pending periodic sync so it doesn't fire with stale data.
 			if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
 			// Immediately notify guests of the new track.
-			if (ws && ws.readyState === WebSocket.OPEN) {
-				ws.send(JSON.stringify({
-					type: 'sync_state',
-					state: { track_id: tid, position_ms: 0, playing: true },
-				}));
-			}
+			_wsSend({ type: 'sync_state', state: { track_id: tid, position_ms: 0, playing: true } });
 		} else {
 			lastHostTrackId = tid;
 		}
@@ -181,14 +179,15 @@ function _watchPlayerForHost() {
 	// Position updates — compare against last SENT position (not last tick) so
 	// that even incremental slider drags are detected as seeks once the
 	// cumulative distance from the last broadcast exceeds the threshold.
+	// Normal playback advances ~1000 ms/s, so a 3 s threshold avoids false
+	// positives while still catching any meaningful seek.
 	const unsubPos = playerPositionMs.subscribe((posMs) => {
 		if (get(lpRole) !== 'host') return;
 		const drift = Math.abs(posMs - lastSentPositionMs);
 
-		// Seek detected: position jumped >1 s from what guests last heard.
-		if (drift > 1000) {
+		// Seek detected: position jumped >3 s from what guests last heard.
+		if (drift > 3000) {
 			if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
-			console.debug('[LP] seek drift', drift, 'pos', posMs, 'lastSent', lastSentPositionMs);
 			_hostSendSync();
 			return;
 		}
@@ -211,37 +210,36 @@ function _stopPlayerWatch() {
 	lastSentPositionMs = 0;
 }
 
-function _hostSendSync() {
-	if (!ws || ws.readyState !== WebSocket.OPEN) {
-		console.debug('[LP] sync skip: ws not open', ws?.readyState);
-		return;
+/** Safe WebSocket send — catches errors so a failed write never breaks
+ *  store subscription chains or interval callbacks. */
+function _wsSend(payload: Record<string, unknown>): boolean {
+	if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+	try {
+		ws.send(JSON.stringify(payload));
+		return true;
+	} catch {
+		return false;
 	}
+}
+
+function _hostSendSync() {
+	if (!ws || ws.readyState !== WebSocket.OPEN) return;
 	const track  = get(currentTrack);
 	const state  = get(playbackState);
-	// Don't send during 'loading' — position/playing are stale. The track
-	// subscriber already sent the definitive new-track notification.
-	if (state === 'loading') {
-		console.debug('[LP] sync skip: loading');
-		return;
-	}
+	if (state === 'loading') return;
 	const posMs  = get(playerPositionMs);
 	const trackId = track?.id ?? '';
-	if (trackId === lastSentTrackId && state === 'idle') {
-		console.debug('[LP] sync skip: idle, same track');
-		return;
-	}
+	if (trackId === lastSentTrackId && state === 'idle') return;
 	lastSentTrackId = trackId;
 	lastSentPositionMs = posMs;
-	console.debug('[LP] SYNC sent', { trackId: trackId.slice(0, 8), posMs, playing: state === 'playing' });
-	ws.send(JSON.stringify({
+	_wsSend({
 		type: 'sync_state',
-		state: { track_id: trackId, position_ms: posMs, playing: state === 'playing' },
-	}));
+		state: { track_id: trackId, position_ms: Math.round(posMs), playing: state === 'playing' },
+	});
 }
 
 export function hostKick(participantId: string) {
-	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	ws.send(JSON.stringify({ type: 'kick', participant_id: participantId }));
+	_wsSend({ type: 'kick', participant_id: participantId });
 }
 
 export async function hostEndSession() {
@@ -312,7 +310,6 @@ function _handleGuestMessage(msg: Record<string, unknown>, sessionId: string) {
 	const guestToken = get(lpGuestToken) ?? '';
 	switch (msg.type) {
 		case 'sync':
-			console.debug('[LP guest] sync received', msg.state);
 			if (msg.state) {
 				if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
 				_applyGuestSync(
@@ -379,17 +376,18 @@ function _applyGuestSync(
 
 	if (trackChanged || isJoin) {
 		_guestPlay(streamUrl, adjustedMs / 1000, state.playing);
-	} else if (state.playing) {
-		if (guestAudio) {
-			const drift = Math.abs(guestAudio.currentTime * 1000 - adjustedMs);
-			// 500 ms threshold — small enough to catch host seeks but large enough
-			// to avoid jitter from normal network/timer variance.
-			if (drift > 500) guestAudio.currentTime = adjustedMs / 1000;
-			if (guestAudio.paused) guestAudio.play().catch(() => {});
+	} else if (guestAudio) {
+		// Seek if position drifted — covers both playing and paused states.
+		const drift = Math.abs(guestAudio.currentTime * 1000 - adjustedMs);
+		if (drift > 500) {
+			guestAudio.currentTime = adjustedMs / 1000;
 		}
-	} else {
-		if (guestAudio && !guestAudio.paused) guestAudio.pause();
-		lpGuestPositionMs.set(state.position_ms);
+		// Sync play/pause state.
+		if (state.playing && guestAudio.paused) {
+			guestAudio.play().catch(() => {});
+		} else if (!state.playing && !guestAudio.paused) {
+			guestAudio.pause();
+		}
 	}
 
 	_startPositionTick(state.playing);

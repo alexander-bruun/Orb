@@ -41,10 +41,10 @@ var upgrader = websocket.Upgrader{
 // PlaybackState holds the current playback snapshot stored in Redis and
 // broadcast to guests on join and on each sync_state from the host.
 type PlaybackState struct {
-	TrackID     string `json:"track_id"`
-	PositionMs  int64  `json:"position_ms"`
-	Playing     bool   `json:"playing"`
-	ServerTimeMs int64 `json:"server_time_ms"` // unix ms when state was set
+	TrackID      string  `json:"track_id"`
+	PositionMs   float64 `json:"position_ms"`
+	Playing      bool    `json:"playing"`
+	ServerTimeMs int64   `json:"server_time_ms"` // unix ms when state was set
 }
 
 // Session is the data persisted in Redis for a listen-along session.
@@ -155,11 +155,13 @@ func (h *hub) run() {
 			close(c.send)
 		case msg := <-h.broadcast:
 			h.mu.RLock()
+			sent, dropped := 0, 0
 			for _, g := range h.guests {
 				select {
 				case g.send <- msg:
+					sent++
 				default:
-					// slow client: drop
+					dropped++
 				}
 			}
 			h.mu.RUnlock()
@@ -529,7 +531,9 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 	defer func() {
 		h.unregister <- c
 		removeHub(sess.ID)
-		s.kv.Del(context.Background(), kvkeys.ListenSession(sess.ID))
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.kv.Del(ctx, kvkeys.ListenSession(sess.ID))
 	}()
 
 	c.conn.SetReadLimit(maxMsgSize)
@@ -537,6 +541,10 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
+
+	// Cache track info so we only hit the DB when the track changes.
+	var cachedTrackID string
+	var cachedTrackInfo *TrackInfo
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
@@ -552,18 +560,35 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 			if msg.State == nil {
 				continue
 			}
-			// Update Redis.
 			st := *msg.State
 			st.ServerTimeMs = time.Now().UnixMilli()
 			sess.State = st
-			if b, err := json.Marshal(sess); err == nil {
-				s.kv.Set(context.Background(), kvkeys.ListenSession(sess.ID), b, sessionTTL)
+
+			// Update Redis with a timeout so a slow Redis never blocks the loop.
+			func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				if b, err := json.Marshal(sess); err == nil {
+					s.kv.Set(ctx, kvkeys.ListenSession(sess.ID), b, sessionTTL)
+				}
+			}()
+
+			// Only fetch track info from the DB when the track actually changes.
+			var ti *TrackInfo
+			if st.TrackID != cachedTrackID {
+				ti = s.fetchTrackInfoWithTimeout(st.TrackID)
+				cachedTrackID = st.TrackID
+				cachedTrackInfo = ti
+			} else {
+				ti = cachedTrackInfo
 			}
-			// Fetch track info to include in guest broadcast.
-			ti := s.fetchTrackInfo(st.TrackID)
+
 			// Broadcast to guests.
 			out := mustMarshal(outMsg{Type: "sync", State: &st, TrackInfo: ti})
-			h.broadcast <- out
+			select {
+			case h.broadcast <- out:
+			default:
+			}
 
 		case "kick":
 			if msg.ParticipantID == "" {
@@ -683,13 +708,15 @@ func (s *Service) guestCover(w http.ResponseWriter, r *http.Request) {
 
 // --- Helpers ---
 
-// fetchTrackInfo looks up minimal track metadata for inclusion in sync messages.
-// Returns nil if the track cannot be resolved.
-func (s *Service) fetchTrackInfo(trackID string) *TrackInfo {
+// fetchTrackInfoWithTimeout looks up minimal track metadata with a timeout so
+// a slow or exhausted DB pool never blocks the WebSocket read loop.
+func (s *Service) fetchTrackInfoWithTimeout(trackID string) *TrackInfo {
 	if trackID == "" {
 		return nil
 	}
-	track, err := s.db.GetTrackByID(context.Background(), trackID)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	track, err := s.db.GetTrackByID(ctx, trackID)
 	if err != nil {
 		return nil
 	}
@@ -710,11 +737,17 @@ func (s *Service) fetchTrackInfo(trackID string) *TrackInfo {
 	}
 	// Best-effort artist name resolution.
 	if track.ArtistID != nil {
-		if artist, err := s.db.GetArtistByID(context.Background(), *track.ArtistID); err == nil {
+		if artist, err := s.db.GetArtistByID(ctx, *track.ArtistID); err == nil {
 			ti.ArtistName = artist.Name
 		}
 	}
 	return ti
+}
+
+// fetchTrackInfo is the non-timeout variant used during guest join (where the
+// HTTP request context is still alive).
+func (s *Service) fetchTrackInfo(trackID string) *TrackInfo {
+	return s.fetchTrackInfoWithTimeout(trackID)
 }
 
 // requireAuth extracts and validates the JWT from the request. On failure it
