@@ -8,12 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/alexander-bruun/orb/pkg/kvkeys"
 	"github.com/alexander-bruun/orb/pkg/store"
+	"github.com/alexander-bruun/orb/services/api/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/api/internal/stream"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
@@ -305,6 +309,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/{id}/ws", s.ws)            // host=JWT guest=open
 	r.Get("/{id}/stream/{track_id}", s.guestStream) // guest token
 	r.Get("/{id}/cover/{album_id}", s.guestCover)   // guest token
+	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics)  // guest token
 }
 
 // --- REST handlers ---
@@ -704,6 +709,105 @@ func (s *Service) guestCover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.streamSvc.ServeCover(w, r, albumID)
+}
+
+// --- Guest lyrics handler ---
+
+type lrcLine struct {
+	TimeMs int    `json:"time_ms"`
+	Text   string `json:"text"`
+}
+
+var lrcLineRe = regexp.MustCompile(`\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)`)
+
+func parseLRC(raw string) []lrcLine {
+	var lines []lrcLine
+	for _, line := range strings.Split(raw, "\n") {
+		m := lrcLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		min, _ := strconv.Atoi(m[1])
+		sec, _ := strconv.Atoi(m[2])
+		ms, _ := strconv.Atoi(m[3])
+		if len(m[3]) == 2 {
+			ms *= 10
+		}
+		text := strings.TrimSpace(m[4])
+		if text == "" {
+			continue
+		}
+		lines = append(lines, lrcLine{TimeMs: (min*60+sec)*1000 + ms, Text: text})
+	}
+	sort.Slice(lines, func(i, j int) bool { return lines[i].TimeMs < lines[j].TimeMs })
+	if lines == nil {
+		lines = []lrcLine{}
+	}
+	return lines
+}
+
+func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	trackID := chi.URLParam(r, "track_id")
+	guestToken := r.URL.Query().Get("guest_token")
+	if guestToken == "" {
+		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		return
+	}
+
+	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
+	if err != nil || storedSessionID != sessionID {
+		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		return
+	}
+
+	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	// Check DB cache first.
+	raw, err := s.db.GetTrackLyrics(r.Context(), trackID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []lrcLine{})
+		return
+	}
+
+	if raw == "" {
+		// Auto-fetch from external providers.
+		track, err := s.db.GetTrackByID(r.Context(), trackID)
+		if err != nil {
+			writeJSON(w, http.StatusOK, []lrcLine{})
+			return
+		}
+		artistName := ""
+		if track.ArtistID != nil {
+			if a, aErr := s.db.GetArtistByID(r.Context(), *track.ArtistID); aErr == nil {
+				artistName = a.Name
+			}
+		}
+		albumTitle := ""
+		if track.AlbumID != nil {
+			if al, alErr := s.db.GetAlbumByID(r.Context(), *track.AlbumID); alErr == nil {
+				albumTitle = al.Title
+			}
+		}
+
+		res, fetchErr := lyricfetch.Search(r.Context(), artistName, albumTitle, track.Title, track.DurationMs)
+		if fetchErr != nil || res == nil {
+			writeJSON(w, http.StatusOK, []lrcLine{})
+			return
+		}
+		raw = res.LRC
+		if raw == "" {
+			raw = res.Plain
+		}
+		if raw != "" {
+			_ = s.db.SetTrackLyrics(r.Context(), trackID, raw)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, parseLRC(raw))
 }
 
 // --- Helpers ---

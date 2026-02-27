@@ -38,5 +38,13 @@ export const library = {
 	favorites: () => apiFetch<Track[]>('/library/favorites'),
 	favoriteIDs: () => apiFetch<string[]>('/library/favorites/ids'),
 	addFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'POST' }),
-	removeFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'DELETE' })
+	removeFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'DELETE' }),
+	lyrics: (trackId: string) =>
+		apiFetch<{ time_ms: number; text: string }[]>(`/library/tracks/${trackId}/lyrics`),
+	setLyrics: (trackId: string, lyrics: string) =>
+		apiFetch(`/library/tracks/${trackId}/lyrics`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ lyrics })
+		})
 };

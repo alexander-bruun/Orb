@@ -998,3 +998,20 @@ LIMIT 4`,
 	defer rows.Close()
 	return scanTracks(rows)
 }
+
+// GetTrackLyrics returns the raw LRC lyrics string for a track.
+// Returns an empty string if the track exists but has no lyrics set.
+func (s *Store) GetTrackLyrics(ctx context.Context, trackID string) (string, error) {
+	var lyrics sql.NullString
+	err := s.pool.QueryRow(ctx, `SELECT lyrics FROM tracks WHERE id = $1`, trackID).Scan(&lyrics)
+	if err != nil {
+		return "", err
+	}
+	return lyrics.String, nil
+}
+
+// SetTrackLyrics stores LRC lyrics text for a track.
+func (s *Store) SetTrackLyrics(ctx context.Context, trackID, lyrics string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE tracks SET lyrics = $1 WHERE id = $2`, lyrics, trackID)
+	return err
+}

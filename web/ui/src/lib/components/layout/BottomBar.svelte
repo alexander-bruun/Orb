@@ -31,6 +31,7 @@
     lpConnected,
     createAndConnect,
   } from '$lib/stores/listenParty';
+  import { lyricsOpen, lyricsLines, lyricsLoading } from '$lib/stores/lyrics';
 
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
   const BASE = import.meta.env.VITE_API_BASE ?? '/api';
@@ -223,6 +224,22 @@
             <polyline points="3,18 4,19 6,17"/>
           </svg>
           <span class="queue-count">{$userQueue.length}</span>
+        </button>
+      {/if}
+      {#if $currentTrack}
+        <button
+          class="ctrl-btn icon-btn lyrics-btn"
+          class:active={$lyricsOpen}
+          class:has-lyrics={$lyricsLines.length > 0}
+          on:click={() => lyricsOpen.update(v => !v)}
+          aria-label="Toggle lyrics"
+          title="Lyrics"
+          disabled={$lyricsLoading}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 18V5l12-2v13"/>
+            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
         </button>
       {/if}
       {#if $formattedFormat}

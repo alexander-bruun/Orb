@@ -127,3 +127,6 @@ ALTER TABLE artists ADD COLUMN IF NOT EXISTS search_vector tsvector
 CREATE INDEX IF NOT EXISTS tracks_search_idx  ON tracks  USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS albums_search_idx  ON albums  USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS artists_search_idx ON artists USING GIN(search_vector);
+
+-- Synced lyrics stored in LRC format (nullable — not all tracks have lyrics)
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS lyrics TEXT;

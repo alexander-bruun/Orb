@@ -45,6 +45,7 @@ CREATE TABLE tracks (
     bitrate_kbps  INT,
     seek_table    JSONB,                  -- precomputed frame offsets for seeking
     fingerprint   TEXT,
+    lyrics        TEXT,                   -- LRC-format synced lyrics (optional)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

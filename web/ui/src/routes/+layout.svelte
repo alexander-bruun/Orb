@@ -7,6 +7,7 @@
   import ContextMenu from '$lib/components/ui/ContextMenu.svelte';
   import QueueModal from '$lib/components/ui/QueueModal.svelte';
   import ListenPartyPanel from '$lib/components/layout/ListenPartyPanel.svelte';
+  import LyricsModal from '$lib/components/layout/LyricsModal.svelte';
   import { isAuthenticated } from '$lib/stores/auth';
   import { favorites } from '$lib/stores/favorites';
   import { setupRequired } from '$lib/stores/setup';
@@ -92,6 +93,7 @@
   <ContextMenu />
   <QueueModal />
   <ListenPartyPanel />
+  <LyricsModal />
 {/if}
 
 <style>

@@ -3,13 +3,17 @@ package library
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/alexander-bruun/orb/services/api/internal/auth"
+	"github.com/alexander-bruun/orb/services/api/internal/lyricfetch"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -43,6 +47,8 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/favorites/ids", s.listFavoriteIDs)
 	r.Post("/favorites/{track_id}", s.addFavorite)
 	r.Delete("/favorites/{track_id}", s.removeFavorite)
+	r.Get("/tracks/{id}/lyrics", s.getTrackLyrics)
+	r.Put("/tracks/{id}/lyrics", s.setTrackLyrics)
 }
 
 func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {
@@ -318,6 +324,119 @@ func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 		TrackID: trackID,
 	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- lyrics ---
+
+// LyricLine represents a single timed lyric line.
+type LyricLine struct {
+	TimeMs int    `json:"time_ms"`
+	Text   string `json:"text"`
+}
+
+var lrcLineRe = regexp.MustCompile(`\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)`)
+
+// parseLRC parses LRC-format text into a sorted slice of LyricLines.
+func parseLRC(raw string) []LyricLine {
+	var lines []LyricLine
+	for _, line := range strings.Split(raw, "\n") {
+		m := lrcLineRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		min, _ := strconv.Atoi(m[1])
+		sec, _ := strconv.Atoi(m[2])
+		ms, _ := strconv.Atoi(m[3])
+		if len(m[3]) == 2 {
+			ms *= 10
+		}
+		text := strings.TrimSpace(m[4])
+		if text == "" {
+			continue
+		}
+		lines = append(lines, LyricLine{TimeMs: (min*60+sec)*1000 + ms, Text: text})
+	}
+	sort.Slice(lines, func(i, j int) bool { return lines[i].TimeMs < lines[j].TimeMs })
+	return lines
+}
+
+func (s *Service) getTrackLyrics(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// 1. Check if we already have lyrics cached in the DB.
+	raw, err := s.db.GetTrackLyrics(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "track not found")
+		return
+	}
+	if raw != "" {
+		lines := parseLRC(raw)
+		if lines == nil {
+			lines = []LyricLine{}
+		}
+		writeJSON(w, http.StatusOK, lines)
+		return
+	}
+
+	// 2. No cached lyrics — auto-fetch from external providers.
+	track, err := s.db.GetTrackByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []LyricLine{})
+		return
+	}
+	artistName := ""
+	if track.ArtistID != nil {
+		if a, err := s.db.GetArtistByID(r.Context(), *track.ArtistID); err == nil {
+			artistName = a.Name
+		}
+	}
+	albumTitle := ""
+	if track.AlbumID != nil {
+		if al, err := s.db.GetAlbumByID(r.Context(), *track.AlbumID); err == nil {
+			albumTitle = al.Title
+		}
+	}
+
+	res, err := lyricfetch.Search(r.Context(), artistName, albumTitle, track.Title, track.DurationMs)
+	if err != nil || res == nil {
+		writeJSON(w, http.StatusOK, []LyricLine{})
+		return
+	}
+
+	// Prefer synced LRC; fall back to plain text wrapped as unsynced.
+	lrc := res.LRC
+	if lrc == "" {
+		lrc = res.Plain
+	}
+
+	// 3. Cache in DB for future requests.
+	if lrc != "" {
+		if err := s.db.SetTrackLyrics(r.Context(), id, lrc); err != nil {
+			log.Printf("lyricfetch: failed to cache lyrics for %s: %v", id, err)
+		}
+	}
+
+	lines := parseLRC(lrc)
+	if lines == nil {
+		lines = []LyricLine{}
+	}
+	writeJSON(w, http.StatusOK, lines)
+}
+
+func (s *Service) setTrackLyrics(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Lyrics string `json:"lyrics"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if err := s.db.SetTrackLyrics(r.Context(), id, body.Lyrics); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

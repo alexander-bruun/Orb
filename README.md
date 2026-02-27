@@ -13,13 +13,11 @@ Orb is a self-hosted, lossless music streaming platform - a personal Spotify bac
 - **Discovery:** Advanced search, favorites, recently played
 - **UI:** SvelteKit frontend with Melt UI + Tailwind, responsive layout
 
-> Native Android & IOS apps are on the roadmap.
+> Native Windows, Mac, Linux, Android & IOS apps are on the roadmap.
 
 ## 📦 Supported Platforms
 
-Orb is distributed exclusively as Docker images for Linux, Windows, and macOS (amd64, arm64). There is no static binary; Orb only runs in Docker.
-
-> Note: macOS builds may have limited codec support due to platform restrictions.
+Orb is distributed exclusively as Docker images for Linux (amd64, arm64). There is no static binary for the backend; Orb only runs in Docker.
 
 ## 🚀 Quick Start
 
