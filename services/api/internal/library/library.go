@@ -49,6 +49,10 @@ func (s *Service) Routes(r chi.Router) {
 	r.Delete("/favorites/{track_id}", s.removeFavorite)
 	r.Get("/tracks/{id}/lyrics", s.getTrackLyrics)
 	r.Put("/tracks/{id}/lyrics", s.setTrackLyrics)
+	r.Get("/genres", s.listGenres)
+	r.Get("/genres/{id}", s.genreDetail)
+	r.Get("/genres/{id}/artists", s.genreArtists)
+	r.Get("/genres/{id}/albums", s.genreAlbums)
 }
 
 func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +127,9 @@ func (s *Service) albumDetail(w http.ResponseWriter, r *http.Request) {
 			resp["artist"] = artist
 		}
 	}
+	if genres, err := s.db.ListGenresByAlbum(r.Context(), id); err == nil {
+		resp["genres"] = genres
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -138,7 +145,14 @@ func (s *Service) artistDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"artist": artist, "albums": albums})
+	resp := map[string]any{"artist": artist, "albums": albums}
+	if genres, err := s.db.ListGenresByArtist(r.Context(), id); err == nil {
+		resp["genres"] = genres
+	}
+	if related, err := s.db.ListRelatedArtists(r.Context(), id); err == nil {
+		resp["related_artists"] = related
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) trackDetail(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +162,11 @@ func (s *Service) trackDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "track not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, track)
+	resp := map[string]any{"track": track}
+	if genres, err := s.db.ListGenresByTrack(r.Context(), id); err == nil {
+		resp["genres"] = genres
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) addTrack(w http.ResponseWriter, r *http.Request) {
@@ -328,6 +346,49 @@ func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- genres ---
+
+func (s *Service) listGenres(w http.ResponseWriter, r *http.Request) {
+	genres, err := s.db.ListGenres(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, genres)
+}
+
+func (s *Service) genreDetail(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	genre, err := s.db.GetGenreByID(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "genre not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, genre)
+}
+
+func (s *Service) genreArtists(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	limit, offset := pagination(r)
+	artists, err := s.db.ListArtistsByGenre(r.Context(), id, limit, offset)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, artists)
+}
+
+func (s *Service) genreAlbums(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	limit, offset := pagination(r)
+	albums, err := s.db.ListAlbumsByGenre(r.Context(), id, limit, offset)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, albums)
 }
 
 // --- lyrics ---

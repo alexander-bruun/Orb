@@ -2,7 +2,9 @@ go 1.26.0
 
 use (
 	./cmd/ingest
+	./pkg/config
 	./pkg/kvkeys
+	./pkg/musicbrainz
 	./pkg/objstore
 	./pkg/store
 	./services/api

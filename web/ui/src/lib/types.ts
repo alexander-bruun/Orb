@@ -4,11 +4,29 @@ export interface User {
 	email: string;
 }
 
+export interface Genre {
+	id: string;
+	name: string;
+}
+
+export interface RelatedArtist {
+	artist_id: string;
+	related_id: string;
+	rel_type: string;
+	artist_name?: string;
+}
+
 export interface Artist {
 	id: string;
 	name: string;
 	sort_name: string;
 	mbid?: string;
+	artist_type?: string;
+	country?: string;
+	begin_date?: string;
+	end_date?: string;
+	disambiguation?: string;
+	image_key?: string;
 }
 
 export interface Album {
@@ -21,6 +39,8 @@ export interface Album {
     artist_name?: string;
     artist?: Artist;
     track_count?: number;
+	album_type?: string;
+	release_date?: string;
 }
 
 export interface Track {
@@ -38,6 +58,8 @@ export interface Track {
 	sample_rate: number;
 	channels: number;
 	bitrate_kbps?: number;
+	isrc?: string;
+	mbid?: string;
     artist_name?: string;
     artist?: Artist;
     featured_artist_ids?: string[];

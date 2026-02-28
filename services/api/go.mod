@@ -3,6 +3,7 @@ module github.com/alexander-bruun/orb/services/api
 go 1.26.0
 
 require (
+	github.com/alexander-bruun/orb/pkg/config v0.0.0-00010101000000-000000000000
 	github.com/alexander-bruun/orb/pkg/kvkeys v0.0.0-00010101000000-000000000000
 	github.com/alexander-bruun/orb/pkg/objstore v0.0.0-00010101000000-000000000000
 	github.com/alexander-bruun/orb/pkg/store v0.0.0-00010101000000-000000000000
@@ -43,6 +44,7 @@ require (
 )
 
 replace (
+	github.com/alexander-bruun/orb/pkg/config => ../../pkg/config
 	github.com/alexander-bruun/orb/pkg/kvkeys => ../../pkg/kvkeys
 	github.com/alexander-bruun/orb/pkg/objstore => ../../pkg/objstore
 	github.com/alexander-bruun/orb/pkg/store => ../../pkg/store

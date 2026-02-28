@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexander-bruun/orb/pkg/config"
+	"github.com/alexander-bruun/orb/pkg/musicbrainz"
 	"github.com/alexander-bruun/orb/pkg/objstore"
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/dhowden/tag"
@@ -47,8 +49,8 @@ var (
 	flagUserID    string
 	flagRecursive bool
 	flagDryRun    bool
-	flagWatch     bool
-	flagWorkers   int
+	flagWatch   bool
+	flagWorkers int
 )
 
 var rootCmd = &cobra.Command{
@@ -58,19 +60,20 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().StringVar(&flagDir, "dir", envOrDefault("INGEST_DIR", "/music"), "Music directory to scan")
-	rootCmd.Flags().StringVar(&flagDB, "db", envOrDefault("DATABASE_URL", "postgres://orb:orb@localhost:5432/orb?sslmode=disable"), "Postgres DSN")
-	rootCmd.Flags().StringVar(&flagBackend, "store-backend", envOrDefault("STORE_BACKEND", "local"), "Storage backend: local | s3")
-	rootCmd.Flags().StringVar(&flagStoreRoot, "store-root", envOrDefault("STORE_ROOT", "./data/audio"), "Root path for local backend")
-	rootCmd.Flags().StringVar(&flagBucket, "store-bucket", envOrDefault("STORE_BUCKET", "orb-audio"), "S3 bucket name")
-	rootCmd.Flags().StringVar(&flagS3Ep, "s3-endpoint", envOrDefault("S3_ENDPOINT", "http://localhost:9000"), "S3 endpoint")
-	rootCmd.Flags().StringVar(&flagS3Key, "s3-access-key", envOrDefault("S3_ACCESS_KEY", "orb"), "S3 access key")
-	rootCmd.Flags().StringVar(&flagS3Secret, "s3-secret-key", envOrDefault("S3_SECRET_KEY", "orbsecret"), "S3 secret key")
+	rootCmd.Flags().StringVar(&flagDir, "dir", config.Env("INGEST_DIR", "/music"), "Music directory to scan")
+	rootCmd.Flags().StringVar(&flagDB, "db", config.DSN(), "Postgres DSN")
+	rootCmd.Flags().StringVar(&flagBackend, "store-backend", config.Env("STORE_BACKEND", "local"), "Storage backend: local | s3")
+	rootCmd.Flags().StringVar(&flagStoreRoot, "store-root", config.Env("STORE_ROOT", "./data/audio"), "Root path for local backend")
+	rootCmd.Flags().StringVar(&flagBucket, "store-bucket", config.Env("STORE_BUCKET", "orb-audio"), "S3 bucket name")
+	rootCmd.Flags().StringVar(&flagS3Ep, "s3-endpoint", config.Env("S3_ENDPOINT", "http://localhost:9000"), "S3 endpoint")
+	rootCmd.Flags().StringVar(&flagS3Key, "s3-access-key", config.Env("S3_ACCESS_KEY", "orb"), "S3 access key")
+	rootCmd.Flags().StringVar(&flagS3Secret, "s3-secret-key", config.Env("S3_SECRET_KEY", "orbsecret"), "S3 secret key")
 	rootCmd.Flags().StringVar(&flagUserID, "user-id", "", "Assign ingested tracks to this user's library")
 	rootCmd.Flags().BoolVar(&flagRecursive, "recursive", false, "Scan subdirectories recursively")
 	rootCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Print what would be done without modifying anything")
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Watch directory for new files and ingest continuously")
 	rootCmd.Flags().IntVar(&flagWorkers, "workers", runtime.NumCPU(), "Number of parallel ingest workers")
+
 }
 
 func main() {
@@ -79,12 +82,6 @@ func main() {
 	}
 }
 
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
 
 // ---------------------------------------------------------------------------
 // ingester: holds all runtime state for an ingest session
@@ -117,6 +114,11 @@ type ingester struct {
 	// coveredAlbums tracks which album IDs have had their cover art stored in
 	// this session, preventing redundant re-encoding and re-uploading.
 	coveredAlbums sync.Map // albumID string → struct{}
+
+	// MusicBrainz enrichment (nil when --enrich is false).
+	mb              *musicbrainz.Client
+	enrichedArtists sync.Map // artistID → struct{} — skip duplicate lookups
+	enrichedAlbums  sync.Map // albumID → struct{}
 }
 
 // loadState performs one bulk SELECT to populate the in-memory state map.
@@ -312,6 +314,8 @@ func run(cmd *cobra.Command, _ []string) error {
 		userID: flagUserID,
 		dryRun: flagDryRun,
 	}
+	g.mb = musicbrainz.New()
+	slog.Info("MusicBrainz enrichment enabled")
 
 	// One bulk load — no per-file DB queries during the scan.
 	if err := g.loadState(ctx); err != nil {
@@ -563,7 +567,127 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		}
 	}
 
+	// MusicBrainz enrichment (artist + album only; rate-limited, best-effort).
+	if g.mb != nil {
+		g.enrichAfterIngest(ctx, albumArtistID, albumArtistName, albumID, albumTitle, coverArtKeyPtr == nil)
+	}
+
 	return trackID, nil
+}
+
+// enrichAfterIngest enriches artist and album metadata from MusicBrainz.
+// Lookups are deduplicated per session via sync.Maps so each artist/album
+// is only queried once regardless of how many tracks belong to it.
+func (g *ingester) enrichAfterIngest(ctx context.Context, artistID, artistName, albumID, albumTitle string, missingCoverArt bool) {
+	// Artist: enrich once per artist per session.
+	if _, done := g.enrichedArtists.LoadOrStore(artistID, struct{}{}); !done {
+		result, err := g.mb.EnrichArtist(ctx, artistName)
+		if err != nil {
+			slog.Warn("enrich artist failed", "artist", artistName, "err", err)
+		} else if result != nil {
+			// Fetch and store artist image from Wikidata/Wikimedia Commons.
+			var imageKeyPtr *string
+			if imgData, imgErr := g.mb.FetchArtistImage(ctx, result.URLRelations); imgErr != nil {
+				slog.Warn("fetch artist image failed", "artist", artistName, "err", imgErr)
+			} else if imgData != nil {
+				imageKey := fmt.Sprintf("artists/%s.jpg", artistID)
+				if err := storeCoverArt(ctx, g.obj, imageKey, imgData); err != nil {
+					slog.Warn("store artist image failed", "artist", artistName, "err", err)
+				} else {
+					imageKeyPtr = &imageKey
+					slog.Info("stored artist image", "artist", artistName, "key", imageKey)
+				}
+			}
+
+			if err := g.db.UpdateArtistEnrichment(ctx, store.UpdateArtistEnrichmentParams{
+				ID:             artistID,
+				Mbid:           strPtr(result.Mbid),
+				ArtistType:     strPtr(result.ArtistType),
+				Country:        strPtr(result.Country),
+				BeginDate:      strPtr(result.BeginDate),
+				EndDate:        strPtr(result.EndDate),
+				Disambiguation: strPtr(result.Disambiguation),
+				ImageKey:       imageKeyPtr,
+			}); err != nil {
+				slog.Warn("update artist enrichment failed", "artist", artistName, "err", err)
+			}
+			g.persistGenres(ctx, result.Genres, func(ids []string) {
+				if err := g.db.SetArtistGenres(ctx, artistID, ids); err != nil {
+					slog.Warn("set artist genres failed", "artist", artistName, "err", err)
+				}
+			})
+		}
+	}
+
+	// Album: enrich once per album per session.
+	if _, done := g.enrichedAlbums.LoadOrStore(albumID, struct{}{}); !done {
+		result, err := g.mb.EnrichAlbum(ctx, albumTitle, artistName)
+		if err != nil {
+			slog.Warn("enrich album failed", "album", albumTitle, "err", err)
+		} else if result != nil {
+			if err := g.db.UpdateAlbumEnrichment(ctx, store.UpdateAlbumEnrichmentParams{
+				ID:               albumID,
+				Mbid:             strPtr(result.ReleaseGroupMbid),
+				Label:            strPtr(result.Label),
+				AlbumType:        strPtr(result.AlbumType),
+				ReleaseDate:      strPtr(result.ReleaseDate),
+				ReleaseGroupMbid: strPtr(result.ReleaseGroupMbid),
+			}); err != nil {
+				slog.Warn("update album enrichment failed", "album", albumTitle, "err", err)
+			}
+			g.persistGenres(ctx, result.Genres, func(ids []string) {
+				if err := g.db.SetAlbumGenres(ctx, albumID, ids); err != nil {
+					slog.Warn("set album genres failed", "album", albumTitle, "err", err)
+				}
+			})
+
+			// Fetch cover art from Cover Art Archive when no local art was found.
+			if missingCoverArt && result.ReleaseGroupMbid != "" {
+				if imgData, imgErr := g.mb.FetchAlbumCoverArt(ctx, result.ReleaseGroupMbid); imgErr != nil {
+					slog.Warn("fetch album cover art failed", "album", albumTitle, "err", imgErr)
+				} else if imgData != nil {
+					coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
+					if err := storeCoverArt(ctx, g.obj, coverKey, imgData); err != nil {
+						slog.Warn("store album cover art failed", "album", albumTitle, "err", err)
+					} else {
+						g.coveredAlbums.Store(albumID, struct{}{})
+						if err := g.db.UpdateAlbumCoverArt(ctx, albumID, coverKey); err != nil {
+							slog.Warn("update album cover art key failed", "album", albumTitle, "err", err)
+						} else {
+							slog.Info("stored album cover art from CAA", "album", albumTitle, "key", coverKey)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// persistGenres upserts genre records and calls setFn with the resulting IDs.
+func (g *ingester) persistGenres(ctx context.Context, names []string, setFn func([]string)) {
+	if len(names) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(names))
+	for _, name := range names {
+		id := musicbrainz.GenreID(name)
+		if err := g.db.UpsertGenre(ctx, id, name); err != nil {
+			slog.Warn("upsert genre failed", "genre", name, "err", err)
+			continue
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) > 0 {
+		setFn(ids)
+	}
+}
+
+// strPtr returns a pointer to s, or nil if s is empty.
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // ---------------------------------------------------------------------------

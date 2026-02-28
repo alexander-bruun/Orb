@@ -130,3 +130,58 @@ CREATE INDEX IF NOT EXISTS artists_search_idx ON artists USING GIN(search_vector
 
 -- Synced lyrics stored in LRC format (nullable — not all tracks have lyrics)
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS lyrics TEXT;
+
+-- MusicBrainz enrichment columns
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS artist_type     TEXT;
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS country         TEXT;
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS begin_date      TEXT;
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS end_date        TEXT;
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS disambiguation  TEXT;
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS enriched_at     TIMESTAMPTZ;
+
+ALTER TABLE albums ADD COLUMN IF NOT EXISTS album_type          TEXT;
+ALTER TABLE albums ADD COLUMN IF NOT EXISTS release_date        TEXT;
+ALTER TABLE albums ADD COLUMN IF NOT EXISTS release_group_mbid  TEXT;
+ALTER TABLE albums ADD COLUMN IF NOT EXISTS enriched_at         TIMESTAMPTZ;
+
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS isrc        TEXT;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS mbid        TEXT;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
+
+-- Genre taxonomy
+CREATE TABLE IF NOT EXISTS genres (
+    id   TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS artist_genres (
+    artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    genre_id  TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    PRIMARY KEY (artist_id, genre_id)
+);
+
+CREATE TABLE IF NOT EXISTS album_genres (
+    album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    genre_id TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    PRIMARY KEY (album_id, genre_id)
+);
+
+CREATE TABLE IF NOT EXISTS track_genres (
+    track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    genre_id TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    PRIMARY KEY (track_id, genre_id)
+);
+
+CREATE TABLE IF NOT EXISTS related_artists (
+    artist_id  TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    related_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    rel_type   TEXT NOT NULL,
+    PRIMARY KEY (artist_id, related_id, rel_type)
+);
+
+ALTER TABLE artists ADD COLUMN IF NOT EXISTS image_key TEXT;
+
+CREATE INDEX IF NOT EXISTS artist_genres_artist_idx ON artist_genres(artist_id);
+CREATE INDEX IF NOT EXISTS album_genres_album_idx   ON album_genres(album_id);
+CREATE INDEX IF NOT EXISTS track_genres_track_idx   ON track_genres(track_id);
+CREATE INDEX IF NOT EXISTS related_artists_idx      ON related_artists(artist_id);

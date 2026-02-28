@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexander-bruun/orb/pkg/config"
 	"github.com/alexander-bruun/orb/pkg/kvkeys"
 	"github.com/alexander-bruun/orb/pkg/objstore"
 	"github.com/alexander-bruun/orb/pkg/store"
@@ -37,19 +38,19 @@ func main() {
 
 func run(ctx context.Context) error {
 	// --- Config from env ---
-	dbURL := envOrDefault("DATABASE_URL", "postgres://orb:orb@localhost:5432/orb?sslmode=disable")
-	kvMode := envOrDefault("KV_MODE", "standalone") // standalone | sentinel
-	kvAddr := envOrDefault("KV_ADDR", "localhost:6379")
-	kvAddrs := strings.Split(envOrDefault("KV_SENTINEL_ADDRS", "localhost:26379"), ",")
-	kvMaster := envOrDefault("KV_SENTINEL_MASTER", "mymaster")
-	storeBackend := envOrDefault("STORE_BACKEND", "local")
-	storeRoot := envOrDefault("STORE_ROOT", "./data/audio")
-	storeBucket := envOrDefault("STORE_BUCKET", "orb-audio")
-	s3Endpoint := envOrDefault("S3_ENDPOINT", "http://localhost:9000")
-	s3Key := envOrDefault("S3_ACCESS_KEY", "orb")
-	s3Secret := envOrDefault("S3_SECRET_KEY", "orbsecret")
-	jwtSecret := envOrDefault("JWT_SECRET", "dev-secret-change-in-prod")
-	port := envOrDefault("HTTP_PORT", "8080")
+	dbURL := config.DSN()
+	kvMode := config.Env("KV_MODE", "standalone") // standalone | sentinel
+	kvAddr := config.Env("KV_ADDR", "localhost:6379")
+	kvAddrs := strings.Split(config.Env("KV_SENTINEL_ADDRS", "localhost:26379"), ",")
+	kvMaster := config.Env("KV_SENTINEL_MASTER", "mymaster")
+	storeBackend := config.Env("STORE_BACKEND", "local")
+	storeRoot := config.Env("STORE_ROOT", "./data/audio")
+	storeBucket := config.Env("STORE_BUCKET", "orb-audio")
+	s3Endpoint := config.Env("S3_ENDPOINT", "http://localhost:9000")
+	s3Key := config.Env("S3_ACCESS_KEY", "orb")
+	s3Secret := config.Env("S3_SECRET_KEY", "orbsecret")
+	jwtSecret := config.Env("JWT_SECRET", "dev-secret-change-in-prod")
+	port := config.Env("HTTP_PORT", "8080")
 
 	// --- Postgres ---
 	db, err := store.Connect(ctx, dbURL)
@@ -122,6 +123,7 @@ func run(ctx context.Context) error {
 	streamSvc := stream.New(db, obj, kv)
 	// Public cover routes (browser <img> can't set Authorization header)
 	r.Get("/covers/{album_id}", streamSvc.Cover)
+	r.Get("/covers/artist/{artist_id}", streamSvc.ArtistImage)
 	r.Get("/covers/playlist/{id}", streamSvc.PlaylistCover)
 	r.Get("/covers/playlist/{id}/composite", streamSvc.PlaylistCoverComposite)
 
@@ -219,13 +221,6 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func envOrDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
 
 // Ensure kvkeys package is used (imported for side effects in future).

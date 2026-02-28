@@ -222,15 +222,37 @@ ORDER BY disc_number ASC, track_number ASC`,
 
 func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, error) {
 	var a Artist
-	var mbid sql.NullString
+	var mbid, artistType, country, beginDate, endDate, disambiguation, imageKey sql.NullString
+	var enrichedAt sql.NullTime
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, sort_name, mbid, created_at FROM artists WHERE id = $1`,
+		`SELECT id, name, sort_name, mbid, artist_type, country, begin_date, end_date, disambiguation, image_key, enriched_at, created_at FROM artists WHERE id = $1`,
 		artistID)
-	if err := row.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &a.CreatedAt); err != nil {
+	if err := row.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &artistType, &country, &beginDate, &endDate, &disambiguation, &imageKey, &enrichedAt, &a.CreatedAt); err != nil {
 		return Artist{}, err
 	}
 	if mbid.Valid {
 		a.Mbid = &mbid.String
+	}
+	if artistType.Valid {
+		a.ArtistType = &artistType.String
+	}
+	if country.Valid {
+		a.Country = &country.String
+	}
+	if beginDate.Valid {
+		a.BeginDate = &beginDate.String
+	}
+	if endDate.Valid {
+		a.EndDate = &endDate.String
+	}
+	if disambiguation.Valid {
+		a.Disambiguation = &disambiguation.String
+	}
+	if imageKey.Valid {
+		a.ImageKey = &imageKey.String
+	}
+	if enrichedAt.Valid {
+		a.EnrichedAt = &enrichedAt.Time
 	}
 	return a, nil
 }
@@ -300,16 +322,17 @@ func (s *Store) GetMaxQueuePosition(ctx context.Context, userID string) (int, er
 // GetTrackByID returns a track by ID.
 func (s *Store) GetTrackByID(ctx context.Context, id string) (Track, error) {
 	var t Track
-	row := s.pool.QueryRow(ctx, `SELECT id, album_id, artist_id, title, track_number, disc_number, duration_ms, file_key, file_size, format, bit_depth, sample_rate, channels, bitrate_kbps, seek_table, fingerprint, created_at FROM tracks WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT id, album_id, artist_id, title, track_number, disc_number, duration_ms, file_key, file_size, format, bit_depth, sample_rate, channels, bitrate_kbps, seek_table, fingerprint, isrc, mbid, enriched_at, created_at FROM tracks WHERE id = $1`, id)
 	var albumID, artistID, format sql.NullString
 	var trackNumber, discNumber, durationMs, sampleRate, channels sql.NullInt64
 	var fileKey sql.NullString
 	var fileSize sql.NullInt64
 	var bitDepth, bitrateKbps sql.NullInt64
 	var seekTable []byte
-	var fingerprintVal sql.NullString
+	var fingerprintVal, isrc, mbid sql.NullString
+	var enrichedAt sql.NullTime
 	var createdAt time.Time
-	err := row.Scan(&t.ID, &albumID, &artistID, &t.Title, &trackNumber, &discNumber, &durationMs, &fileKey, &fileSize, &format, &bitDepth, &sampleRate, &channels, &bitrateKbps, &seekTable, &fingerprintVal, &createdAt)
+	err := row.Scan(&t.ID, &albumID, &artistID, &t.Title, &trackNumber, &discNumber, &durationMs, &fileKey, &fileSize, &format, &bitDepth, &sampleRate, &channels, &bitrateKbps, &seekTable, &fingerprintVal, &isrc, &mbid, &enrichedAt, &createdAt)
 	if albumID.Valid {
 		t.AlbumID = &albumID.String
 	}
@@ -342,6 +365,15 @@ func (s *Store) GetTrackByID(ctx context.Context, id string) (Track, error) {
 	t.SeekTable = seekTable
 	if fingerprintVal.Valid {
 		t.Fingerprint = fingerprintVal.String
+	}
+	if isrc.Valid {
+		t.Isrc = &isrc.String
+	}
+	if mbid.Valid {
+		t.Mbid = &mbid.String
+	}
+	if enrichedAt.Valid {
+		t.EnrichedAt = &enrichedAt.Time
 	}
 	t.CreatedAt = createdAt
 	return t, err
@@ -815,10 +847,11 @@ func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 // GetAlbumByID returns an album by ID.
 func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	var alb Album
-	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count FROM albums WHERE id = $1`, id)
-	var artistID, label, coverArtKey, mbid sql.NullString
+	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, album_type, release_date, release_group_mbid, enriched_at, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count FROM albums WHERE id = $1`, id)
+	var artistID, label, coverArtKey, mbid, albumType, releaseDate, releaseGroupMbid sql.NullString
 	var releaseYear sql.NullInt64
-	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt, &alb.TrackCount)
+	var enrichedAt sql.NullTime
+	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &albumType, &releaseDate, &releaseGroupMbid, &enrichedAt, &alb.CreatedAt, &alb.TrackCount)
 	if artistID.Valid {
 		alb.ArtistID = &artistID.String
 	}
@@ -834,6 +867,18 @@ func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	}
 	if mbid.Valid {
 		alb.Mbid = &mbid.String
+	}
+	if albumType.Valid {
+		alb.AlbumType = &albumType.String
+	}
+	if releaseDate.Valid {
+		alb.ReleaseDate = &releaseDate.String
+	}
+	if releaseGroupMbid.Valid {
+		alb.ReleaseGroupMbid = &releaseGroupMbid.String
+	}
+	if enrichedAt.Valid {
+		alb.EnrichedAt = &enrichedAt.Time
 	}
 	return alb, err
 }
@@ -1014,4 +1059,301 @@ func (s *Store) GetTrackLyrics(ctx context.Context, trackID string) (string, err
 func (s *Store) SetTrackLyrics(ctx context.Context, trackID, lyrics string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE tracks SET lyrics = $1 WHERE id = $2`, lyrics, trackID)
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// Enrichment methods
+// ---------------------------------------------------------------------------
+
+// UpdateArtistEnrichment updates an artist with MusicBrainz metadata.
+func (s *Store) UpdateArtistEnrichment(ctx context.Context, p UpdateArtistEnrichmentParams) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE artists SET mbid = COALESCE($2, mbid), artist_type = $3, country = $4, begin_date = $5, end_date = $6, disambiguation = $7, image_key = COALESCE($8, image_key), enriched_at = now() WHERE id = $1`,
+		p.ID, p.Mbid, p.ArtistType, p.Country, p.BeginDate, p.EndDate, p.Disambiguation, p.ImageKey)
+	return err
+}
+
+// UpdateAlbumEnrichment updates an album with MusicBrainz metadata.
+func (s *Store) UpdateAlbumEnrichment(ctx context.Context, p UpdateAlbumEnrichmentParams) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE albums SET mbid = COALESCE($2, mbid), label = COALESCE($3, label), album_type = $4, release_date = $5, release_group_mbid = $6, enriched_at = now() WHERE id = $1`,
+		p.ID, p.Mbid, p.Label, p.AlbumType, p.ReleaseDate, p.ReleaseGroupMbid)
+	return err
+}
+
+// UpdateAlbumCoverArt sets the cover_art_key for an album.
+func (s *Store) UpdateAlbumCoverArt(ctx context.Context, albumID, coverArtKey string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE albums SET cover_art_key = $2 WHERE id = $1`,
+		albumID, coverArtKey)
+	return err
+}
+
+// UpdateTrackEnrichment updates a track with MusicBrainz metadata.
+func (s *Store) UpdateTrackEnrichment(ctx context.Context, p UpdateTrackEnrichmentParams) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE tracks SET mbid = COALESCE($2, mbid), isrc = $3, enriched_at = now() WHERE id = $1`,
+		p.ID, p.Mbid, p.Isrc)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Genre methods
+// ---------------------------------------------------------------------------
+
+// UpsertGenre inserts a genre or does nothing if it already exists.
+func (s *Store) UpsertGenre(ctx context.Context, id, name string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO genres (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+		id, name)
+	return err
+}
+
+// SetArtistGenres replaces all genre associations for an artist.
+func (s *Store) SetArtistGenres(ctx context.Context, artistID string, genreIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM artist_genres WHERE artist_id = $1`, artistID); err != nil {
+		return err
+	}
+	for _, gid := range genreIDs {
+		if _, err := tx.Exec(ctx, `INSERT INTO artist_genres (artist_id, genre_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, artistID, gid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// SetAlbumGenres replaces all genre associations for an album.
+func (s *Store) SetAlbumGenres(ctx context.Context, albumID string, genreIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM album_genres WHERE album_id = $1`, albumID); err != nil {
+		return err
+	}
+	for _, gid := range genreIDs {
+		if _, err := tx.Exec(ctx, `INSERT INTO album_genres (album_id, genre_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, albumID, gid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// SetTrackGenres replaces all genre associations for a track.
+func (s *Store) SetTrackGenres(ctx context.Context, trackID string, genreIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM track_genres WHERE track_id = $1`, trackID); err != nil {
+		return err
+	}
+	for _, gid := range genreIDs {
+		if _, err := tx.Exec(ctx, `INSERT INTO track_genres (track_id, genre_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, trackID, gid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ListGenresByArtist returns all genres for an artist.
+func (s *Store) ListGenresByArtist(ctx context.Context, artistID string) ([]Genre, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT g.id, g.name FROM genres g JOIN artist_genres ag ON ag.genre_id = g.id WHERE ag.artist_id = $1 ORDER BY g.name`,
+		artistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanGenres(rows)
+}
+
+// ListGenresByAlbum returns all genres for an album.
+func (s *Store) ListGenresByAlbum(ctx context.Context, albumID string) ([]Genre, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT g.id, g.name FROM genres g JOIN album_genres ag ON ag.genre_id = g.id WHERE ag.album_id = $1 ORDER BY g.name`,
+		albumID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanGenres(rows)
+}
+
+// ListGenresByTrack returns all genres for a track.
+func (s *Store) ListGenresByTrack(ctx context.Context, trackID string) ([]Genre, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT g.id, g.name FROM genres g JOIN track_genres tg ON tg.genre_id = g.id WHERE tg.track_id = $1 ORDER BY g.name`,
+		trackID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanGenres(rows)
+}
+
+// ListGenres returns all genres ordered by name.
+func (s *Store) ListGenres(ctx context.Context) ([]Genre, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, name FROM genres ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanGenres(rows)
+}
+
+func scanGenres(rows pgx.Rows) ([]Genre, error) {
+	out := make([]Genre, 0)
+	for rows.Next() {
+		var g Genre
+		if err := rows.Scan(&g.ID, &g.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Related artists
+// ---------------------------------------------------------------------------
+
+// UpsertRelatedArtist inserts a related artist relationship.
+func (s *Store) UpsertRelatedArtist(ctx context.Context, artistID, relatedID, relType string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO related_artists (artist_id, related_id, rel_type) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+		artistID, relatedID, relType)
+	return err
+}
+
+// ListRelatedArtists returns all related artists for an artist.
+func (s *Store) ListRelatedArtists(ctx context.Context, artistID string) ([]RelatedArtist, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT ra.artist_id, ra.related_id, ra.rel_type, a.name
+FROM related_artists ra
+JOIN artists a ON a.id = ra.related_id
+WHERE ra.artist_id = $1
+ORDER BY ra.rel_type, a.name`,
+		artistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]RelatedArtist, 0)
+	for rows.Next() {
+		var r RelatedArtist
+		if err := rows.Scan(&r.ArtistID, &r.RelatedID, &r.RelType, &r.ArtistName); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Batch queries for enrichment
+// ---------------------------------------------------------------------------
+
+// ListUnenrichedArtists returns artists that haven't been enriched yet.
+// If force is true, returns all artists regardless of enrichment status.
+func (s *Store) ListUnenrichedArtists(ctx context.Context, limit int, force bool) ([]Artist, error) {
+	q := `SELECT id, name, sort_name, mbid, created_at FROM artists`
+	if !force {
+		q += ` WHERE enriched_at IS NULL`
+	}
+	q += ` ORDER BY name LIMIT $1`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanArtists(rows)
+}
+
+// ListUnenrichedAlbums returns albums that haven't been enriched yet, with artist name.
+// If force is true, returns all albums regardless of enrichment status.
+func (s *Store) ListUnenrichedAlbums(ctx context.Context, limit int, force bool) ([]Album, error) {
+	whereClause := "WHERE al.enriched_at IS NULL"
+	if force {
+		whereClause = ""
+	}
+	q := fmt.Sprintf(`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
+FROM albums al
+LEFT JOIN artists ar ON ar.id = al.artist_id
+LEFT JOIN tracks t ON t.album_id = al.id
+%s
+GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+ORDER BY al.title LIMIT $1`, whereClause)
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlbums(rows)
+}
+
+// ListUnenrichedTracks returns tracks that haven't been enriched yet.
+// If force is true, returns all tracks regardless of enrichment status.
+func (s *Store) ListUnenrichedTracks(ctx context.Context, limit int, force bool) ([]Track, error) {
+	q := `SELECT id, album_id, artist_id, title, track_number, disc_number, duration_ms, file_key, file_size, format, bit_depth, sample_rate, channels, bitrate_kbps, seek_table, fingerprint, created_at
+FROM tracks`
+	if !force {
+		q += ` WHERE enriched_at IS NULL`
+	}
+	q += ` ORDER BY title LIMIT $1`
+	rows, err := s.pool.Query(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}
+
+// ListArtistsByGenre returns artists that have a given genre.
+func (s *Store) ListArtistsByGenre(ctx context.Context, genreID string, limit, offset int) ([]Artist, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT a.id, a.name, a.sort_name, a.mbid, a.created_at
+FROM artists a
+JOIN artist_genres ag ON ag.artist_id = a.id
+WHERE ag.genre_id = $1
+ORDER BY a.sort_name LIMIT $2 OFFSET $3`,
+		genreID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanArtists(rows)
+}
+
+// ListAlbumsByGenre returns albums that have a given genre.
+func (s *Store) ListAlbumsByGenre(ctx context.Context, genreID string, limit, offset int) ([]Album, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
+FROM albums al
+JOIN album_genres ag ON ag.album_id = al.id
+LEFT JOIN artists ar ON ar.id = al.artist_id
+LEFT JOIN tracks t ON t.album_id = al.id
+WHERE ag.genre_id = $1
+GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+ORDER BY al.title LIMIT $2 OFFSET $3`,
+		genreID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlbums(rows)
+}
+
+// GetGenreByID returns a single genre by ID.
+func (s *Store) GetGenreByID(ctx context.Context, id string) (Genre, error) {
+	var g Genre
+	err := s.pool.QueryRow(ctx, `SELECT id, name FROM genres WHERE id = $1`, id).Scan(&g.ID, &g.Name)
+	return g, err
 }

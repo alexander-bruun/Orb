@@ -10,22 +10,33 @@ CREATE TABLE users (
 );
 
 CREATE TABLE artists (
-    id            TEXT        PRIMARY KEY,
-    name          TEXT        NOT NULL,
-    sort_name     TEXT        NOT NULL,
-    mbid          TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id              TEXT        PRIMARY KEY,
+    name            TEXT        NOT NULL,
+    sort_name       TEXT        NOT NULL,
+    mbid            TEXT,
+    artist_type     TEXT,                    -- Person | Group | Orchestra | Choir | Character | Other
+    country         TEXT,                    -- ISO 3166-1 alpha-2
+    begin_date      TEXT,                    -- ISO date (YYYY or YYYY-MM-DD)
+    end_date        TEXT,
+    disambiguation  TEXT,
+    image_key       TEXT,                    -- object-store key for artist photo
+    enriched_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE albums (
-    id            TEXT        PRIMARY KEY,
-    artist_id     TEXT        REFERENCES artists(id) ON DELETE SET NULL,
-    title         TEXT        NOT NULL,
-    release_year  INT,
-    label         TEXT,
-    cover_art_key TEXT,
-    mbid          TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                  TEXT        PRIMARY KEY,
+    artist_id           TEXT        REFERENCES artists(id) ON DELETE SET NULL,
+    title               TEXT        NOT NULL,
+    release_year        INT,
+    label               TEXT,
+    cover_art_key       TEXT,
+    mbid                TEXT,
+    album_type          TEXT,                    -- Album | EP | Single | Compilation | Live | Remix | Soundtrack
+    release_date        TEXT,                    -- full ISO date (YYYY-MM-DD) when available
+    release_group_mbid  TEXT,
+    enriched_at         TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE tracks (
@@ -46,6 +57,9 @@ CREATE TABLE tracks (
     seek_table    JSONB,                  -- precomputed frame offsets for seeking
     fingerprint   TEXT,
     lyrics        TEXT,                   -- LRC-format synced lyrics (optional)
+    isrc          TEXT,                   -- International Standard Recording Code
+    mbid          TEXT,                   -- MusicBrainz recording ID
+    enriched_at   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -99,6 +113,38 @@ CREATE TABLE play_history (
     duration_played_ms INT        NOT NULL
 );
 
+-- Genre taxonomy and entity-genre relationships
+CREATE TABLE genres (
+    id   TEXT PRIMARY KEY,               -- deterministic: sha256("genre:" + lower(name))[:8]
+    name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE artist_genres (
+    artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    genre_id  TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    PRIMARY KEY (artist_id, genre_id)
+);
+
+CREATE TABLE album_genres (
+    album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    genre_id TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    PRIMARY KEY (album_id, genre_id)
+);
+
+CREATE TABLE track_genres (
+    track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    genre_id TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
+    PRIMARY KEY (track_id, genre_id)
+);
+
+-- Related artists from MusicBrainz artist-rels
+CREATE TABLE related_artists (
+    artist_id  TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    related_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    rel_type   TEXT NOT NULL,            -- "member of band", "collaboration", etc.
+    PRIMARY KEY (artist_id, related_id, rel_type)
+);
+
 CREATE INDEX tracks_album_id_idx       ON tracks(album_id);
 CREATE INDEX tracks_artist_id_idx      ON tracks(artist_id);
 CREATE INDEX albums_artist_id_idx      ON albums(artist_id);
@@ -107,6 +153,10 @@ CREATE INDEX playlist_tracks_pl_idx    ON playlist_tracks(playlist_id, position)
 CREATE INDEX queue_entries_user_idx    ON queue_entries(user_id, position);
 CREATE INDEX play_history_user_idx     ON play_history(user_id, played_at DESC);
 CREATE INDEX user_favorites_user_id_idx ON user_favorites(user_id);
+CREATE INDEX artist_genres_artist_idx  ON artist_genres(artist_id);
+CREATE INDEX album_genres_album_idx    ON album_genres(album_id);
+CREATE INDEX track_genres_track_idx    ON track_genres(track_id);
+CREATE INDEX related_artists_idx       ON related_artists(artist_id);
 
 -- Full-text search
 ALTER TABLE tracks  ADD COLUMN search_vector tsvector

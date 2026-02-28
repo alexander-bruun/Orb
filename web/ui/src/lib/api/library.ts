@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { Track, Album, Artist } from '$lib/types';
+import type { Track, Album, Artist, Genre, RelatedArtist } from '$lib/types';
 
 export const library = {
 	tracks: (limit = 50, offset = 0) =>
@@ -8,9 +8,15 @@ export const library = {
 		apiFetch<{ items: Album[]; total: number }>(`/library/albums?limit=${limit}&offset=${offset}&sort_by=${sortBy}`),
 	artists: (limit = 50, offset = 0) =>
 		apiFetch<Artist[]>(`/library/artists?limit=${limit}&offset=${offset}`),
-	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist }>(`/library/albums/${id}`),
-	artist: (id: string) => apiFetch<{ artist: Artist; albums: Album[] }>(`/library/artists/${id}`),
-	track: (id: string) => apiFetch<Track>(`/library/tracks/${id}`),
+	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist; genres?: Genre[] }>(`/library/albums/${id}`),
+	artist: (id: string) => apiFetch<{ artist: Artist; albums: Album[]; genres?: Genre[]; related_artists?: RelatedArtist[] }>(`/library/artists/${id}`),
+	track: (id: string) => apiFetch<{ track: Track; genres?: Genre[] }>(`/library/tracks/${id}`),
+	genres: () => apiFetch<Genre[]>('/library/genres'),
+	genreArtists: (id: string, limit = 50, offset = 0) =>
+		apiFetch<Artist[]>(`/library/genres/${id}/artists?limit=${limit}&offset=${offset}`),
+	genreDetail: (id: string) => apiFetch<Genre>(`/library/genres/${id}`),
+	genreAlbums: (id: string, limit = 50, offset = 0) =>
+		apiFetch<Album[]>(`/library/genres/${id}/albums?limit=${limit}&offset=${offset}`),
 	addTrack: (id: string) => apiFetch(`/library/tracks/${id}`, { method: 'POST' }),
 	removeTrack: (id: string) => apiFetch(`/library/tracks/${id}`, { method: 'DELETE' }),
 	search: (q: string) =>

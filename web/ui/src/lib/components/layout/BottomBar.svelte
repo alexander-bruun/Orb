@@ -6,7 +6,6 @@
     durationMs,
     formattedPosition,
     formattedDuration,
-    formattedFormat,
     volume,
     bufferedPct,
     repeatMode,
@@ -241,9 +240,6 @@
             <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
         </button>
-      {/if}
-      {#if $formattedFormat}
-        <span class="format-badge">{$formattedFormat}</span>
       {/if}
     </div>
   </div>
@@ -556,16 +552,5 @@
     line-height: 1;
     color: var(--accent);
     pointer-events: none;
-  }
-  .format-badge {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--accent);
-    background: var(--accent-dim);
-    border: 1px solid var(--accent-glow);
-    border-radius: 4px;
-    padding: 3px 8px;
-    white-space: nowrap;
   }
 </style>

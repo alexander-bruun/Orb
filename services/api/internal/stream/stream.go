@@ -165,6 +165,12 @@ func (s *Service) Cover(w http.ResponseWriter, r *http.Request) {
 	s.serveCover(w, r, fmt.Sprintf("covers/%s.jpg", albumID))
 }
 
+// ArtistImage serves an artist's photo from the object store.
+func (s *Service) ArtistImage(w http.ResponseWriter, r *http.Request) {
+	artistID := chi.URLParam(r, "artist_id")
+	s.serveCover(w, r, fmt.Sprintf("artists/%s.jpg", artistID))
+}
+
 // PlaylistCover serves playlist cover art.
 func (s *Service) PlaylistCover(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

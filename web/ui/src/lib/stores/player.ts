@@ -372,8 +372,9 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		const st = JSON.parse(raw);
 		if (!st?.trackId) return;
 
-		const track = await libraryApi.track(st.trackId).catch(() => null);
-		if (!track) return;
+		const res = await libraryApi.track(st.trackId).catch(() => null);
+		if (!res?.track) return;
+		const track = res.track;
 
 		currentTrack.set(track);
 		durationMs.set(track.duration_ms);
@@ -391,7 +392,9 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		if (Array.isArray(st.queueIds) && st.queueIds.length) {
 			const qTracks = (
 				await Promise.all(
-					st.queueIds.map((id: string) => libraryApi.track(id).catch(() => null))
+					st.queueIds.map((id: string) =>
+						libraryApi.track(id).then((r) => r.track).catch(() => null)
+					)
 				)
 			).filter(Boolean) as Track[];
 			if (qTracks.length) queue.set(qTracks);

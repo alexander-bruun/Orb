@@ -24,46 +24,60 @@ type User struct {
 
 // Artist represents an artist in the database.
 type Artist struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	SortName  string    `json:"sort_name"`
-	Mbid      *string   `json:"mbid,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	SortName       string     `json:"sort_name"`
+	Mbid           *string    `json:"mbid,omitempty"`
+	ArtistType     *string    `json:"artist_type,omitempty"`
+	Country        *string    `json:"country,omitempty"`
+	BeginDate      *string    `json:"begin_date,omitempty"`
+	EndDate        *string    `json:"end_date,omitempty"`
+	Disambiguation *string    `json:"disambiguation,omitempty"`
+	ImageKey       *string    `json:"image_key,omitempty"`
+	EnrichedAt     *time.Time `json:"enriched_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 // Album represents an album in the database.
 type Album struct {
-	ID          string    `json:"id"`
-	ArtistID    *string   `json:"artist_id,omitempty"`
-	ArtistName  *string   `json:"artist_name,omitempty"`
-	Title       string    `json:"title"`
-	ReleaseYear *int      `json:"release_year,omitempty"`
-	Label       *string   `json:"label,omitempty"`
-	CoverArtKey *string   `json:"cover_art_key,omitempty"`
-	Mbid        *string   `json:"mbid,omitempty"`
-	TrackCount  int       `json:"track_count"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID               string     `json:"id"`
+	ArtistID         *string    `json:"artist_id,omitempty"`
+	ArtistName       *string    `json:"artist_name,omitempty"`
+	Title            string     `json:"title"`
+	ReleaseYear      *int       `json:"release_year,omitempty"`
+	Label            *string    `json:"label,omitempty"`
+	CoverArtKey      *string    `json:"cover_art_key,omitempty"`
+	Mbid             *string    `json:"mbid,omitempty"`
+	AlbumType        *string    `json:"album_type,omitempty"`
+	ReleaseDate      *string    `json:"release_date,omitempty"`
+	ReleaseGroupMbid *string    `json:"release_group_mbid,omitempty"`
+	EnrichedAt       *time.Time `json:"enriched_at,omitempty"`
+	TrackCount       int        `json:"track_count"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // Track represents a track in the database.
 type Track struct {
-	ID          string    `json:"id"`
-	AlbumID     *string   `json:"album_id,omitempty"`
-	ArtistID    *string   `json:"artist_id,omitempty"`
-	Title       string    `json:"title"`
-	TrackNumber *int      `json:"track_number,omitempty"`
-	DiscNumber  int       `json:"disc_number"`
-	DurationMs  int       `json:"duration_ms"`
-	FileKey     string    `json:"file_key"`
-	FileSize    int64     `json:"file_size"`
-	Format      string    `json:"format"`
-	BitDepth    *int      `json:"bit_depth,omitempty"`
-	SampleRate  int       `json:"sample_rate"`
-	Channels    int       `json:"channels"`
-	BitrateKbps *int      `json:"bitrate_kbps,omitempty"`
-	SeekTable   []byte    `json:"seek_table,omitempty"`
-	Fingerprint string    `json:"fingerprint,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string     `json:"id"`
+	AlbumID     *string    `json:"album_id,omitempty"`
+	ArtistID    *string    `json:"artist_id,omitempty"`
+	Title       string     `json:"title"`
+	TrackNumber *int       `json:"track_number,omitempty"`
+	DiscNumber  int        `json:"disc_number"`
+	DurationMs  int        `json:"duration_ms"`
+	FileKey     string     `json:"file_key"`
+	FileSize    int64      `json:"file_size"`
+	Format      string     `json:"format"`
+	BitDepth    *int       `json:"bit_depth,omitempty"`
+	SampleRate  int        `json:"sample_rate"`
+	Channels    int        `json:"channels"`
+	BitrateKbps *int       `json:"bitrate_kbps,omitempty"`
+	SeekTable   []byte     `json:"seek_table,omitempty"`
+	Fingerprint string     `json:"fingerprint,omitempty"`
+	Isrc        *string    `json:"isrc,omitempty"`
+	Mbid        *string    `json:"mbid,omitempty"`
+	EnrichedAt  *time.Time `json:"enriched_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // UpsertArtistParams for upserting an artist.
@@ -255,4 +269,47 @@ type IngestStateRow struct {
 	MtimeUnix int64
 	FileSize  int64
 	TrackID   string
+}
+
+// Genre represents a genre tag.
+type Genre struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// RelatedArtist represents a relationship between two artists.
+type RelatedArtist struct {
+	ArtistID   string `json:"artist_id"`
+	RelatedID  string `json:"related_id"`
+	RelType    string `json:"rel_type"`
+	ArtistName string `json:"artist_name,omitempty"`
+}
+
+// UpdateArtistEnrichmentParams for enriching artist metadata from MusicBrainz.
+type UpdateArtistEnrichmentParams struct {
+	ID             string
+	Mbid           *string
+	ArtistType     *string
+	Country        *string
+	BeginDate      *string
+	EndDate        *string
+	Disambiguation *string
+	ImageKey       *string
+}
+
+// UpdateAlbumEnrichmentParams for enriching album metadata from MusicBrainz.
+type UpdateAlbumEnrichmentParams struct {
+	ID               string
+	Mbid             *string
+	Label            *string
+	AlbumType        *string
+	ReleaseDate      *string
+	ReleaseGroupMbid *string
+}
+
+// UpdateTrackEnrichmentParams for enriching track metadata from MusicBrainz.
+type UpdateTrackEnrichmentParams struct {
+	ID   string
+	Mbid *string
+	Isrc *string
 }
