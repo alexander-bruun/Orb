@@ -16,8 +16,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alexander-bruun/orb/pkg/objstore"
@@ -46,6 +48,7 @@ var (
 	flagRecursive bool
 	flagDryRun    bool
 	flagWatch     bool
+	flagWorkers   int
 )
 
 var rootCmd = &cobra.Command{
@@ -67,6 +70,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagRecursive, "recursive", false, "Scan subdirectories recursively")
 	rootCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Print what would be done without modifying anything")
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Watch directory for new files and ingest continuously")
+	rootCmd.Flags().IntVar(&flagWorkers, "workers", runtime.NumCPU(), "Number of parallel ingest workers")
 }
 
 func main() {
@@ -104,6 +108,15 @@ type ingester struct {
 	// to the map is possible in --watch mode.
 	stateMu sync.RWMutex
 	state   map[string]ingestEntry // absolute path → last-seen mtime+size
+
+	// folderImgCache memoises bestFolderImage per directory so that every
+	// track in a multi-track album doesn't re-read and re-decode the same
+	// folder images.
+	folderImgCache sync.Map // dir string → []byte
+
+	// coveredAlbums tracks which album IDs have had their cover art stored in
+	// this session, preventing redundant re-encoding and re-uploading.
+	coveredAlbums sync.Map // albumID string → struct{}
 }
 
 // loadState performs one bulk SELECT to populate the in-memory state map.
@@ -176,8 +189,11 @@ func (g *ingester) process(ctx context.Context, path string) error {
 }
 
 // scan walks flagDir, calling process on each audio file, and returns counts.
+// Files are processed concurrently using up to flagWorkers goroutines.
 func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
-	walkFn := func(path string, d os.DirEntry, walkErr error) error {
+	// Collect all paths first (pure directory walk — no file I/O beyond stat).
+	var paths []string
+	if err := filepath.WalkDir(flagDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			slog.Warn("walk error", "path", path, "err", walkErr)
 			return nil
@@ -188,25 +204,61 @@ func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
 			}
 			return nil
 		}
-		if !isAudioFile(path) {
-			return nil
-		}
-		switch err := g.process(ctx, path); {
-		case errors.Is(err, ErrSkipped):
-			skipped++
-		case err != nil:
-			slog.Error("ingest failed", "path", path, "err", err)
-			errs++
-		default:
-			ingested++
+		if isAudioFile(path) {
+			paths = append(paths, path)
 		}
 		return nil
-	}
-
-	if err := filepath.WalkDir(flagDir, walkFn); err != nil {
+	}); err != nil {
 		slog.Warn("walk error", "dir", flagDir, "err", err)
 	}
-	return
+
+	// Fan out to a bounded worker pool.
+	var nIngested, nSkipped, nErrs int64
+
+	workers := flagWorkers
+	if workers < 1 {
+		workers = 1
+	}
+	pathCh := make(chan string, workers*2)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for p := range pathCh {
+				switch err := g.process(ctx, p); {
+				case errors.Is(err, ErrSkipped):
+					atomic.AddInt64(&nSkipped, 1)
+				case err != nil:
+					slog.Error("ingest failed", "path", p, "err", err)
+					atomic.AddInt64(&nErrs, 1)
+				default:
+					atomic.AddInt64(&nIngested, 1)
+				}
+			}
+		}()
+	}
+	for _, p := range paths {
+		pathCh <- p
+	}
+	close(pathCh)
+	wg.Wait()
+
+	return int(nIngested), int(nSkipped), int(nErrs)
+}
+
+// cachedFolderImage returns the best folder image for dir, memoising the result
+// so that multiple tracks in the same album directory only do the I/O once.
+func (g *ingester) cachedFolderImage(dir string) []byte {
+	if v, ok := g.folderImgCache.Load(dir); ok {
+		return v.([]byte)
+	}
+	data := bestFolderImage(dir)
+	// LoadOrStore: if another goroutine raced and stored first, use its result.
+	if actual, loaded := g.folderImgCache.LoadOrStore(dir, data); loaded {
+		return actual.([]byte)
+	}
+	return data
 }
 
 // ---------------------------------------------------------------------------
@@ -402,24 +454,29 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	albumTitle := coalesce(m.Album(), "Unknown Album")
 	albumID := deterministicID("album:" + strings.ToLower(albumArtistName) + ":" + strings.ToLower(albumTitle))
 
-	// Cover art: prefer embedded picture, fall back to a folder image.
-	var picData []byte
-	if pic := m.Picture(); pic != nil && len(pic.Data) > 0 {
-		picData = pic.Data
-	} else {
-		picData = bestFolderImage(filepath.Dir(path))
-	}
-
+	// Cover art: only process once per album per session.
+	coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
 	var coverArtKeyPtr *string
-	if len(picData) > 0 {
-		key := fmt.Sprintf("covers/%s.jpg", albumID)
-		if err := storeCoverArt(ctx, g.obj, key, picData); err != nil {
-			slog.Warn("cover art storage failed", "album", albumTitle, "err", err)
-		} else {
-			coverArtKeyPtr = &key
-		}
+	if _, done := g.coveredAlbums.Load(albumID); done {
+		// Already stored this session — reuse the key without re-encoding.
+		coverArtKeyPtr = &coverKey
 	} else {
-		slog.Debug("no cover art", "album", albumTitle, "path", path)
+		var picData []byte
+		if pic := m.Picture(); pic != nil && len(pic.Data) > 0 {
+			picData = pic.Data
+		} else {
+			picData = g.cachedFolderImage(filepath.Dir(path))
+		}
+		if len(picData) > 0 {
+			if err := storeCoverArt(ctx, g.obj, coverKey, picData); err != nil {
+				slog.Warn("cover art storage failed", "album", albumTitle, "err", err)
+			} else {
+				coverArtKeyPtr = &coverKey
+				g.coveredAlbums.Store(albumID, struct{}{})
+			}
+		} else {
+			slog.Debug("no cover art", "album", albumTitle, "path", path)
+		}
 	}
 
 	var releaseYearPtr *int
@@ -454,7 +511,7 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		discNum = d
 	}
 
-	bitDepth, sampleRate, durationMs := parseFLACInfo(path)
+	bitDepth, sampleRate, durationMs := readFLACInfo(f, ext)
 	if sampleRate == 0 {
 		sampleRate = 44100
 	}
@@ -569,18 +626,17 @@ func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, da
 	return obj.Put(ctx, key, pr, -1)
 }
 
-// parseFLACInfo reads the FLAC STREAMINFO block for bit depth, sample rate,
-// and duration. Returns zeros for non-FLAC files or unparseable headers.
-func parseFLACInfo(path string) (bitDepth, sampleRate int, durationMs int64) {
-	if strings.ToLower(filepath.Ext(path)) != ".flac" {
+// readFLACInfo reads the FLAC STREAMINFO block for bit depth, sample rate, and
+// duration using the already-open file f, avoiding a redundant os.Open call.
+// ext should be the lowercased extension without the dot (e.g. "flac").
+// Returns zeros for non-FLAC files or unparseable headers.
+func readFLACInfo(f *os.File, ext string) (bitDepth, sampleRate int, durationMs int64) {
+	if ext != "flac" {
 		return
 	}
-	f, err := os.Open(path)
-	if err != nil {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return
 	}
-	defer f.Close()
-
 	// 4-byte "fLaC" marker + 4-byte block header + 34-byte STREAMINFO = 42 bytes.
 	buf := make([]byte, 42)
 	if _, err := io.ReadFull(f, buf); err != nil {
