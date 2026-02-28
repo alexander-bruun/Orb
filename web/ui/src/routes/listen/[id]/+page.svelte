@@ -138,7 +138,11 @@
     const el = lyricsListEl.querySelector<HTMLElement>(`[data-idx="${idx}"]`);
     if (!el) return;
     const containerH = lyricsListEl.clientHeight;
-    targetScrollTop = Math.max(0, el.offsetTop - containerH / 2 + el.offsetHeight / 2);
+    // Use getBoundingClientRect for accurate position relative to scroll container
+    const containerRect = lyricsListEl.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const elTopInContainer = elRect.top - containerRect.top + lyricsListEl.scrollTop;
+    targetScrollTop = Math.max(0, elTopInContainer - containerH / 2 + el.offsetHeight / 2);
   }
 
   // Re-target when active line changes
@@ -263,7 +267,7 @@
 
   {:else if phase === 'playing'}
     <div class="player-layout">
-      <!-- Track cover -->
+      <!-- Track cover with overlays -->
       <div class="cover-area">
         {#if $lpGuestTrack?.album_id && $lpGuestToken}
           <img
@@ -278,17 +282,32 @@
             </svg>
           </div>
         {/if}
+        <!-- Playback state overlay — top left -->
+        <div class="cover-overlay-tl">
+          {#if $lpGuestPlaying}
+            <span class="overlay-badge playing">
+              <span class="status-dot green"></span> Playing
+            </span>
+          {:else}
+            <span class="overlay-badge paused">
+              <span class="status-dot red"></span> Paused
+            </span>
+          {/if}
+        </div>
+        <!-- Format badge overlay — top right -->
+        {#if $lpGuestTrack}
+          {@const bd = $lpGuestTrack.bit_depth ? `${$lpGuestTrack.bit_depth}bit` : ''}
+          {@const sr = `${($lpGuestTrack.sample_rate / 1000).toFixed(1)}kHz`}
+          <div class="cover-overlay-tr">
+            <span class="format-badge">{[bd, sr].filter(Boolean).join(' · ')}</span>
+          </div>
+        {/if}
       </div>
 
       <!-- Track info -->
       <div class="track-info">
         <div class="track-title">{$lpGuestTrack?.title ?? '—'}</div>
         <div class="track-artist">{$lpGuestTrack?.artist_name ?? ''}</div>
-        {#if $lpGuestTrack}
-          {@const bd = $lpGuestTrack.bit_depth ? `${$lpGuestTrack.bit_depth}bit` : ''}
-          {@const sr = `${($lpGuestTrack.sample_rate / 1000).toFixed(1)}kHz`}
-          <span class="format-badge">{[bd, sr].filter(Boolean).join(' · ')}</span>
-        {/if}
       </div>
 
       <!-- Progress bar (read-only) -->
@@ -300,15 +319,22 @@
         <span class="time">{formatTime($lpGuestDurationMs)}</span>
       </div>
 
-      <!-- Playback indicator -->
-      <div class="playback-state">
-        {#if $lpGuestPlaying}
-          <span class="playing-badge">
-            <span class="pulse-dot"></span> Playing
-          </span>
-        {:else}
-          <span class="paused-badge">Paused</span>
-        {/if}
+      <!-- Volume control (below progress) -->
+      <div class="volume-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+        </svg>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={volume}
+          oninput={onVolumeChange}
+          class="volume-slider"
+          aria-label="Volume"
+        />
       </div>
 
       <!-- Lyrics -->
@@ -340,24 +366,6 @@
           {/if}
         </div>
       {/if}
-
-      <!-- Volume control -->
-      <div class="volume-row">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-        </svg>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={volume}
-          oninput={onVolumeChange}
-          class="volume-slider"
-          aria-label="Volume"
-        />
-      </div>
 
       <!-- Participants -->
       <div class="participants-area">
@@ -514,6 +522,7 @@
   }
 
   .cover-area {
+    position: relative;
     width: clamp(200px, 50vw, 300px);
     aspect-ratio: 1;
     border-radius: 12px;
@@ -535,19 +544,59 @@
     justify-content: center;
   }
 
-  .track-info { text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  /* Overlays on cover art */
+  .cover-overlay-tl, .cover-overlay-tr {
+    position: absolute;
+    top: 8px;
+    z-index: 2;
+  }
+  .cover-overlay-tl { left: 8px; }
+  .cover-overlay-tr { right: 8px; }
+
+  .overlay-badge {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .overlay-badge.playing { color: #22c55e; }
+  .overlay-badge.paused  { color: #ef4444; }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-dot.green {
+    background: #22c55e;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .status-dot.red {
+    background: #ef4444;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+
   .format-badge {
     font-family: 'DM Mono', monospace;
-    font-size: 10px;
+    font-size: 9px;
     letter-spacing: 0.08em;
-    color: var(--accent, #7c3aed);
-    background: color-mix(in srgb, var(--accent, #7c3aed) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent, #7c3aed) 30%, transparent);
-    border-radius: 4px;
-    padding: 3px 8px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 6px;
+    padding: 4px 8px;
     white-space: nowrap;
-    margin-top: 2px;
   }
+
+  .track-info { text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .track-title {
     font-size: 1.2rem;
     font-weight: 700;
@@ -585,27 +634,10 @@
     transition: width 0.25s linear;
   }
 
-  .playback-state { display: flex; align-items: center; }
-  .playing-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.8rem;
-    color: #22c55e;
-    font-weight: 500;
-  }
-  .pulse-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #22c55e;
-    animation: pulse 1.2s ease-in-out infinite;
-  }
   @keyframes pulse {
     0%, 100% { transform: scale(1); opacity: 1; }
     50% { transform: scale(1.4); opacity: 0.6; }
   }
-  .paused-badge { font-size: 0.8rem; color: var(--text-muted, #888); }
 
   .volume-row {
     display: flex;
@@ -669,26 +701,23 @@
     border-radius: 10px;
     overflow: hidden;
   }
-  .lyrics-header {
+  .lyrics-toggle {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 10px 12px;
+    border: none;
     border-bottom: 1px solid var(--border, #333);
+    background: none;
     cursor: pointer;
-  }
-  .lyrics-header:hover { background: var(--bg-hover, #ffffff08); }
-  .lyrics-title {
-    display: flex;
-    align-items: center;
-    gap: 5px;
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-muted, #888);
-    flex-shrink: 0;
+    width: 100%;
   }
+  .lyrics-toggle:hover { background: var(--bg-hover, #ffffff08); color: var(--text, #fff); }
   .chevron {
     font-size: 0.7rem;
     transition: transform 0.2s;
