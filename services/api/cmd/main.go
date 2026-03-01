@@ -45,12 +45,7 @@ func run(ctx context.Context) error {
 	kvAddr := config.Env("KV_ADDR", "localhost:6379")
 	kvAddrs := strings.Split(config.Env("KV_SENTINEL_ADDRS", "localhost:26379"), ",")
 	kvMaster := config.Env("KV_SENTINEL_MASTER", "mymaster")
-	storeBackend := config.Env("STORE_BACKEND", "local")
 	storeRoot := config.Env("STORE_ROOT", "./data/audio")
-	storeBucket := config.Env("STORE_BUCKET", "orb-audio")
-	s3Endpoint := config.Env("S3_ENDPOINT", "http://localhost:9000")
-	s3Key := config.Env("S3_ACCESS_KEY", "orb")
-	s3Secret := config.Env("S3_SECRET_KEY", "orbsecret")
 	jwtSecret := config.Env("JWT_SECRET", "dev-secret-change-in-prod")
 	port := config.Env("HTTP_PORT", "8080")
 
@@ -85,25 +80,11 @@ func run(ctx context.Context) error {
 	}
 
 	// --- Object store ---
-	var obj objstore.ObjectStore
-	switch storeBackend {
-	case "s3":
-		obj, err = objstore.NewS3(ctx, objstore.S3Config{
-			Endpoint:  s3Endpoint,
-			AccessKey: s3Key,
-			SecretKey: s3Secret,
-			Bucket:    storeBucket,
-		})
-		if err != nil {
-			return fmt.Errorf("s3 store: %w", err)
-		}
-	default:
-		obj, err = objstore.NewLocalFS(storeRoot)
-		if err != nil {
-			return fmt.Errorf("local store: %w", err)
-		}
+	obj, err := objstore.NewLocalFS(storeRoot)
+	if err != nil {
+		return fmt.Errorf("local store: %w", err)
 	}
-	slog.Info("object store ready", "backend", storeBackend)
+	slog.Info("object store ready", "root", storeRoot)
 
 	// --- Router ---
 	r := chi.NewRouter()

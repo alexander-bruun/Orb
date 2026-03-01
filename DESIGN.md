@@ -48,7 +48,7 @@ Orb is a self-hosted, lossless music streaming platform — a personal Spotify b
 - Stream lossless FLAC/WAV at full bit depth (up to 32-bit / 192kHz) to the browser
 - Multi-user: accounts, individual libraries, playlists, persistent queue per user
 - Library ingestion: scan local directories, extract ID3/Vorbis tags, embed album art
-- Horizontally scalable: N API replicas, shared Postgres + object storage
+- Horizontally scalable: N API replicas, shared Postgres + local filesystem storage
 - Clean SvelteKit UI with Melt UI + Tailwind: top bar, left sidebar, bottom media bar, album art
 
 ---
@@ -75,13 +75,13 @@ Orb is a self-hosted, lossless music streaming platform — a personal Spotify b
        │  /library  browse         │                            
        │  /stream   range serve    │                            
        │  /playlists               │                            
-       │  /queue    playback state │    ┌────────┐              
-       └──┬───────────────┬────────┘    │        │              
-          │  ┌────────────┼─────────────┤ Ingest │              
-    ┌─────▼──▼───┐  ┌─────▼──────────┐  │        │              
-    │  Postgres  │  │  Object Store  │  └────┬───┘              
-    │ (pgBouncer │  │ (MinIO / local ├───────┘                  
-    │ + replica) │  │   disk)        │                          
+       │  /queue    playback state │    ┌────────┐
+       └──┬───────────────┬────────┘    │        │
+          │  ┌────────────┼─────────────┤ Ingest │
+    ┌─────▼──▼───┐  ┌─────▼──────────┐  │        │
+    │  Postgres  │  │    Local       │  └────┬───┘
+    │ (pgBouncer │  │  Filesystem    ├───────┘
+    │ + replica) │  │  (STORE_ROOT)  │
     └────────────┘  └────────────────┘                          
           │                                                     
     ┌─────▼───────┐                                             
@@ -100,7 +100,7 @@ Orb is a self-hosted, lossless music streaming platform — a personal Spotify b
 
 **Client-side FLAC decoding via WASM.** Browsers cannot natively decode 24-bit FLAC at full depth through the `<audio>` element. The SvelteKit client uses `libflac.js` (Emscripten-compiled libFLAC) to decode chunks into 32-bit float PCM, fed directly into the Web Audio API. This preserves full bit depth with zero quality loss. 16-bit FLAC and MP3 fall back to native `<audio>` decoding.
 
-**Object storage for audio files.** Audio files are stored in an S3-compatible object store (MinIO for self-hosted). The API never loads full files into memory — it proxies range requests through to the object store, or serves directly from the filesystem for local-disk deployments. Metadata, album art, and the library index live in Postgres.
+**Local filesystem for audio files.** Audio files are stored on the local filesystem under `STORE_ROOT`. The API never loads full files into memory — it serves range requests directly from disk via `os.File.ReadAt`. Metadata, album art, and the library index live in Postgres.
 
 ---
 
@@ -135,7 +135,7 @@ Server:  HTTP/1.1 206 Partial Content
          X-Orb-Sample-Rate: 96000
 ```
 
-The handler resolves the file location from Postgres, opens the file or proxies to object storage, seeks to the byte offset, copies exactly the requested bytes, and closes. It never buffers the full file in memory. The custom `X-Orb-*` headers tell the client which decoding path to use (WASM vs native).
+The handler resolves the file location from Postgres, opens the file on the local filesystem, seeks to the byte offset, copies exactly the requested bytes, and closes. It never buffers the full file in memory. The custom `X-Orb-*` headers tell the client which decoding path to use (WASM vs native).
 
 ### Client-side decoding pipeline
 
@@ -163,7 +163,7 @@ For MP3 and 16-bit FLAC, the client uses a native `<audio>` element — no WASM 
 
 ### `services/api`
 
-The single backend service. Stateless — all state in Postgres, KeyVal, and object storage. Scale by running N replicas behind a load balancer.
+The single backend service. Stateless — all state in Postgres, KeyVal, and the local filesystem. Scale by running N replicas behind a load balancer (with a shared network volume for the filesystem).
 
 Internal packages:
 
@@ -171,7 +171,7 @@ Internal packages:
 services/api/internal/
 ├── auth/        # JWT issuance + validation, sessions in KeyVal
 ├── library/     # Browse artists, albums, tracks; full-text search
-├── stream/      # HTTP range request handler, object store proxy
+├── stream/      # HTTP range request handler, local filesystem
 ├── playlist/    # CRUD for playlists and playlist tracks
 ├── queue/       # Per-user playback queue, write-through cache
 └── user/        # Account management
@@ -181,7 +181,7 @@ services/api/internal/
 
 ### `pkg/objstore`
 
-Abstraction over storage backends:
+Local filesystem storage abstraction:
 
 ```go
 type ObjectStore interface {
@@ -192,11 +192,11 @@ type ObjectStore interface {
 }
 ```
 
-Implementations: `LocalFS` (direct disk reads) and `S3` (MinIO or AWS S3). The stream handler calls `GetRange` and never knows which backend is active.
+Implementation: `LocalFS` (direct disk reads via `os.File.ReadAt` under `STORE_ROOT`). The stream handler calls `GetRange` through this interface.
 
 ### `cmd/ingest`
 
-Standalone CLI that scans a directory tree, extracts metadata, stores audio files in the object store, and writes track/album/artist records to Postgres. Idempotent — safe to re-run after adding new files.
+Standalone CLI that scans one or more directory trees, extracts metadata, stores audio files on the local filesystem under `STORE_ROOT`, and writes track/album/artist records to Postgres. Idempotent — safe to re-run after adding new files. Supports multiple source directories via the repeatable `--dir` flag (comma-separated) or the `INGEST_DIRS` environment variable.
 
 ---
 
@@ -335,15 +335,13 @@ Never write migration SQL by hand. Always edit `schema.sql` and let Atlas genera
 
 ## File Storage
 
-### Backends
+### Backend
 
-**`LocalFS`** — audio files on a mounted disk. Suitable for single-server deployments. Range requests served via `os.File.ReadAt`. Not horizontally scalable without a shared network volume.
-
-**`S3`** — audio files in MinIO (self-hosted) or AWS S3. All API replicas read from the same bucket. Range requests proxied via `GetObject` with the `Range` header forwarded.
+**`LocalFS`** — audio files on a mounted disk under `STORE_ROOT`. Range requests served via `os.File.ReadAt`. For multi-replica deployments, use a shared network volume so all API instances can read the same files.
 
 ### Cover art
 
-Extracted during ingest from embedded tags or folder-level `cover.jpg`. Stored at `covers/{album_id}.jpg` in the object store. Served at `GET /covers/:album_id` with `Cache-Control: public, max-age=86400`.
+Extracted during ingest from embedded tags or folder-level `cover.jpg`. Stored at `covers/{album_id}.jpg` on the local filesystem. Served at `GET /covers/:album_id` with `Cache-Control: public, max-age=86400`.
 
 ### Object key structure
 
@@ -361,7 +359,7 @@ covers/
 
 ## Library Ingestion Pipeline
 
-`cmd/ingest` scans a directory, extracts metadata, and populates the database. Idempotent — re-running only processes new or changed files.
+`cmd/ingest` scans one or more directories, extracts metadata, and populates the database. Idempotent — re-running only processes new or changed files.
 
 ### Stages
 
@@ -377,22 +375,24 @@ Parse seek table from FLAC frame headers (for accurate seeking)
       ↓
 Upsert artist → album → track in Postgres
       ↓
-Copy audio file to object store (skip if already present by hash)
+Copy audio file to local filesystem under STORE_ROOT (skip if already present by hash)
       ↓
-Extract + normalize cover art → object store
+Extract + normalize cover art → local filesystem
 ```
 
 ### CLI flags
 
 ```bash
 orb-ingest \
-  --dir /music \
+  --dir /music/flac --dir /music/wav \   # repeatable, or comma-separated
   --db $DATABASE_URL \
-  --store-backend local \      # local | s3
   --store-root /data/audio \
-  --user-id <uuid> \           # assign tracks to this user's library
+  --user-id <uuid> \                     # assign tracks to this user's library
   --recursive \
   --dry-run
+
+# Alternatively, set source directories via env var:
+INGEST_DIRS=/music/flac,/music/wav orb-ingest --db $DATABASE_URL --store-root /data/audio --user-id <uuid>
 ```
 
 ---
@@ -631,7 +631,7 @@ func LoginAttempts(ip string) string    { return "ratelimit:login:" + ip }
 
 **API**: stateless, scale by replica count. No sticky sessions.
 
-**Object storage**: LocalFS requires a shared network volume for multi-replica. S3/MinIO is inherently scalable — all replicas share the same bucket.
+**File storage**: LocalFS requires a shared network volume (e.g. NFS) for multi-replica deployments so all API instances can read from the same `STORE_ROOT`.
 
 **Postgres**: primary + streaming replica. pgBouncer transaction pooling (1000 client connections → 25 Postgres connections). Read-heavy queries (browse, search) routable to replica.
 
@@ -656,12 +656,10 @@ orb/
 │   │   ├── store.go
 │   │   ├── db.go                    # Atlas generated
 │   │   └── store_test.go
-│   ├── objstore/                    # ObjectStore interface + LocalFS + S3
-│   ├── objstore/                    # ObjectStore interface + LocalFS + S3
+│   ├── objstore/                    # ObjectStore interface + LocalFS
 │   │   ├── go.mod
 │   │   ├── objstore.go
-│   │   ├── local.go
-│   │   └── s3.go
+│   │   └── local.go
 │   └── kvkeys/
 │       ├── go.mod
 │       └── keys.go
@@ -749,17 +747,15 @@ curl -sSf https://atlasgo.sh | sh
 | `DATABASE_URL` | `postgres://orb:orb@localhost:5432/orb?sslmode=disable` | API, ingest |
 | `KV_SENTINEL_ADDRS` | `localhost:26379` | API |
 | `KV_SENTINEL_MASTER` | `mymaster` | API |
-| `STORE_BACKEND` | `local` | API, ingest |
-| `STORE_ROOT` | `./data/audio` | API, ingest (local) |
-| `STORE_BUCKET` | `orb-audio` | API, ingest (s3) |
-| `S3_ENDPOINT` | `http://localhost:9000` | API, ingest (s3) |
+| `STORE_ROOT` | `./data/audio` | API, ingest |
+| `INGEST_DIRS` | *(none)* | ingest (comma-separated source directories) |
 | `JWT_SECRET` | `dev-secret-change-in-prod` | API |
 | `HTTP_PORT` | `8080` | API |
 
 ### Option A — Native services, infrastructure in Docker
 
 ```bash
-make dev-db                                    # start Postgres, Valkey, MinIO
+make dev-db                                    # start Postgres, Valkey
 make migrate-up                                # apply schema
 
 ### Database schema & migrations
@@ -794,7 +790,6 @@ docker compose up --build api    # rebuild one service
 DATABASE_URL       ?= postgres://orb:orb@localhost:5432/orb?sslmode=disable
 KV_SENTINEL_ADDRS  ?= localhost:26379
 KV_SENTINEL_MASTER ?= mymaster
-STORE_BACKEND      ?= local
 STORE_ROOT         ?= ./data/audio
 HTTP_PORT          ?= 8080
 DIR                ?= ./music
@@ -810,7 +805,7 @@ dev-db:
 dev-api:
  cd services/api && \
  DATABASE_URL=$(DATABASE_URL) KV_SENTINEL_ADDRS=$(KV_SENTINEL_ADDRS) \
- KV_SENTINEL_MASTER=$(KV_SENTINEL_MASTER) STORE_BACKEND=$(STORE_BACKEND) \
+ KV_SENTINEL_MASTER=$(KV_SENTINEL_MASTER) \
  STORE_ROOT=$(STORE_ROOT) JWT_SECRET=dev-secret-change-in-prod \
  HTTP_PORT=$(HTTP_PORT) go run ./cmd/main.go
 
@@ -819,7 +814,7 @@ dev-ui:
 
 dev-ingest:
  cd cmd/ingest && \
- DATABASE_URL=$(DATABASE_URL) STORE_BACKEND=$(STORE_BACKEND) \
+ DATABASE_URL=$(DATABASE_URL) \
  STORE_ROOT=$(STORE_ROOT) \
  go run . --dir $(DIR) --user-id $(USER_ID) --recursive
 
@@ -941,26 +936,16 @@ services:
   valkey-sentinel-2: *sentinel
   valkey-sentinel-3: *sentinel
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment: { MINIO_ROOT_USER: orb, MINIO_ROOT_PASSWORD: orbsecret }
-    volumes: [minio_data:/data]
-    ports: ["9000:9000", "9001:9001"]
-
   api:
     build: { context: ., dockerfile: docker/api.Dockerfile }
     environment:
       DATABASE_URL: postgres://orb:orb@pgbouncer:5432/orb?sslmode=disable
       KV_SENTINEL_ADDRS: valkey-sentinel-1:26379,valkey-sentinel-2:26379,valkey-sentinel-3:26379
       KV_SENTINEL_MASTER: mymaster
-      STORE_BACKEND: s3
-      STORE_BUCKET: orb-audio
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: orb
-      S3_SECRET_KEY: orbsecret
+      STORE_ROOT: /data/audio
       JWT_SECRET: "${JWT_SECRET}"
       HTTP_PORT: "8080"
+    volumes: [audio_data:/data/audio]
     ports: ["8080:8080"]
     depends_on: { migrate: { condition: service_completed_successfully } }
     restart: unless-stopped
@@ -973,7 +958,7 @@ volumes:
   postgres_primary_data:
   postgres_replica_data:
   valkey_data:
-  minio_data:
+  audio_data:
 ```
 
 ### docker-compose.dev.yml (infrastructure only)
@@ -1000,14 +985,6 @@ services:
     volumes: [./docker/valkey/sentinel.conf:/etc/valkey/sentinel.conf:ro]
     depends_on: [valkey]
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment: { MINIO_ROOT_USER: orb, MINIO_ROOT_PASSWORD: orbsecret }
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [minio_dev_data:/data]
-
 volumes:
   postgres_dev_data:
-  minio_dev_data:
 ```

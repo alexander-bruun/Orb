@@ -38,19 +38,14 @@ var ErrSkipped = errors.New("skipped")
 // ---------------------------------------------------------------------------
 
 var (
-	flagDir       string
+	flagDirs      []string
 	flagDB        string
-	flagBackend   string
 	flagStoreRoot string
-	flagBucket    string
-	flagS3Ep      string
-	flagS3Key     string
-	flagS3Secret  string
 	flagUserID    string
 	flagRecursive bool
 	flagDryRun    bool
-	flagWatch   bool
-	flagWorkers int
+	flagWatch     bool
+	flagWorkers   int
 )
 
 var rootCmd = &cobra.Command{
@@ -60,14 +55,10 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.Flags().StringVar(&flagDir, "dir", config.Env("INGEST_DIR", "/music"), "Music directory to scan")
+	defaultDirs := strings.Split(config.Env("INGEST_DIRS", "/music"), ",")
+	rootCmd.Flags().StringSliceVar(&flagDirs, "dir", defaultDirs, "Music directories to scan (repeatable, or comma-separated)")
 	rootCmd.Flags().StringVar(&flagDB, "db", config.DSN(), "Postgres DSN")
-	rootCmd.Flags().StringVar(&flagBackend, "store-backend", config.Env("STORE_BACKEND", "local"), "Storage backend: local | s3")
-	rootCmd.Flags().StringVar(&flagStoreRoot, "store-root", config.Env("STORE_ROOT", "./data/audio"), "Root path for local backend")
-	rootCmd.Flags().StringVar(&flagBucket, "store-bucket", config.Env("STORE_BUCKET", "orb-audio"), "S3 bucket name")
-	rootCmd.Flags().StringVar(&flagS3Ep, "s3-endpoint", config.Env("S3_ENDPOINT", "http://localhost:9000"), "S3 endpoint")
-	rootCmd.Flags().StringVar(&flagS3Key, "s3-access-key", config.Env("S3_ACCESS_KEY", "orb"), "S3 access key")
-	rootCmd.Flags().StringVar(&flagS3Secret, "s3-secret-key", config.Env("S3_SECRET_KEY", "orbsecret"), "S3 secret key")
+	rootCmd.Flags().StringVar(&flagStoreRoot, "store-root", config.Env("STORE_ROOT", "./data/audio"), "Root path for local storage")
 	rootCmd.Flags().StringVar(&flagUserID, "user-id", "", "Assign ingested tracks to this user's library")
 	rootCmd.Flags().BoolVar(&flagRecursive, "recursive", false, "Scan subdirectories recursively")
 	rootCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Print what would be done without modifying anything")
@@ -190,28 +181,34 @@ func (g *ingester) process(ctx context.Context, path string) error {
 	return nil
 }
 
-// scan walks flagDir, calling process on each audio file, and returns counts.
+// scan walks all configured directories, calling process on each audio file, and returns counts.
 // Files are processed concurrently using up to flagWorkers goroutines.
 func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
 	// Collect all paths first (pure directory walk — no file I/O beyond stat).
 	var paths []string
-	if err := filepath.WalkDir(flagDir, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			slog.Warn("walk error", "path", path, "err", walkErr)
-			return nil
+	for _, dir := range flagDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
 		}
-		if d.IsDir() {
-			if !flagRecursive && path != flagDir {
-				return filepath.SkipDir
+		if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				slog.Warn("walk error", "path", path, "err", walkErr)
+				return nil
+			}
+			if d.IsDir() {
+				if !flagRecursive && path != dir {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if isAudioFile(path) {
+				paths = append(paths, path)
 			}
 			return nil
+		}); err != nil {
+			slog.Warn("walk error", "dir", dir, "err", err)
 		}
-		if isAudioFile(path) {
-			paths = append(paths, path)
-		}
-		return nil
-	}); err != nil {
-		slog.Warn("walk error", "dir", flagDir, "err", err)
 	}
 
 	// Fan out to a bounded worker pool.
@@ -283,28 +280,12 @@ func run(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	var obj objstore.ObjectStore
-	switch flagBackend {
-	case "local":
-		obj, err = objstore.NewLocalFS(flagStoreRoot)
-		if err != nil {
-			return fmt.Errorf("local store: %w", err)
-		}
-	case "s3":
-		obj, err = objstore.NewS3(ctx, objstore.S3Config{
-			Endpoint:  flagS3Ep,
-			AccessKey: flagS3Key,
-			SecretKey: flagS3Secret,
-			Bucket:    flagBucket,
-		})
-		if err != nil {
-			return fmt.Errorf("s3 store: %w", err)
-		}
-	default:
-		return fmt.Errorf("unknown store backend %q", flagBackend)
+	obj, err := objstore.NewLocalFS(flagStoreRoot)
+	if err != nil {
+		return fmt.Errorf("local store: %w", err)
 	}
 
-	if flagDir == "" {
+	if len(flagDirs) == 0 {
 		return fmt.Errorf("--dir is required")
 	}
 
@@ -338,15 +319,20 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 	defer watcher.Close()
 
-	// Register watchers for all existing directories under flagDir.
-	_ = filepath.WalkDir(flagDir, func(path string, d os.DirEntry, e error) error {
-		if e == nil && d.IsDir() {
-			_ = watcher.Add(path)
+	// Register watchers for all existing directories under each music dir.
+	for _, dir := range flagDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
 		}
-		return nil
-	})
-
-	slog.Info("watching", "dir", flagDir)
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, e error) error {
+			if e == nil && d.IsDir() {
+				_ = watcher.Add(path)
+			}
+			return nil
+		})
+	}
+	slog.Info("watching", "dirs", flagDirs)
 
 	for {
 		select {

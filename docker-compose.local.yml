@@ -3,6 +3,16 @@
 # the API applies any schema changes automatically on startup via store.Migrate().
 # Music is served directly from the local filesystem via a shared volume.
 #
+# Multiple music directories are supported — mount each source drive as a
+# separate read-only volume under /music/<name> and list them comma-separated
+# in the INGEST_DIRS environment variable:
+#
+#   volumes:
+#     - /mnt/d/Music:/music/drive-d:ro
+#     - /mnt/e/FLAC:/music/drive-e:ro
+#   environment:
+#     INGEST_DIRS: /music/drive-d,/music/drive-e
+#
 # Usage:
 #   docker compose -f docker-compose.local.yml up -d
 
@@ -41,7 +51,6 @@ services:
       DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
       KV_MODE: standalone
       KV_ADDR: valkey:6379
-      STORE_BACKEND: local
       STORE_ROOT: /data/audio
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
@@ -72,12 +81,14 @@ services:
       dockerfile: docker/ingest.Dockerfile
     environment:
       DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
-      STORE_BACKEND: local
       STORE_ROOT: /data/audio
-    command: ["--dir", "/music", "--recursive", "--watch"]
+      INGEST_DIRS: /music/drive-d
+    command: ["--recursive", "--watch"]
     volumes:
       - audio_data:/data/audio
-      - /mnt/d/Music:/music:ro
+      - /mnt/d/Music:/music/drive-d:ro
+      # Add more drives as needed:
+      # - /mnt/e/FLAC:/music/drive-e:ro
     depends_on:
       postgres:
         condition: service_healthy
