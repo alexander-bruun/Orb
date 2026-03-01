@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alexander-bruun/orb/pkg/config"
 	"github.com/alexander-bruun/orb/pkg/kvkeys"
+	"github.com/alexander-bruun/orb/services/api/internal/discovery"
 	"github.com/alexander-bruun/orb/pkg/objstore"
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/alexander-bruun/orb/services/api/internal/auth"
@@ -149,6 +151,17 @@ func run(ctx context.Context) error {
 	// Listen party routes (auth validated per-handler internally)
 	lpSvc := listenparty.New(db, kv, streamSvc, jwtSecret)
 	r.Route("/listen", lpSvc.Routes)
+
+	// --- mDNS discovery ---
+	if config.Env("MDNS_ENABLED", "true") == "true" {
+		portInt, _ := strconv.Atoi(port)
+		mdnsSrv, err := discovery.Start(portInt, config.Env("SERVER_NAME", ""))
+		if err != nil {
+			slog.Warn("mdns failed to start", "err", err)
+		} else {
+			defer mdnsSrv.Shutdown()
+		}
+	}
 
 	// --- HTTP server ---
 	srv := &http.Server{

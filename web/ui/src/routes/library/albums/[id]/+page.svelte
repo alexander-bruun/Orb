@@ -6,7 +6,7 @@
   import type { Album, Track, Genre } from '$lib/types';
   import { playTrack, shuffle } from '$lib/stores/player';
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 
   let album: Album | null = null;
   let tracks: Track[] = [];
@@ -52,7 +52,7 @@
 {:else if album}
   <div class="header">
     {#if album.cover_art_key}
-      <img src="{BASE}/covers/{album.id}" alt={album.title} class="cover" />
+      <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" />
     {:else}
       <div class="cover album-fallback">♪</div>
     {/if}

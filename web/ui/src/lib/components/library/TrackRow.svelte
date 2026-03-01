@@ -10,7 +10,7 @@
   export let index: number = 0;
   export let showCover: boolean = false;
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 
   $: isPlaying = $currentTrack?.id === track.id && $playbackState === 'playing';
 
@@ -62,7 +62,7 @@
   {#if showCover}
     <div class="cover-thumb">
       {#if track.album_id}
-        <img src="{BASE}/covers/{track.album_id}" alt="" loading="lazy" />
+        <img src="{getApiBase()}/covers/{track.album_id}" alt="" loading="lazy" />
       {:else}
         <div class="cover-placeholder"></div>
       {/if}

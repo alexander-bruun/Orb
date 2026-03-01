@@ -9,7 +9,7 @@ interface AuthState {
 }
 
 const STORAGE_KEY = 'orb_auth';
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+import { getApiBase } from '$lib/api/base';
 
 function loadFromStorage(): AuthState {
 	if (typeof localStorage === 'undefined') return { token: null, refreshToken: null, user: null };
@@ -87,7 +87,7 @@ function createAuthStore() {
 
 			refreshPromise = (async () => {
 				try {
-					const res = await fetch(`${BASE}/auth/refresh`, {
+					const res = await fetch(`${getApiBase()}/auth/refresh`, {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ refresh_token: state.refreshToken })

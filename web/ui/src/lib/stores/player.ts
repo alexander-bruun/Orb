@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { Track, PlaybackState } from '$lib/types';
 import { audioEngine } from '$lib/audio/engine';
+import { getApiBase } from '$lib/api/base';
 import { queue as queueApi } from '$lib/api/queue';
 import { library as libraryApi } from '$lib/api/library';
 
@@ -306,8 +307,7 @@ function syncMediaMetadata(track: Track | null) {
 	const artwork: MediaImage[] = [];
 	if (track.album_id) {
 		const base = typeof location !== 'undefined' ? location.origin : '';
-		const apiBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
-		artwork.push({ src: `${base}${apiBase}/covers/${track.album_id}`, sizes: '512x512', type: 'image/jpeg' });
+		artwork.push({ src: `${base}${getApiBase()}/covers/${track.album_id}`, sizes: '512x512', type: 'image/jpeg' });
 	}
 	navigator.mediaSession.metadata = new MediaMetadata({
 		title: track.title,

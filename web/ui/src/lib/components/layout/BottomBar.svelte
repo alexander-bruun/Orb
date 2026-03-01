@@ -33,7 +33,7 @@
   import { lyricsOpen, lyricsLines, lyricsLoading } from '$lib/stores/lyrics';
 
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 
   $: {
     if ($currentTrack?.album_id) {
@@ -72,7 +72,7 @@
         <!-- Small mode: cover with hover-reveal expand button -->
         <div class="cover-hover-wrap">
           {#if $currentTrack.album_id}
-            <img src="{BASE}/covers/{$currentTrack.album_id}"
+            <img src="{getApiBase()}/covers/{$currentTrack.album_id}"
                  alt="album art"
                  class="bottom-cover animate-in" />
           {:else}

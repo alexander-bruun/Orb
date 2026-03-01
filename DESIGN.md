@@ -736,7 +736,7 @@ orb/
 
 ```bash
 # Go 1.26+      https://go.dev/dl/
-# Node 22+      https://nodejs.org/
+# Bun           https://bun.sh/
 # Docker + Compose v2
 
 curl -sSf https://atlasgo.sh | sh
@@ -815,7 +815,7 @@ dev-api:
  HTTP_PORT=$(HTTP_PORT) go run ./cmd/main.go
 
 dev-ui:
- cd web/ui && npm run dev
+ cd web/ui && bun run dev
 
 dev-ingest:
  cd cmd/ingest && \
@@ -876,12 +876,12 @@ ENTRYPOINT ["/ingest"]
 ### ui.Dockerfile
 
 ```dockerfile
-FROM node:20-alpine AS builder
+FROM oven/bun:latest AS builder
 WORKDIR /app
-COPY web/ui/package*.json ./
-RUN npm ci
+COPY web/ui/package.json web/ui/bun.lock ./
+RUN bun install --frozen-lockfile
 COPY web/ui/ ./
-RUN npm run build
+RUN bun run build
 
 FROM nginx:alpine
 COPY --from=builder /app/build /usr/share/nginx/html

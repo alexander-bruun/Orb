@@ -7,7 +7,7 @@
     expanded.update(v => !v);
   }
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 </script>
 
 <aside class="sidebar">
@@ -26,7 +26,7 @@
     <div class="sidebar-bottom">
       <div class="cover-wrap">
         {#if $currentTrack.album_id}
-          <img src="{BASE}/covers/{$currentTrack.album_id}"
+          <img src="{getApiBase()}/covers/{$currentTrack.album_id}"
                alt="album art"
                class="full-image" />
         {:else}

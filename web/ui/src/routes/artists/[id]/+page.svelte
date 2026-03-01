@@ -6,7 +6,7 @@
   import type { Artist, Album, Genre, RelatedArtist } from '$lib/types';
   import { playTrack, shuffle } from '$lib/stores/player';
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 
   let artist: Artist | null = null;
   let albums: Album[] = [];
@@ -71,7 +71,7 @@
 {:else if artist}
   <div class="header">
     {#if artist.image_key}
-      <img src="{BASE}/covers/artist/{artist.id}" alt={artist.name} class="artist-photo" />
+      <img src="{getApiBase()}/covers/artist/{artist.id}" alt={artist.name} class="artist-photo" />
     {/if}
     <div class="header-text">
       <h1 class="title">{artist.name}</h1>

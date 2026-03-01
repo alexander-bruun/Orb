@@ -16,6 +16,8 @@
   import { goto } from '$app/navigation';
   import { togglePlayPause, next, previous } from '$lib/stores/player';
   import { themeStore } from '$lib/stores/theme';
+  import { isTauri } from '$lib/utils/platform';
+  import { getServerUrl } from '$lib/api/base';
 
   function onKeydown(e: KeyboardEvent) {
     // Ignore when focus is inside a text field.
@@ -32,10 +34,24 @@
 
   onMount(async () => {
     themeStore.init();
+
+    // Tauri first-launch: redirect to /connect to configure server URL.
+    if (isTauri() && !getServerUrl()) {
+      goto('/connect');
+      return;
+    }
+
     try {
       const data = await apiFetch<{ setup_required: boolean }>('/auth/setup');
       setupRequired.set(data.setup_required);
     } catch {
+      // In Tauri with no configured server URL, the API call hit the local
+      // static frontend and returned HTML instead of JSON. Redirect to the
+      // server-configuration page rather than showing a broken login.
+      if (isTauri() && !getServerUrl()) {
+        goto('/connect');
+        return;
+      }
       // If the check fails, assume setup is done and fall through to login guard.
       setupRequired.set(false);
     }
@@ -46,8 +62,14 @@
 
     const path = $page.url.pathname;
 
-    // Listen-along guest pages are public — skip all auth / setup guards.
-    if (path.startsWith('/listen/')) return;
+    // Public pages — skip all auth / setup guards.
+    if (path.startsWith('/listen/') || path === '/connect') return;
+
+    // Tauri without a configured server URL — send to /connect first.
+    if (isTauri() && !getServerUrl()) {
+      goto('/connect');
+      return;
+    }
 
     if ($setupRequired) {
       // No users yet — only /setup is accessible.
@@ -72,8 +94,8 @@
   <title>Orb</title>
 </svelte:head>
 
-{#if $page.url.pathname.startsWith('/listen/')}
-  <!-- Guest listen-along page: render without any shell or auth guards -->
+{#if $page.url.pathname.startsWith('/listen/') || $page.url.pathname === '/connect'}
+  <!-- Public page: render without shell or auth guards -->
   {@render children()}
 {:else if $setupRequired === null}
   <!-- Checking setup status; render nothing to avoid a flash of wrong content. -->

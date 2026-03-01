@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+import { getApiBase } from '$lib/api/base';
 
 export class ApiError extends Error {
 	constructor(
@@ -25,7 +25,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 		if (auth.token) {
 			headers['Authorization'] = `Bearer ${auth.token}`;
 		}
-		return fetch(`${BASE}${path}`, { ...options, headers });
+		return fetch(`${getApiBase()}${path}`, { ...options, headers });
 	};
 
 	let res = await makeRequest();
@@ -59,7 +59,7 @@ export async function apiStream(
 ): Promise<Response> {
 	const auth = get(authStore);
 	const range = rangeEnd !== undefined ? `bytes=${rangeStart}-${rangeEnd}` : `bytes=${rangeStart}-`;
-	const res = await fetch(`${BASE}${path}`, {
+	const res = await fetch(`${getApiBase()}${path}`, {
 		headers: {
 			Authorization: auth.token ? `Bearer ${auth.token}` : '',
 			Range: range

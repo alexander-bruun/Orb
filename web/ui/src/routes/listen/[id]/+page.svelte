@@ -18,7 +18,7 @@
     lpGuestToken,
   } from '$lib/stores/listenParty';
 
-  const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
   const sessionId: string = $page.params.id ?? '';
 
   // Page phases: 'loading' | 'join' | 'playing' | 'kicked' | 'ended' | 'error'
@@ -79,7 +79,7 @@
     if (!track?.id || !token || track.id === lyricsTrackId) return;
     lyricsTrackId = track.id;
     lyricsLines = [];
-    fetch(`${API_BASE}/listen/${sessionId}/lyrics/${track.id}?guest_token=${encodeURIComponent(token)}`)
+    fetch(`${getApiBase()}/listen/${sessionId}/lyrics/${track.id}?guest_token=${encodeURIComponent(token)}`)
       .then(r => r.ok ? r.json() : [])
       .then((lines: LyricLine[]) => { lyricsLines = lines ?? []; })
       .catch(() => { lyricsLines = []; });
@@ -272,7 +272,7 @@
         {#if $lpGuestTrack?.album_id && $lpGuestToken}
           <img
             class="cover-art"
-            src="{API_BASE}/listen/{sessionId}/cover/{$lpGuestTrack.album_id}?guest_token={encodeURIComponent($lpGuestToken)}"
+            src="{getApiBase()}/listen/{sessionId}/cover/{$lpGuestTrack.album_id}?guest_token={encodeURIComponent($lpGuestToken)}"
             alt="Album art"
           />
         {:else}

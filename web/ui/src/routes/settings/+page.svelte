@@ -2,6 +2,8 @@
   import { authStore } from '$lib/stores/auth';
   import { themeStore, avatarStore, ACCENTS } from '$lib/stores/theme';
   import { apiFetch } from '$lib/api/client';
+  import { isTauri } from '$lib/utils/platform';
+  import { getServerUrl, setServerUrl } from '$lib/api/base';
 
   // ── Avatar ────────────────────────────────────────────────
   let fileInput: HTMLInputElement;
@@ -112,11 +114,53 @@
     }
   }
 
+  // ── Server URL (Tauri only) ─────────────────────────────
+  let serverUrl = getServerUrl();
+  let serverSaved = false;
+
+  function saveServer() {
+    setServerUrl(serverUrl.replace(/\/+$/, ''));
+    serverSaved = true;
+    setTimeout(() => serverSaved = false, 2000);
+  }
+
   $: initials = ($authStore.user?.username ?? 'U').slice(0, 2).toUpperCase();
 </script>
 
 <div class="page">
   <h1 class="page-title">Settings</h1>
+
+  <!-- ── Server (Tauri only) ─────────────────────────────── -->
+  {#if isTauri()}
+  <section class="card">
+    <h2 class="section-title">Server</h2>
+
+    <div class="setting-row setting-row--col" style="border-top:none;padding-top:0">
+      <div class="setting-info">
+        <span class="setting-name">Server URL</span>
+        <span class="setting-desc">The base URL of your Orb server (e.g. https://orb.example.com/api)</span>
+      </div>
+      <div class="form-grid" style="width:100%">
+        <label class="form-label" for="server-url">URL</label>
+        <input
+          id="server-url"
+          class="form-input"
+          type="url"
+          placeholder="https://orb.example.com/api"
+          bind:value={serverUrl}
+        />
+      </div>
+    </div>
+
+    {#if serverSaved}
+      <p class="msg msg--ok">Server URL saved.</p>
+    {/if}
+
+    <div>
+      <button class="btn-primary" on:click={saveServer}>Save</button>
+    </div>
+  </section>
+  {/if}
 
   <!-- ── Profile ──────────────────────────────────────────── -->
   <section class="card">

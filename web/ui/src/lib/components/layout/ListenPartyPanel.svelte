@@ -10,7 +10,6 @@
     createAndConnect,
   } from '$lib/stores/listenParty';
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
   const APP_BASE = typeof location !== 'undefined' ? location.origin : '';
 
   let copied = $state(false);

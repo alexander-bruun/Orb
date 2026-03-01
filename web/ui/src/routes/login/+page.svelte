@@ -1,11 +1,14 @@
 <script lang="ts">
   import { authStore } from '$lib/stores/auth';
   import { goto } from '$app/navigation';
+  import { isTauri } from '$lib/utils/platform';
 
   let email = '';
   let password = '';
   let error = '';
   let loading = false;
+
+  const showChangeServer = isTauri();
 
   async function handleLogin(e: Event) {
     e.preventDefault();
@@ -31,7 +34,7 @@
       <p class="error">{error}</p>
     {/if}
 
-    <form on:submit={handleLogin}>
+    <form onsubmit={handleLogin}>
       <label>
         Email
         <input type="email" bind:value={email} required autocomplete="email" />
@@ -44,6 +47,10 @@
         {loading ? 'Signing in…' : 'Sign in'}
       </button>
     </form>
+
+    {#if showChangeServer}
+      <button class="link-btn" onclick={() => goto('/connect')}>Change server</button>
+    {/if}
   </div>
 </div>
 
@@ -97,4 +104,15 @@
   .btn-primary:hover { background: var(--accent-hover); }
   .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
   .error { color: #f87171; font-size: 0.875rem; }
+  .link-btn {
+    margin-top: 16px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 0;
+  }
+  .link-btn:hover { color: var(--accent); }
 </style>

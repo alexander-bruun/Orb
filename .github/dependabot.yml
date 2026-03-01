@@ -20,7 +20,7 @@ updates:
       - "dependencies"
       - "ci"
 
-  # UI dependencies (if using npm in /ui)
+  # UI dependencies
   - package-ecosystem: "npm"
     directory: "/web/ui"
     schedule:

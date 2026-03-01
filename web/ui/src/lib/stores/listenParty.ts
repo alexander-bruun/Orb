@@ -11,14 +11,7 @@ import {
 	positionMs as playerPositionMs,
 } from '$lib/stores/player';
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
-
-const BASE_WS = (() => {
-	if (typeof location === 'undefined') return 'ws://localhost:8080/api';
-	const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-	if (API_BASE.startsWith('http')) return API_BASE.replace(/^https?:/, proto);
-	return `${proto}//${location.host}${API_BASE}`;
-})();
+import { getApiBase, getWsBase } from '$lib/api/base';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -107,7 +100,7 @@ export async function createAndConnect(): Promise<string> {
 
 function _connectHost(sessionId: string) {
 	const token = get(authStore).token ?? '';
-	ws = new WebSocket(`${BASE_WS}/listen/${sessionId}/ws?token=${encodeURIComponent(token)}`);
+	ws = new WebSocket(`${getWsBase()}/listen/${sessionId}/ws?token=${encodeURIComponent(token)}`);
 
 	ws.onopen = () => {
 		lpConnected.set(true);
@@ -255,7 +248,7 @@ export async function hostEndSession() {
 
 export async function connectAsGuest(sessionId: string, nickname: string): Promise<void> {
 	return new Promise((resolve, reject) => {
-		ws = new WebSocket(`${BASE_WS}/listen/${sessionId}/ws`);
+		ws = new WebSocket(`${getWsBase()}/listen/${sessionId}/ws`);
 		lpRole.set('guest');
 		lpSessionId.set(sessionId);
 
@@ -372,7 +365,7 @@ function _applyGuestSync(
 	const trackChanged = state.track_id !== lastGuestTrackId;
 	lastGuestTrackId = state.track_id;
 
-	const streamUrl = `${API_BASE}/listen/${sessionId}/stream/${state.track_id}?guest_token=${encodeURIComponent(guestToken)}`;
+	const streamUrl = `${getApiBase()}/listen/${sessionId}/stream/${state.track_id}?guest_token=${encodeURIComponent(guestToken)}`;
 
 	if (trackChanged || isJoin) {
 		_guestPlay(streamUrl, adjustedMs / 1000, state.playing);

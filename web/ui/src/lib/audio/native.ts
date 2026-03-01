@@ -1,3 +1,5 @@
+import { isTauri } from '$lib/utils/platform';
+
 /**
  * Native <audio> element fallback for MP3 and 16-bit FLAC.
  * The element is created once and reused; only the src changes.
@@ -44,7 +46,11 @@ export class NativePlayer {
 		// WebKit). This gives the player segment-aware buffering and seeking.
 		// Chrome and Firefox don't support HLS in <audio> natively so they fall
 		// back to the direct byte-range stream which already starts quickly.
-		const canHLS = this.el.canPlayType('application/vnd.apple.mpegurl') !== '';
+		// In Tauri (WebKitGTK on Linux), HLS is technically supported but the
+		// internal segment requests don't carry the auth token, so playback
+		// breaks after the first buffered chunk. Force the direct stream there.
+		const canHLS =
+			!isTauri() && this.el.canPlayType('application/vnd.apple.mpegurl') !== '';
 		const src = canHLS
 			? `${url}/index.m3u8?token=${encodeURIComponent(token)}`
 			: `${url}?token=${encodeURIComponent(token)}`;

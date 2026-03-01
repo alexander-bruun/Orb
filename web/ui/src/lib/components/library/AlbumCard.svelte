@@ -8,7 +8,7 @@
 
   let artistName: string = '';
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 
   onMount(async () => {
     if (album.artist_name) {
@@ -24,7 +24,7 @@
 <button class="album-card" on:click={() => goto(`/library/albums/${album.id}`)}>
   <div class="cover-wrap">
     {#if album.cover_art_key}
-      <img src="{BASE}/covers/{album.id}" alt={album.title} class="cover" />
+      <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" />
     {:else}
       <div class="cover placeholder album-fallback">♪</div>
     {/if}

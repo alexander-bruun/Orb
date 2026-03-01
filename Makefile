@@ -22,7 +22,7 @@ dev-api:
 	HTTP_PORT=$(HTTP_PORT) go run ./cmd/main.go
 
 dev-ui:
-	cd web/ui && npm run dev
+	cd web/ui && bun run dev
 
 dev-ingest:
 	cd cmd/ingest && \

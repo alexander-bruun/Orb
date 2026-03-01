@@ -3,7 +3,7 @@
   import type { Playlist } from '$lib/types';
   import { goto } from '$app/navigation';
 
-  const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+  import { getApiBase } from '$lib/api/base';
 
   export let playlist: Playlist;
   export let coverGrid: string[] | undefined;
@@ -22,7 +22,7 @@
         {/each}
       </div>
     {:else}
-      <img src="{BASE}/covers/playlist/{playlist.id}" alt="cover" style="width:100%;height:100%;object-fit:cover;border-radius:4px;" on:error={(e) => { if (e.target) (e.target as HTMLImageElement).style.display = 'none'; }} />
+      <img src="{getApiBase()}/covers/playlist/{playlist.id}" alt="cover" style="width:100%;height:100%;object-fit:cover;border-radius:4px;" on:error={(e) => { if (e.target) (e.target as HTMLImageElement).style.display = 'none'; }} />
       <span class="placeholder" style="position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;">♪</span>
     {/if}
   </div>

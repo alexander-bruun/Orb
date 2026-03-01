@@ -11,7 +11,7 @@ import { get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 import { positionMs, durationMs, bufferedPct, next as playerNext } from '$lib/stores/player';
 
-const BASE = import.meta.env.VITE_API_BASE ?? '/api';
+import { getApiBase } from '$lib/api/base';
 
 class AudioEngine {
 	private ctx: AudioContext | null = null;
@@ -41,7 +41,7 @@ class AudioEngine {
 	 * old context is closed — stop() is always called before play() so nothing
 	 * is playing when this runs.
 	 */
-	private getCtx(sampleRate: number): AudioContext {
+	private async getCtx(sampleRate: number): Promise<AudioContext> {
 		if (this.ctx && this.ctx.sampleRate !== sampleRate) {
 			this.ctx.close().catch(() => {});
 			this.ctx = null;
@@ -51,6 +51,12 @@ class AudioEngine {
 			this.ctx = new AudioContext({ sampleRate });
 			this.gainNode = this.ctx.createGain();
 			this.gainNode.connect(this.ctx.destination);
+		}
+		// Tauri's WebView (and some browsers) create AudioContexts in a
+		// "suspended" state. Explicitly resume so playback actually produces
+		// output instead of silently buffering and then cutting off.
+		if (this.ctx.state === 'suspended') {
+			await this.ctx.resume();
 		}
 		return this.ctx;
 	}
@@ -72,7 +78,7 @@ class AudioEngine {
 	// ---------------------------------------------------------------------------
 
 	private async playWasm(trackId: string, sampleRate: number, startSeconds: number): Promise<void> {
-		const ctx = this.getCtx(sampleRate);
+		const ctx = await this.getCtx(sampleRate);
 		const token = get(authStore).token ?? '';
 		this.wasmFullBuffer = null;
 
@@ -86,7 +92,7 @@ class AudioEngine {
 		// Fetch the m3u8 manifest to learn the first segment's byte range.
 		let firstSegEnd = -1;
 		try {
-			const mRes = await fetch(`${BASE}/stream/${trackId}/index.m3u8`, {
+			const mRes = await fetch(`${getApiBase()}/stream/${trackId}/index.m3u8`, {
 				headers: { Authorization: `Bearer ${token}` }
 			});
 			if (mRes.ok) {
@@ -107,11 +113,11 @@ class AudioEngine {
 		// Race the first-segment fetch against the full-file fetch so that on a
 		// fast connection or with a cached response the full buffer wins and we
 		// never need the hot-swap logic.
-		const segFetch = fetch(`${BASE}/stream/${trackId}`, {
+		const segFetch = fetch(`${getApiBase()}/stream/${trackId}`, {
 			headers: { Authorization: `Bearer ${token}`, Range: `bytes=0-${firstSegEnd}` }
 		}).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
 
-		const fullFetch = fetch(`${BASE}/stream/${trackId}`, {
+		const fullFetch = fetch(`${getApiBase()}/stream/${trackId}`, {
 			headers: { Authorization: `Bearer ${token}`, Range: 'bytes=0-' }
 		}).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b));
 
@@ -232,7 +238,7 @@ class AudioEngine {
 		data?: Uint8Array
 	): Promise<void> {
 		if (!data) {
-			const res = await fetch(`${BASE}/stream/${trackId}`, {
+			const res = await fetch(`${getApiBase()}/stream/${trackId}`, {
 				headers: { Authorization: `Bearer ${token}`, Range: 'bytes=0-' }
 			});
 			data = new Uint8Array(await res.arrayBuffer());
@@ -255,7 +261,7 @@ class AudioEngine {
 			this.nativePlayer = new NativePlayer();
 		}
 		const token = get(authStore).token ?? '';
-		const url = `${BASE}/stream/${trackId}`;
+		const url = `${getApiBase()}/stream/${trackId}`;
 		await this.nativePlayer.play(url, token, startSeconds);
 
 		this.nativePlayer.onPosition((ms) => positionMs.set(ms));
