@@ -10,6 +10,70 @@ updates:
     labels:
       - "dependencies"
       - "go"
+  - package-ecosystem: "gomod"
+    directory: "/cmd/ingest"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/pkg/config"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/pkg/kvkeys"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/pkg/musicbrainz"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/pkg/objstore"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/pkg/store"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/services/api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+  - package-ecosystem: "gomod"
+    directory: "/services/api/cmd"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -32,7 +96,7 @@ updates:
 
   # Docker images (if Dockerfiles are used)
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/docker"
     schedule:
       interval: "weekly"
     labels:
