@@ -301,6 +301,33 @@ ORDER BY al.release_year ASC, al.title ASC`,
 	return scanAlbums(rows)
 }
 
+// ListAlbumsWithFeaturedArtist returns albums that contain at least one track
+// on which artistID appears as a featured artist, excluding albums where the
+// artist is already the primary album or track artist (those are covered by
+// ListAlbumsByArtist).
+func (s *Store) ListAlbumsWithFeaturedArtist(ctx context.Context, artistID string) ([]Album, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t2.id) AS track_count
+FROM albums al
+LEFT JOIN artists ar ON ar.id = al.artist_id
+LEFT JOIN tracks t2 ON t2.album_id = al.id
+WHERE EXISTS (
+    SELECT 1 FROM tracks t
+    JOIN track_featured_artists tfa ON tfa.track_id = t.id
+    WHERE t.album_id = al.id AND tfa.artist_id = $1
+)
+AND (al.artist_id IS NULL OR al.artist_id != $1)
+AND NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = al.id AND t.artist_id = $1)
+GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+ORDER BY al.release_year ASC, al.title ASC`,
+		artistID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAlbums(rows)
+}
+
 func (s *Store) RemoveTrackFromLibrary(ctx context.Context, userID, trackID string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM user_library WHERE user_id = $1 AND track_id = $2`, userID, trackID)
 	return err

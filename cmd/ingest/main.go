@@ -191,6 +191,7 @@ var (
 	flagWatch             bool
 	flagWorkers           int
 	flagComputeSimilarity bool
+	flagEnrich            bool
 	flagPollInterval      time.Duration
 )
 
@@ -222,6 +223,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Watch directory for new files and ingest continuously")
 	rootCmd.Flags().IntVar(&flagWorkers, "workers", runtime.NumCPU(), "Number of parallel ingest workers")
 	rootCmd.Flags().BoolVar(&flagComputeSimilarity, "compute-similarity", false, "Recompute track similarity matrix after scan")
+	rootCmd.Flags().BoolVar(&flagEnrich, "enrich", false, "Enrich metadata from MusicBrainz (requires internet; rate-limited to 1 req/s)")
 	rootCmd.Flags().DurationVar(&flagPollInterval, "poll-interval", defaultPollInterval(), "Polling interval used when inotify is unavailable (env: INGEST_POLL_INTERVAL)")
 }
 
@@ -452,8 +454,12 @@ func run(cmd *cobra.Command, _ []string) error {
 		userID: flagUserID,
 		dryRun: flagDryRun,
 	}
-	g.mb = musicbrainz.New()
-	slog.Info("MusicBrainz enrichment enabled")
+	if flagEnrich {
+		g.mb = musicbrainz.New()
+		slog.Info("MusicBrainz enrichment enabled")
+	} else {
+		slog.Info("MusicBrainz enrichment disabled (pass --enrich to enable)")
+	}
 
 	// One bulk load — no per-file DB queries during the scan.
 	if err := g.loadState(ctx); err != nil {
@@ -821,6 +827,11 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 				continue
 			}
 			featuredIDs = append(featuredIDs, fid)
+			// Enrich featured artist metadata from MusicBrainz (artist-only;
+			// passing empty albumID skips the album-enrichment branch).
+			if g.mb != nil {
+				g.enrichAfterIngest(ctx, fid, name, "", "", false)
+			}
 		}
 		if len(featuredIDs) > 0 {
 			if err := g.db.SetTrackFeaturedArtists(ctx, trackID, featuredIDs); err != nil {
@@ -900,7 +911,11 @@ func (g *ingester) enrichAfterIngest(ctx context.Context, artistID, artistName, 
 		}
 	}
 
-	// Album: enrich once per album per session.
+	// Album: enrich once per album per session (skipped when albumID is empty,
+	// e.g. when enriching a featured-artist-only record).
+	if albumID == "" {
+		return
+	}
 	if _, done := g.enrichedAlbums.LoadOrStore(albumID, struct{}{}); !done {
 		result, err := g.mb.EnrichAlbum(ctx, albumTitle, artistName)
 		if err != nil {

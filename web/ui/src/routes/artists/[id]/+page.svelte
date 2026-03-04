@@ -12,8 +12,11 @@
   let albums: Album[] = [];
   let genres: Genre[] = [];
   let relatedArtists: RelatedArtist[] = [];
+  let appearsOn: Album[] = [];
   let grouped: Map<string, Album[]> = new Map();
   let keys: string[] = [];
+  let appearsOnGrouped: Map<string, Album[]> = new Map();
+  let appearsOnKeys: string[] = [];
   let loading = true;
   let shuffling = false;
   let radioLoading = false;
@@ -26,6 +29,7 @@
       albums = res.albums;
       genres = res.genres ?? [];
       relatedArtists = res.related_artists ?? [];
+      appearsOn = res.appears_on ?? [];
 
       // Group albums by first letter of title
       grouped = new Map();
@@ -35,6 +39,15 @@
         grouped.get(key)?.push(album);
       }
       keys = Array.from(grouped.keys()).sort();
+
+      // Group appears-on albums the same way
+      appearsOnGrouped = new Map();
+      for (const album of appearsOn) {
+        const key = album.title?.[0]?.toUpperCase() ?? '#';
+        if (!appearsOnGrouped.has(key)) appearsOnGrouped.set(key, []);
+        appearsOnGrouped.get(key)?.push(album);
+      }
+      appearsOnKeys = Array.from(appearsOnGrouped.keys()).sort();
     } finally {
       loading = false;
     }
@@ -129,6 +142,11 @@
   </div>
   <h2 class="section">Albums</h2>
   <AlbumGrid {grouped} {keys} />
+
+  {#if appearsOn.length > 0}
+    <h2 class="section" style="margin-top: 32px;">Appears On</h2>
+    <AlbumGrid grouped={appearsOnGrouped} keys={appearsOnKeys} />
+  {/if}
 
   {#if relatedArtists.length > 0}
     <h2 class="section" style="margin-top: 32px;">Related Artists</h2>

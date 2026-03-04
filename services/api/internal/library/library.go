@@ -183,6 +183,9 @@ func (s *Service) artistDetail(w http.ResponseWriter, r *http.Request) {
 	if related, err := s.db.ListRelatedArtists(r.Context(), id); err == nil {
 		resp["related_artists"] = related
 	}
+	if appearsOn, err := s.db.ListAlbumsWithFeaturedArtist(r.Context(), id); err == nil && len(appearsOn) > 0 {
+		resp["appears_on"] = appearsOn
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
