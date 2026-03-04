@@ -55,6 +55,10 @@ export class NativePlayer {
 			? `${url}/index.m3u8?token=${encodeURIComponent(token)}`
 			: `${url}?token=${encodeURIComponent(token)}`;
 		this.el.src = src;
+		// Explicitly reset and load the new source. Without this, calling play()
+		// immediately after changing src can throw NotSupportedError in Chrome
+		// before the browser has determined that the media type is playable.
+		this.el.load();
 		await this.el.play();
 		if (startSeconds > 0) {
 			this.el.currentTime = startSeconds;
