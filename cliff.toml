@@ -11,7 +11,7 @@ body = """
 - {{ commit.message | split(pat="\n") | first | trim }}\
 {% endfor %}
 {% endfor %}
-{% if contributors | length > 0 %}
+{% if contributors is defined and contributors | length > 0 %}
 ### Contributors
 {% for contributor in contributors | unique(attribute="username") %}
 * @{{ contributor.username }}
