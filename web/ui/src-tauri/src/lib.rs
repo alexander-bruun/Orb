@@ -1,6 +1,14 @@
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
+use std::sync::Mutex;
 use std::time::Duration;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager,
+};
+
+// ---- mDNS discovery ----
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DiscoveredServer {
@@ -79,10 +87,172 @@ async fn discover_servers() -> Result<Vec<DiscoveredServer>, String> {
     Ok(servers)
 }
 
+// ---- Discord Rich Presence ----
+
+/// Managed state for the Discord RPC client.
+pub struct DiscordState {
+    client: Mutex<Option<discord_presence::Client>>,
+}
+
+/// Initialise (or re-initialise) the Discord RPC connection.
+/// `app_id` is your Discord application's Client ID.
+#[tauri::command]
+fn discord_connect(
+    app_id: u64,
+    state: tauri::State<'_, DiscordState>,
+) -> Result<(), String> {
+    let mut lock = state.client.lock().map_err(|e| e.to_string())?;
+    // Drop existing client first.
+    *lock = None;
+    let mut client = discord_presence::Client::new(app_id);
+    client.start();
+    *lock = Some(client);
+    Ok(())
+}
+
+/// Update the Discord presence with the currently playing track.
+#[tauri::command]
+fn discord_update(
+    title: String,
+    artist: String,
+    album: String,
+    state: tauri::State<'_, DiscordState>,
+) -> Result<(), String> {
+    let mut lock = state.client.lock().map_err(|e| e.to_string())?;
+    if let Some(client) = lock.as_mut() {
+        let details = title;
+        let status = if album.is_empty() {
+            format!("by {artist}")
+        } else {
+            format!("by {artist} — {album}")
+        };
+        client
+            .set_activity(|act| act.details(&details).state(&status))
+            .map_err(|e| format!("discord set_activity: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Clear the Discord presence (e.g. on pause or disconnect).
+#[tauri::command]
+fn discord_clear(state: tauri::State<'_, DiscordState>) -> Result<(), String> {
+    let mut lock = state.client.lock().map_err(|e| e.to_string())?;
+    if let Some(client) = lock.as_mut() {
+        client
+            .clear_activity()
+            .map_err(|e| format!("discord clear_activity: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Disconnect the Discord RPC client entirely.
+#[tauri::command]
+fn discord_disconnect(state: tauri::State<'_, DiscordState>) -> Result<(), String> {
+    let mut lock = state.client.lock().map_err(|e| e.to_string())?;
+    *lock = None;
+    Ok(())
+}
+
+// ---- System Tray ----
+
+/// IDs for tray menu items — used to identify click events and locate items for updates.
+const TRAY_PREVIOUS: &str = "tray_previous";
+const TRAY_PLAY_PAUSE: &str = "tray_play_pause";
+const TRAY_NEXT: &str = "tray_next";
+const TRAY_QUIT: &str = "tray_quit";
+
+/// Managed state for the tray play/pause menu item so we can update its label.
+pub struct TrayState {
+    play_pause_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+}
+
+/// Call from the frontend when playback state changes so the tray label stays in sync.
+#[tauri::command]
+fn set_tray_playback_state(
+    playing: bool,
+    state: tauri::State<'_, TrayState>,
+) -> Result<(), String> {
+    let lock = state.play_pause_item.lock().map_err(|e| e.to_string())?;
+    if let Some(item) = lock.as_ref() {
+        let label = if playing { "⏸  Pause" } else { "▶  Play" };
+        item.set_text(label).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Build and register the system tray with media control menu items.
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let previous = MenuItem::with_id(app, TRAY_PREVIOUS, "⏮  Previous", true, None::<&str>)?;
+    let play_pause = MenuItem::with_id(app, TRAY_PLAY_PAUSE, "▶  Play", true, None::<&str>)?;
+    let next = MenuItem::with_id(app, TRAY_NEXT, "⏭  Next", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT, "Quit Orb", true, None::<&str>)?;
+
+    let menu = Menu::with_items(app, &[&previous, &play_pause, &next, &quit])?;
+
+    // Store the play/pause item so `set_tray_playback_state` can update it.
+    app.state::<TrayState>()
+        .play_pause_item
+        .lock()
+        .unwrap()
+        .replace(play_pause);
+
+    TrayIconBuilder::new()
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_PREVIOUS => {
+                let _ = app.emit("tray-previous", ());
+            }
+            TRAY_PLAY_PAUSE => {
+                let _ = app.emit("tray-play-pause", ());
+            }
+            TRAY_NEXT => {
+                let _ = app.emit("tray-next", ());
+            }
+            TRAY_QUIT => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray_icon, event| {
+            use tauri::tray::TrayIconEvent;
+            if let TrayIconEvent::Click { .. } = event {
+                let app = tray_icon.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![discover_servers])
+        .manage(DiscordState {
+            client: Mutex::new(None),
+        })
+        .manage(TrayState {
+            play_pause_item: Mutex::new(None),
+        })
+        .setup(|app| {
+            // Only set up the tray on desktop targets.
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            setup_tray(app)?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            discover_servers,
+            discord_connect,
+            discord_update,
+            discord_clear,
+            discord_disconnect,
+            set_tray_playback_state,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
