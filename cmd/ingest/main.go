@@ -25,6 +25,7 @@ import (
 	"github.com/alexander-bruun/orb/pkg/config"
 	"github.com/alexander-bruun/orb/pkg/musicbrainz"
 	"github.com/alexander-bruun/orb/pkg/objstore"
+	"github.com/alexander-bruun/orb/pkg/similarity"
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/dhowden/tag"
 	"github.com/fsnotify/fsnotify"
@@ -45,7 +46,8 @@ var (
 	flagRecursive bool
 	flagDryRun    bool
 	flagWatch     bool
-	flagWorkers   int
+	flagWorkers          int
+	flagComputeSimilarity bool
 )
 
 var rootCmd = &cobra.Command{
@@ -64,7 +66,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Print what would be done without modifying anything")
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Watch directory for new files and ingest continuously")
 	rootCmd.Flags().IntVar(&flagWorkers, "workers", runtime.NumCPU(), "Number of parallel ingest workers")
-
+	rootCmd.Flags().BoolVar(&flagComputeSimilarity, "compute-similarity", false, "Recompute track similarity matrix after scan")
 }
 
 func main() {
@@ -306,6 +308,14 @@ func run(cmd *cobra.Command, _ []string) error {
 	if !flagWatch {
 		ingested, skipped, errs := g.scan(ctx)
 		slog.Info("ingest complete", "ingested", ingested, "skipped", skipped, "errors", errs)
+		if flagComputeSimilarity {
+			slog.Info("computing track similarity matrix")
+			if err := similarity.ComputeAll(ctx, db); err != nil {
+				slog.Error("similarity computation failed", "err", err)
+			} else {
+				slog.Info("similarity computation complete")
+			}
+		}
 		return nil
 	}
 
@@ -551,6 +561,20 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		}); err != nil {
 			slog.Warn("add to library failed", "track_id", track.ID, "err", err)
 		}
+	}
+
+	// Audio feature extraction for similarity (best-effort, non-blocking).
+	if similarity.FpcalcAvailable() {
+		go func(tid, audioPath string) {
+			chroma, dur, err := similarity.ExtractChromaprint(ctx, audioPath)
+			if err != nil {
+				slog.Warn("chromaprint extraction failed", "path", audioPath, "err", err)
+				return
+			}
+			if err := g.db.UpsertTrackFeatures(ctx, tid, chroma, dur); err != nil {
+				slog.Warn("store track features failed", "track_id", tid, "err", err)
+			}
+		}(trackID, path)
 	}
 
 	// MusicBrainz enrichment (artist + album only; rate-limited, best-effort).

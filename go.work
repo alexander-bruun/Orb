@@ -6,6 +6,7 @@ use (
 	./pkg/kvkeys
 	./pkg/musicbrainz
 	./pkg/objstore
+	./pkg/similarity
 	./pkg/store
 	./services/api
 )

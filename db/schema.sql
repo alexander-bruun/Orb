@@ -170,6 +170,27 @@ CREATE INDEX tracks_search_idx  ON tracks  USING GIN(search_vector);
 CREATE INDEX albums_search_idx  ON albums  USING GIN(search_vector);
 CREATE INDEX artists_search_idx ON artists USING GIN(search_vector);
 
+-- Audio features extracted during ingest for similarity computation.
+CREATE TABLE track_features (
+    track_id        TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    chromaprint     INTEGER[],       -- raw chromaprint fingerprint (array of int32)
+    chromaprint_dur REAL,            -- duration reported by fpcalc (seconds)
+    extracted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Pre-computed track similarity scores. Symmetric: only the canonical
+-- pair (track_a < track_b) is stored; queries use OR on both columns.
+CREATE TABLE track_similarity (
+    track_a  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    track_b  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    score    REAL NOT NULL,          -- 0.0 to 1.0 (higher = more similar)
+    PRIMARY KEY (track_a, track_b),
+    CHECK (track_a < track_b)
+);
+
+CREATE INDEX track_similarity_a_idx ON track_similarity(track_a, score DESC);
+CREATE INDEX track_similarity_b_idx ON track_similarity(track_b, score DESC);
+
 -- Ingest state: tracks which files have been processed so re-runs skip unchanged files.
 -- Keyed by absolute path; mtime_unix + file_size serve as a cheap change-detection
 -- fingerprint so the ingest tool only hashes and re-processes files that have actually

@@ -4,6 +4,7 @@ import { audioEngine } from '$lib/audio/engine';
 import { getApiBase } from '$lib/api/base';
 import { queue as queueApi } from '$lib/api/queue';
 import { library as libraryApi } from '$lib/api/library';
+import { recommend } from '$lib/api/recommend';
 
 export const currentTrack = writable<Track | null>(null);
 export const playbackState = writable<PlaybackState>('idle');
@@ -22,6 +23,8 @@ export const shuffleOrder = writable<number[]>([]);
 export const userQueue = writable<Track[]>([]);
 /** Controls visibility of the Up Next queue panel. */
 export const queueModalOpen = writable(false);
+/** When true, similar tracks auto-queue when the queue runs out. */
+export const autoplayEnabled = writable(true);
 
 /** Fisher-Yates shuffle, optionally pinning one index to position 0. */
 function generateShuffle(length: number, pinIndex = -1): number[] {
@@ -170,9 +173,30 @@ export async function next() {
 		}
 		queueIndex.set(0);
 		await playTrack(q[actualIndex(0)]);
+	} else if (get(autoplayEnabled)) {
+		// End of queue — try auto-playing similar tracks.
+		const current = get(currentTrack);
+		if (current) {
+			try {
+				const qIds = q.map((t: Track) => t.id);
+				const recs = await recommend.autoplay(current.id, qIds, 10);
+				if (recs.length > 0) {
+					const newQueue = [...q, ...recs];
+					queue.set(newQueue);
+					const nextIdx = idx + 1;
+					queueIndex.set(nextIdx);
+					await playTrack(newQueue[actualIndex(nextIdx)]);
+					return;
+				}
+			} catch {
+				// Fall through to stop.
+			}
+		}
+		audioEngine.stop();
+		positionMs.set(0);
+		playbackState.set('paused');
 	} else {
-		// End of queue: stop the engine, reset position to 0, and go to paused so
-		// the user can press play to replay the last track from the beginning.
+		// Autoplay disabled: stop the engine, reset position.
 		audioEngine.stop();
 		positionMs.set(0);
 		playbackState.set('paused');
@@ -245,7 +269,8 @@ function writeState() {
 			volume: get(volume),
 			repeat: get(repeatMode),
 			shuffle: get(shuffle),
-			shuffleOrder: get(shuffleOrder)
+			shuffleOrder: get(shuffleOrder),
+			autoplay: get(autoplayEnabled)
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 	} catch {
@@ -293,6 +318,7 @@ queueIndex.subscribe(() => scheduleStateSave());
 volume.subscribe(() => scheduleStateSave());
 repeatMode.subscribe(() => scheduleStateSave());
 shuffle.subscribe(() => scheduleStateSave());
+autoplayEnabled.subscribe(() => scheduleStateSave());
 
 // ─── Media Session API ───────────────────────────────────────────────────────
 // Wires hardware media keys (Play/Pause, Next, Previous on keyboard/headphones)
@@ -388,6 +414,7 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 			shuffle.set(true);
 			if (Array.isArray(st.shuffleOrder)) shuffleOrder.set(st.shuffleOrder);
 		}
+		if (st.autoplay === false) autoplayEnabled.set(false);
 
 		if (Array.isArray(st.queueIds) && st.queueIds.length) {
 			const qTracks = (

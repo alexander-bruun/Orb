@@ -185,3 +185,22 @@ CREATE INDEX IF NOT EXISTS artist_genres_artist_idx ON artist_genres(artist_id);
 CREATE INDEX IF NOT EXISTS album_genres_album_idx   ON album_genres(album_id);
 CREATE INDEX IF NOT EXISTS track_genres_track_idx   ON track_genres(track_id);
 CREATE INDEX IF NOT EXISTS related_artists_idx      ON related_artists(artist_id);
+
+-- Audio features for similarity computation
+CREATE TABLE IF NOT EXISTS track_features (
+    track_id        TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    chromaprint     INTEGER[],
+    chromaprint_dur REAL,
+    extracted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS track_similarity (
+    track_a  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    track_b  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    score    REAL NOT NULL,
+    PRIMARY KEY (track_a, track_b),
+    CHECK (track_a < track_b)
+);
+
+CREATE INDEX IF NOT EXISTS track_similarity_a_idx ON track_similarity(track_a, score DESC);
+CREATE INDEX IF NOT EXISTS track_similarity_b_idx ON track_similarity(track_b, score DESC);

@@ -252,8 +252,8 @@ type FavoriteParams struct {
 
 // RecordPlayParams for recording a track play.
 type RecordPlayParams struct {
-	UserID          string
-	TrackID         string
+	UserID           string
+	TrackID          string
 	DurationPlayedMs int
 }
 
@@ -312,4 +312,39 @@ type UpdateTrackEnrichmentParams struct {
 	ID   string
 	Mbid *string
 	Isrc *string
+}
+
+// TrackFeatures holds chromaprint data extracted during ingest.
+type TrackFeatures struct {
+	TrackID     string  `json:"track_id"`
+	Chromaprint []int32 `json:"chromaprint"`
+	Duration    float64 `json:"chromaprint_dur"`
+}
+
+// TrackSimilarityRow is a row in the track_similarity table.
+type TrackSimilarityRow struct {
+	TrackA string  `json:"track_a"`
+	TrackB string  `json:"track_b"`
+	Score  float64 `json:"score"`
+}
+
+// TrackWithScore is a Track with an attached similarity score.
+type TrackWithScore struct {
+	Track
+	Score      float64 `json:"similarity_score"`
+	ArtistName *string `json:"artist_name,omitempty"`
+}
+
+// TrackBasic holds minimal track info needed for bulk similarity computation.
+type TrackBasic struct {
+	ID         string
+	ArtistID   string
+	AlbumID    string
+	DurationMs int
+}
+
+// RelatedArtistPair is a minimal related-artist edge.
+type RelatedArtistPair struct {
+	ArtistID  string
+	RelatedID string
 }

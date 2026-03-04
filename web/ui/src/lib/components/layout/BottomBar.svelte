@@ -18,7 +18,8 @@
     next,
     previous,
     toggleRepeat,
-    toggleShuffle
+    toggleShuffle,
+    autoplayEnabled
   } from '$lib/stores/player';
   import { library } from '$lib/api/library';
   import { writable } from 'svelte/store';
@@ -141,6 +142,19 @@
         {#if $repeatMode === 'one'}
           <span class="one-badge">1</span>
         {/if}
+      </button>
+      <button
+        class="ctrl-btn icon-btn"
+        class:active={$autoplayEnabled}
+        on:click={() => autoplayEnabled.update(v => !v)}
+        aria-label="Autoplay"
+        title={$autoplayEnabled ? 'Autoplay on' : 'Autoplay off'}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12a10 10 0 1 0 10-10"/>
+          <polyline points="12 8 12 12 14 14"/>
+          <polyline points="2 8 2 2 8 2"/>
+        </svg>
       </button>
     </div>
 

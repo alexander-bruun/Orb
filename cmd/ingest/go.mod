@@ -6,6 +6,7 @@ require (
 	github.com/alexander-bruun/orb/pkg/config v0.0.0-00010101000000-000000000000
 	github.com/alexander-bruun/orb/pkg/musicbrainz v0.0.0-00010101000000-000000000000
 	github.com/alexander-bruun/orb/pkg/objstore v0.0.0-00010101000000-000000000000
+	github.com/alexander-bruun/orb/pkg/similarity v0.0.0-00010101000000-000000000000
 	github.com/alexander-bruun/orb/pkg/store v0.0.0-00010101000000-000000000000
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/fsnotify/fsnotify v1.9.0
@@ -28,5 +29,6 @@ replace (
 	github.com/alexander-bruun/orb/pkg/config => ../../pkg/config
 	github.com/alexander-bruun/orb/pkg/musicbrainz => ../../pkg/musicbrainz
 	github.com/alexander-bruun/orb/pkg/objstore => ../../pkg/objstore
+	github.com/alexander-bruun/orb/pkg/similarity => ../../pkg/similarity
 	github.com/alexander-bruun/orb/pkg/store => ../../pkg/store
 )

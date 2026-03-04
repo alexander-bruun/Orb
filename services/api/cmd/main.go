@@ -22,6 +22,7 @@ import (
 	"github.com/alexander-bruun/orb/services/api/internal/listenparty"
 	"github.com/alexander-bruun/orb/services/api/internal/playlist"
 	"github.com/alexander-bruun/orb/services/api/internal/queue"
+	"github.com/alexander-bruun/orb/services/api/internal/recommend"
 	"github.com/alexander-bruun/orb/services/api/internal/stream"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -127,6 +128,8 @@ func run(ctx context.Context) error {
 		qSvc := queue.New(db, kv)
 		r.Route("/queue", qSvc.Routes)
 
+		recSvc := recommend.New(db)
+		r.Route("/recommend", recSvc.Routes)
 	})
 
 	// Listen party routes (auth validated per-handler internally)

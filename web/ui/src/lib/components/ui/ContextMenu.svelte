@@ -2,6 +2,7 @@
   import { contextMenu, closeContextMenu } from '$lib/stores/contextMenu';
   import { playTrack, playNext, addToQueue } from '$lib/stores/player';
   import { playlists as playlistsApi } from '$lib/api/playlists';
+  import { recommend } from '$lib/api/recommend';
   import { favorites } from '$lib/stores/favorites';
   import type { Playlist } from '$lib/types';
 
@@ -58,6 +59,18 @@
     const t = $contextMenu.track;
     if (t) addToQueue(t);
     closeContextMenu();
+  }
+
+  async function handleStartRadio() {
+    const t = $contextMenu.track;
+    if (!t) return;
+    closeContextMenu();
+    try {
+      const similar = await recommend.similar(t.id, 30);
+      playTrack(t, [t, ...similar]);
+    } catch {
+      playTrack(t, [t]);
+    }
   }
 
   function handleShare() {
@@ -117,6 +130,15 @@
           <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/>
         </svg>
         Add to Queue
+      </button>
+
+      <button class="item" on:click={handleStartRadio} role="menuitem">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2 12a10 10 0 1 0 10-10"/>
+          <polyline points="12 8 12 12 14 14"/>
+          <polyline points="2 8 2 2 8 2"/>
+        </svg>
+        Start Radio
       </button>
 
       <div class="sep"></div>

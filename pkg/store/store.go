@@ -1357,3 +1357,325 @@ func (s *Store) GetGenreByID(ctx context.Context, id string) (Genre, error) {
 	err := s.pool.QueryRow(ctx, `SELECT id, name FROM genres WHERE id = $1`, id).Scan(&g.ID, &g.Name)
 	return g, err
 }
+
+// ---------------------------------------------------------------------------
+// Track similarity & recommendation methods
+// ---------------------------------------------------------------------------
+
+// UpsertTrackFeatures stores chromaprint data for a track.
+func (s *Store) UpsertTrackFeatures(ctx context.Context, trackID string, chromaprint []int32, dur float64) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO track_features (track_id, chromaprint, chromaprint_dur)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (track_id) DO UPDATE SET chromaprint = $2, chromaprint_dur = $3, extracted_at = now()`,
+		trackID, chromaprint, dur)
+	return err
+}
+
+// ListAllTrackFeatures returns all rows from track_features.
+func (s *Store) ListAllTrackFeatures(ctx context.Context) ([]TrackFeatures, error) {
+	rows, err := s.pool.Query(ctx, `SELECT track_id, chromaprint, chromaprint_dur FROM track_features`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TrackFeatures
+	for rows.Next() {
+		var f TrackFeatures
+		if err := rows.Scan(&f.TrackID, &f.Chromaprint, &f.Duration); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// ListAllTracksBasic returns minimal track info for bulk similarity computation.
+func (s *Store) ListAllTracksBasic(ctx context.Context) ([]TrackBasic, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, COALESCE(artist_id, ''), COALESCE(album_id, ''), duration_ms FROM tracks`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TrackBasic
+	for rows.Next() {
+		var t TrackBasic
+		if err := rows.Scan(&t.ID, &t.ArtistID, &t.AlbumID, &t.DurationMs); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ListAllTrackGenresMap returns a map of track_id → []genre_id.
+func (s *Store) ListAllTrackGenresMap(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT track_id, genre_id FROM track_genres`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string][]string)
+	for rows.Next() {
+		var tid, gid string
+		if err := rows.Scan(&tid, &gid); err != nil {
+			return nil, err
+		}
+		m[tid] = append(m[tid], gid)
+	}
+	return m, rows.Err()
+}
+
+// ListAllAlbumGenresMap returns a map of album_id → []genre_id.
+func (s *Store) ListAllAlbumGenresMap(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT album_id, genre_id FROM album_genres`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string][]string)
+	for rows.Next() {
+		var aid, gid string
+		if err := rows.Scan(&aid, &gid); err != nil {
+			return nil, err
+		}
+		m[aid] = append(m[aid], gid)
+	}
+	return m, rows.Err()
+}
+
+// ListAllArtistGenresMap returns a map of artist_id → []genre_id.
+func (s *Store) ListAllArtistGenresMap(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT artist_id, genre_id FROM artist_genres`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string][]string)
+	for rows.Next() {
+		var aid, gid string
+		if err := rows.Scan(&aid, &gid); err != nil {
+			return nil, err
+		}
+		m[aid] = append(m[aid], gid)
+	}
+	return m, rows.Err()
+}
+
+// ListAllRelatedArtists returns all related-artist pairs.
+func (s *Store) ListAllRelatedArtists(ctx context.Context) ([]RelatedArtistPair, error) {
+	rows, err := s.pool.Query(ctx, `SELECT artist_id, related_id FROM related_artists`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RelatedArtistPair
+	for rows.Next() {
+		var p RelatedArtistPair
+		if err := rows.Scan(&p.ArtistID, &p.RelatedID); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// BatchUpsertSimilarity bulk-inserts similarity rows. Uses a batch for efficiency.
+func (s *Store) BatchUpsertSimilarity(ctx context.Context, rows []TrackSimilarityRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Clear existing data and re-insert (faster than individual ON CONFLICT for full recompute).
+	if _, err := tx.Exec(ctx, `DELETE FROM track_similarity`); err != nil {
+		return err
+	}
+
+	const batchSize = 500
+	for i := 0; i < len(rows); i += batchSize {
+		end := i + batchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := rows[i:end]
+		query := `INSERT INTO track_similarity (track_a, track_b, score) VALUES `
+		args := make([]any, 0, len(batch)*3)
+		for j, r := range batch {
+			if j > 0 {
+				query += ", "
+			}
+			n := j * 3
+			query += fmt.Sprintf("($%d, $%d, $%d)", n+1, n+2, n+3)
+			args = append(args, r.TrackA, r.TrackB, r.Score)
+		}
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ListSimilarTracks returns tracks similar to the given track, ordered by score.
+func (s *Store) ListSimilarTracks(ctx context.Context, trackID string, limit int) ([]TrackWithScore, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        s.score, ar.name AS artist_name
+		 FROM (
+		     SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = $1
+		     UNION ALL
+		     SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = $1
+		 ) s
+		 JOIN tracks t ON t.id = s.similar_id
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 ORDER BY s.score DESC
+		 LIMIT $2`,
+		trackID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracksWithScore(rows)
+}
+
+// RecommendForUser returns personalized recommendations based on recent listening.
+func (s *Store) RecommendForUser(ctx context.Context, userID string, limit int) ([]TrackWithScore, error) {
+	rows, err := s.pool.Query(ctx,
+		`WITH recent AS (
+		     SELECT DISTINCT ON (track_id) track_id
+		     FROM play_history
+		     WHERE user_id = $1
+		     ORDER BY track_id, played_at DESC
+		     LIMIT 20
+		 ),
+		 candidates AS (
+		     SELECT s.similar_id, MAX(s.score) AS score
+		     FROM recent r
+		     CROSS JOIN LATERAL (
+		         SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = r.track_id
+		         UNION ALL
+		         SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = r.track_id
+		     ) s
+		     WHERE s.similar_id NOT IN (SELECT track_id FROM recent)
+		       AND s.similar_id NOT IN (
+		           SELECT track_id FROM play_history
+		           WHERE user_id = $1 AND played_at > now() - interval '24 hours'
+		       )
+		     GROUP BY s.similar_id
+		 )
+		 SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        c.score, ar.name AS artist_name
+		 FROM candidates c
+		 JOIN tracks t ON t.id = c.similar_id
+		 JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $1
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 ORDER BY c.score DESC
+		 LIMIT $2`,
+		userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracksWithScore(rows)
+}
+
+// AutoplayAfter returns tracks to auto-play after the given track, excluding
+// the provided track IDs (already in queue).
+func (s *Store) AutoplayAfter(ctx context.Context, userID, trackID string, exclude []string, limit int) ([]TrackWithScore, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        s.score, ar.name AS artist_name
+		 FROM (
+		     SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = $1
+		     UNION ALL
+		     SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = $1
+		 ) s
+		 JOIN tracks t ON t.id = s.similar_id
+		 JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $2
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 WHERE t.id != ALL($3::text[])
+		 ORDER BY s.score DESC
+		 LIMIT $4`,
+		trackID, userID, exclude, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracksWithScore(rows)
+}
+
+func scanTracksWithScore(rows pgx.Rows) ([]TrackWithScore, error) {
+	var out []TrackWithScore
+	for rows.Next() {
+		var tw TrackWithScore
+		var albumID, artistID, fp, artistName sql.NullString
+		var trackNumber, bitDepth, bitrateKbps sql.NullInt64
+		var discNumber, durationMs, sampleRate, channels sql.NullInt64
+		var fileKey, format sql.NullString
+		var fileSize int64
+		var seekTable []byte
+		var createdAt time.Time
+
+		if err := rows.Scan(
+			&tw.ID, &albumID, &artistID, &tw.Title,
+			&trackNumber, &discNumber, &durationMs,
+			&fileKey, &fileSize, &format,
+			&bitDepth, &sampleRate, &channels, &bitrateKbps,
+			&seekTable, &fp, &createdAt,
+			&tw.Score, &artistName,
+		); err != nil {
+			return nil, err
+		}
+		if albumID.Valid {
+			tw.AlbumID = &albumID.String
+		}
+		if artistID.Valid {
+			tw.ArtistID = &artistID.String
+		}
+		if trackNumber.Valid {
+			n := int(trackNumber.Int64)
+			tw.TrackNumber = &n
+		}
+		tw.DiscNumber = int(discNumber.Int64)
+		tw.DurationMs = int(durationMs.Int64)
+		if fileKey.Valid {
+			tw.FileKey = fileKey.String
+		}
+		tw.FileSize = fileSize
+		if format.Valid {
+			tw.Format = format.String
+		}
+		if bitDepth.Valid {
+			n := int(bitDepth.Int64)
+			tw.BitDepth = &n
+		}
+		tw.SampleRate = int(sampleRate.Int64)
+		tw.Channels = int(channels.Int64)
+		if bitrateKbps.Valid {
+			n := int(bitrateKbps.Int64)
+			tw.BitrateKbps = &n
+		}
+		tw.SeekTable = seekTable
+		if fp.Valid {
+			tw.Fingerprint = fp.String
+		}
+		tw.CreatedAt = createdAt
+		if artistName.Valid {
+			tw.ArtistName = &artistName.String
+		}
+		out = append(out, tw)
+	}
+	return out, rows.Err()
+}
