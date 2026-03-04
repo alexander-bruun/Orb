@@ -563,6 +563,7 @@
 
   /* Listen Along button */
   .party-btn { position: relative; padding: 6px; }
+  .party-btn svg { overflow: hidden; display: block; }
   .party-count {
     position: absolute;
     top: 1px;

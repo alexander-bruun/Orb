@@ -66,21 +66,21 @@ type Session struct {
 
 // Participant represents a guest connected to a session.
 type Participant struct {
-	ID         string    `json:"id"`
-	Nickname   string    `json:"nickname"`
-	JoinedAt   time.Time `json:"joined_at"`
+	ID       string    `json:"id"`
+	Nickname string    `json:"nickname"`
+	JoinedAt time.Time `json:"joined_at"`
 }
 
 // TrackInfo carries just enough track metadata for the guest player to display
 // and stream a track without needing JWT-authenticated library API calls.
 type TrackInfo struct {
-	ID         string  `json:"id"`
-	Title      string  `json:"title"`
-	ArtistName string  `json:"artist_name"`
-	AlbumID    string  `json:"album_id"`
-	BitDepth   int32   `json:"bit_depth"`
-	SampleRate int32   `json:"sample_rate"`
-	DurationMs int32   `json:"duration_ms"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	ArtistName string `json:"artist_name"`
+	AlbumID    string `json:"album_id"`
+	BitDepth   int32  `json:"bit_depth"`
+	SampleRate int32  `json:"sample_rate"`
+	DurationMs int32  `json:"duration_ms"`
 }
 
 // --- WebSocket message types ---
@@ -295,10 +295,10 @@ func removeHub(sessionID string) {
 
 // Service implements the listen-along HTTP/WebSocket routes.
 type Service struct {
-	db         *store.Store
-	kv         *redis.Client
-	streamSvc  *stream.Service
-	jwtKey     []byte
+	db        *store.Store
+	kv        *redis.Client
+	streamSvc *stream.Service
+	jwtKey    []byte
 }
 
 // New creates a new listen party Service.
@@ -310,15 +310,15 @@ func New(db *store.Store, kv *redis.Client, streamSvc *stream.Service, jwtSecret
 // Auth is validated inside individual handlers rather than via middleware so
 // that public and protected endpoints can share a single route group.
 func (s *Service) Routes(r chi.Router) {
-	r.Post("/", s.createSession)       // requires JWT (validated internally)
-	r.Get("/{id}", s.getSession)       // public
-	r.Delete("/{id}", s.endSession)    // requires JWT (validated internally)
-	r.Post("/{id}/code", s.enableCode)  // requires JWT (host); enables/regenerates access code
-	r.Delete("/{id}/code", s.disableCode) // requires JWT (host); disables access code
-	r.Get("/{id}/ws", s.ws)            // host=JWT guest=open
+	r.Post("/", s.createSession)                    // requires JWT (validated internally)
+	r.Get("/{id}", s.getSession)                    // public
+	r.Delete("/{id}", s.endSession)                 // requires JWT (validated internally)
+	r.Post("/{id}/code", s.enableCode)              // requires JWT (host); enables/regenerates access code
+	r.Delete("/{id}/code", s.disableCode)           // requires JWT (host); disables access code
+	r.Get("/{id}/ws", s.ws)                         // host=JWT guest=open
 	r.Get("/{id}/stream/{track_id}", s.guestStream) // guest token
 	r.Get("/{id}/cover/{album_id}", s.guestCover)   // guest token
-	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics)  // guest token
+	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics) // guest token
 }
 
 // --- REST handlers ---
@@ -532,9 +532,18 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 		return
 	}
 
+	// Reload the session from Redis so that code_enabled changes made after the
+	// WebSocket was upgraded (but before the join message arrived) are honoured.
+	if fresh, err := s.loadSession(context.Background(), sess.ID); err == nil {
+		sess = fresh
+	}
+
 	// If the session requires an access code, validate it before proceeding.
-	if sess.CodeEnabled && sess.AccessCode != "" {
-		if strings.TrimSpace(msg.Code) != sess.AccessCode {
+	// Note: we check CodeEnabled alone (not also AccessCode != "") so that a
+	// session where CodeEnabled=true but AccessCode is somehow unset still blocks
+	// guests rather than silently admitting them.
+	if sess.CodeEnabled {
+		if sess.AccessCode == "" || strings.TrimSpace(msg.Code) != sess.AccessCode {
 			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid access code"))
 			conn.Close()
 			return
@@ -674,7 +683,7 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 			h.kickGuest(msg.ParticipantID)
 			// Notify host of removal.
 			leftNotif := mustMarshal(outMsg{
-				Type:      "participant_left",
+				Type:        "participant_left",
 				Participant: &Participant{ID: msg.ParticipantID},
 			})
 			h.sendToHost(leftNotif)
