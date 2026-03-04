@@ -155,6 +155,12 @@ func (s *Service) albumDetail(w http.ResponseWriter, r *http.Request) {
 	if genres, err := s.db.ListGenresByAlbum(r.Context(), id); err == nil {
 		resp["genres"] = genres
 	}
+	// Include sibling variants when the album belongs to a group with >1 member.
+	if album.AlbumGroupID != nil {
+		if variants, err := s.db.ListAlbumVariants(r.Context(), *album.AlbumGroupID); err == nil && len(variants) > 1 {
+			resp["variants"] = variants
+		}
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -223,23 +229,78 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "q is required")
 		return
 	}
-	tracks, _ := s.db.SearchTracks(r.Context(), store.SearchTracksParams{
-		ToTsquery: q,
-		Limit:     20,
-	})
-	albums, _ := s.db.SearchAlbums(r.Context(), store.SearchAlbumsParams{
-		ToTsquery: q,
-		Limit:     20,
-	})
-	artists, _ := s.db.SearchArtists(r.Context(), store.SearchArtistsParams{
-		ToTsquery: q,
-		Limit:     20,
-	})
-	writeJSON(w, http.StatusOK, map[string]any{
-		"tracks":  s.enrichTracks(r.Context(), tracks),
-		"albums":  albums,
-		"artists": artists,
-	})
+	qs := r.URL.Query()
+
+	// Parse optional filter params.
+	genre := strings.TrimSpace(qs.Get("genre"))
+	format := strings.TrimSpace(qs.Get("format"))
+	sortTracks := strings.TrimSpace(qs.Get("sort_tracks"))
+	sortAlbums := strings.TrimSpace(qs.Get("sort_albums"))
+
+	var yearFrom, yearTo, bitrateMin, bitrateMax *int
+	if v, err := strconv.Atoi(qs.Get("year_from")); err == nil && v > 0 {
+		yearFrom = &v
+	}
+	if v, err := strconv.Atoi(qs.Get("year_to")); err == nil && v > 0 {
+		yearTo = &v
+	}
+	if v, err := strconv.Atoi(qs.Get("bitrate_min")); err == nil && v > 0 {
+		bitrateMin = &v
+	}
+	if v, err := strconv.Atoi(qs.Get("bitrate_max")); err == nil && v > 0 {
+		bitrateMax = &v
+	}
+
+	// Determine which result types to include (default: all).
+	types := qs.Get("types") // comma-separated: "tracks,albums,artists"
+	wantTracks := types == "" || strings.Contains(types, "tracks")
+	wantAlbums := types == "" || strings.Contains(types, "albums")
+	wantArtists := types == "" || strings.Contains(types, "artists")
+
+	out := map[string]any{}
+
+	if wantTracks {
+		tracks, _ := s.db.SearchTracks(r.Context(), store.SearchTracksParams{
+			ToTsquery:  q,
+			Limit:      50,
+			Genre:      genre,
+			YearFrom:   yearFrom,
+			YearTo:     yearTo,
+			Format:     format,
+			BitrateMin: bitrateMin,
+			BitrateMax: bitrateMax,
+			SortBy:     sortTracks,
+		})
+		out["tracks"] = s.enrichTracks(r.Context(), tracks)
+	} else {
+		out["tracks"] = []any{}
+	}
+
+	if wantAlbums {
+		albums, _ := s.db.SearchAlbums(r.Context(), store.SearchAlbumsParams{
+			ToTsquery: q,
+			Limit:     30,
+			Genre:     genre,
+			YearFrom:  yearFrom,
+			YearTo:    yearTo,
+			SortBy:    sortAlbums,
+		})
+		out["albums"] = albums
+	} else {
+		out["albums"] = []any{}
+	}
+
+	if wantArtists {
+		artists, _ := s.db.SearchArtists(r.Context(), store.SearchArtistsParams{
+			ToTsquery: q,
+			Limit:     20,
+		})
+		out["artists"] = artists
+	} else {
+		out["artists"] = []any{}
+	}
+
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
