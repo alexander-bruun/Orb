@@ -4,13 +4,14 @@
   import { library as libApi } from '$lib/api/library';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import type { Album, Track, Genre } from '$lib/types';
-  import { playTrack, shuffle } from '$lib/stores/player';
+  import { playTrack, shuffle, startRadio } from '$lib/stores/player';
 
   import { getApiBase } from '$lib/api/base';
 
   let album: Album | null = null;
   let tracks: Track[] = [];
   let genres: Genre[] = [];
+  let variants: Album[] = [];
   let artistName: string | null = null;
   let artistId: string | null = null;
   let loading = true;
@@ -26,6 +27,7 @@
         album = res.album;
         tracks = res.tracks;
         genres = res.genres ?? [];
+        variants = res.variants ?? [];
         if (res.artist) {
           artistName = res.artist.name;
           artistId = res.artist.id;
@@ -45,6 +47,19 @@
     const idx = Math.floor(Math.random() * tracks.length);
     playTrack(tracks[idx], tracks);
   }
+
+  let radioLoading = false;
+  async function startAlbumRadio() {
+    if (tracks.length === 0 || radioLoading) return;
+    radioLoading = true;
+    try {
+      await startRadio(tracks[0].id);
+    } finally {
+      radioLoading = false;
+    }
+  }
+
+  $: discCount = new Set(tracks.map((t) => t.disc_number ?? 1)).size;
 </script>
 
 {#if loading}
@@ -70,6 +85,9 @@
         {#if album.release_year}
           <span class="year">{album.release_year}</span>
         {/if}
+        {#if discCount > 1}
+          <span class="disc-count">{discCount} discs</span>
+        {/if}
         {#if album.label}
           <span class="label-info">{album.label}</span>
         {/if}
@@ -91,9 +109,30 @@
           </svg>
           Shuffle
         </button>
+        <button class="btn-radio" on:click={startAlbumRadio} disabled={tracks.length === 0 || radioLoading} title="Start radio based on this album">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>
+          </svg>
+          {radioLoading ? 'Loading…' : 'Start Radio'}
+        </button>
       </div>
     </div>
   </div>
+  {#if variants.length > 1}
+    <div class="variant-picker">
+      <span class="variant-label">Versions</span>
+      {#each variants as v}
+        <a
+          href="/library/albums/{v.id}"
+          class="variant-pill"
+          class:active={v.id === album.id}
+        >
+          <span class="variant-edition">{v.edition ?? 'Standard'}</span>
+          <span class="variant-count">{v.track_count ?? 0} tracks</span>
+        </a>
+      {/each}
+    </div>
+  {/if}
   <TrackList {tracks} />
 {/if}
 
@@ -122,6 +161,8 @@
   a.artist:hover { text-decoration: underline; color: var(--text); }
   .meta-row { display: flex; gap: 10px; align-items: center; }
   .year { color: var(--text-muted); font-size: 0.875rem; }
+  .disc-count { color: var(--text-muted); font-size: 0.875rem; }
+  .disc-count::before { content: '·'; margin-right: 10px; }
   .label-info { color: var(--text-muted); font-size: 0.875rem; }
   .label-info::before { content: '·'; margin-right: 10px; }
   .genre-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
@@ -165,5 +206,61 @@
   }
   .btn-shuffle:hover { color: var(--text); border-color: var(--text); }
   .btn-shuffle:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 20px;
+    padding: 7px 16px;
+    color: var(--accent);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-radio:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .btn-radio:disabled { opacity: 0.6; cursor: not-allowed; }
   .muted { color: var(--text-muted); }
+
+  /* Variant / edition picker */
+  .variant-picker {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .variant-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-right: 4px;
+  }
+  .variant-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    font-size: 0.8rem;
+    text-decoration: none;
+    color: var(--text-muted);
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .variant-pill:hover { color: var(--text); border-color: var(--accent); }
+  .variant-pill.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(var(--accent-rgb, 99 102 241) / 0.12);
+  }
+  .variant-count {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
+  .variant-pill.active .variant-count { opacity: 1; }
 </style>

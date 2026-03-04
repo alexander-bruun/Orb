@@ -4,7 +4,7 @@
   import { library as libApi } from '$lib/api/library';
   import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
   import type { Artist, Album, Genre, RelatedArtist } from '$lib/types';
-  import { playTrack, shuffle } from '$lib/stores/player';
+  import { playTrack, shuffle, startRadio } from '$lib/stores/player';
 
   import { getApiBase } from '$lib/api/base';
 
@@ -16,6 +16,7 @@
   let keys: string[] = [];
   let loading = true;
   let shuffling = false;
+  let radioLoading = false;
 
   onMount(async () => {
     const id = $page.params.id ?? '';
@@ -51,6 +52,16 @@
       await playTrack(tracks[idx], tracks);
     } finally {
       shuffling = false;
+    }
+  }
+
+  async function startArtistRadio() {
+    if (radioLoading) return;
+    radioLoading = true;
+    try {
+      await startRadio();
+    } finally {
+      radioLoading = false;
     }
   }
 
@@ -99,14 +110,22 @@
         </div>
       {/if}
     </div>
-    <button class="btn-shuffle" on:click={shuffleAll} disabled={albums.length === 0 || shuffling} title="Shuffle all songs">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-        <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
-        <line x1="4" y1="4" x2="9" y2="9"/>
-      </svg>
-      {shuffling ? 'Loading…' : 'Shuffle All'}
-    </button>
+    <div class="header-actions">
+      <button class="btn-shuffle" on:click={shuffleAll} disabled={albums.length === 0 || shuffling} title="Shuffle all songs">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+          <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+          <line x1="4" y1="4" x2="9" y2="9"/>
+        </svg>
+        {shuffling ? 'Loading…' : 'Shuffle All'}
+      </button>
+      <button class="btn-radio" on:click={startArtistRadio} disabled={radioLoading} title="Start radio based on your listening history">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>
+        </svg>
+        {radioLoading ? 'Loading…' : 'Start Radio'}
+      </button>
+    </div>
   </div>
   <h2 class="section">Albums</h2>
   <AlbumGrid {grouped} {keys} />
@@ -170,6 +189,23 @@
   }
   .btn-shuffle:hover { color: var(--text); border-color: var(--text); }
   .btn-shuffle:disabled { opacity: 0.6; cursor: not-allowed; }
+  .header-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+  .btn-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 8px 18px;
+    color: var(--accent);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .btn-radio:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .btn-radio:disabled { opacity: 0.6; cursor: not-allowed; }
   .section { font-size: 1rem; font-weight: 600; color: var(--text-muted); margin-bottom: 16px; }
   .muted { color: var(--text-muted); }
   .related-list { display: flex; flex-wrap: wrap; gap: 8px; }
