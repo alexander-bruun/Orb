@@ -61,6 +61,23 @@ services:
     build: { context: ., dockerfile: docker/ui.Dockerfile }
     ports: ["3000:80"]
 
+  ingest:
+    build: { context: ., dockerfile: docker/ingest.Dockerfile }
+    environment:
+      DATABASE_URL: postgres://orb:orb@postgres-primary:5432/orb?sslmode=disable
+      STORE_ROOT: /data/audio
+      INGEST_DIRS: /music/drive-d
+    command: ["--recursive", "--watch", "--compute-similarity"]
+    volumes:
+      - audio_data:/data/audio
+      - /mnt/d/Music:/music/drive-d:ro
+      # Add more drives as needed:
+      # - /mnt/e/FLAC:/music/drive-e:ro
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_primary_data:
   postgres_replica_data:
