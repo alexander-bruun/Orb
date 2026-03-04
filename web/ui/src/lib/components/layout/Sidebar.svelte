@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import { currentTrack } from '$lib/stores/player';
   import { expanded } from './coverExpandStore';
+  import { authStore } from '$lib/stores/auth';
 
   function toggleExpand() {
     expanded.update(v => !v);
@@ -18,6 +19,9 @@
     <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
     <a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>
     <a href="/settings" class:active={$page.url.pathname === '/settings'}>Settings</a>
+    {#if $authStore.user?.is_admin}
+      <a href="/admin" class:active={$page.url.pathname.startsWith('/admin')} class="admin-link">Admin</a>
+    {/if}
   </nav>
 
   <div class="spacer"></div>
@@ -62,6 +66,8 @@
   }
   .nav a:hover { color: var(--text); background: var(--bg-hover); }
   .nav a.active { color: var(--text); background: var(--bg-hover); }
+  .nav a.admin-link { color: var(--accent, #a78bfa); }
+  .nav a.admin-link:hover, .nav a.admin-link.active { color: var(--accent, #a78bfa); background: var(--bg-hover); }
   .spacer { flex: 1; }
   .sidebar-bottom {
     padding: 12px;

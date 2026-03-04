@@ -14,10 +14,13 @@
   import { apiFetch } from '$lib/api/client';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { togglePlayPause, next, previous } from '$lib/stores/player';
+  import { togglePlayPause, next, previous, currentTrack } from '$lib/stores/player';
   import { themeStore } from '$lib/stores/theme';
   import { isTauri } from '$lib/utils/platform';
   import { getServerUrl } from '$lib/api/base';
+  import { loadEQProfiles, getProfileForGenre, applyEQProfile, eqProfiles, genreEQMappings } from '$lib/stores/eq';
+  import { library as libraryApi } from '$lib/api/library';
+  import { get } from 'svelte/store';
 
   function onKeydown(e: KeyboardEvent) {
     // Ignore when focus is inside a text field.
@@ -83,8 +86,38 @@
         goto('/login');
       } else if ($isAuthenticated) {
         favorites.load();
+        loadEQProfiles().catch(() => {});
       }
     }
+  });
+
+  // ── Per-genre EQ auto-switch ────────────────────────────
+  // When the playing track changes, look up genre mappings and apply the
+  // first matching EQ profile (falls back to the user's default profile).
+  $effect(() => {
+    const track = $currentTrack;
+    if (!track || !$isAuthenticated) return;
+
+    const mappings = $genreEQMappings;
+    if (mappings.length === 0) return; // no genre mappings set → nothing to do
+
+    if (!track.album_id) return;
+
+    libraryApi.album(track.album_id)
+      .then((data) => {
+        const genres = data.genres ?? [];
+        for (const genre of genres) {
+          const profile = getProfileForGenre(genre.id);
+          if (profile) {
+            applyEQProfile(profile);
+            return;
+          }
+        }
+        // No genre-specific mapping — fall back to the user's default profile.
+        const defaultProfile = get(eqProfiles).find(p => p.is_default) ?? null;
+        if (defaultProfile) applyEQProfile(defaultProfile);
+      })
+      .catch(() => {});
   });
 </script>
 

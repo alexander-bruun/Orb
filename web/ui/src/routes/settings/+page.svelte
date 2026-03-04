@@ -4,6 +4,11 @@
   import { apiFetch } from '$lib/api/client';
   import { isTauri } from '$lib/utils/platform';
   import { getServerUrl, setServerUrl } from '$lib/api/base';
+  import QRCode from 'qrcode';
+  import EQEditor from '$lib/components/ui/EQEditor.svelte';
+  import { library } from '$lib/api/library';
+  import type { Genre } from '$lib/types';
+  import { autoplayEnabled, discordEnabled } from '$lib/stores/player';
 
   // ── Avatar ────────────────────────────────────────────────
   let fileInput: HTMLInputElement;
@@ -125,6 +130,289 @@
   }
 
   $: initials = ($authStore.user?.username ?? 'U').slice(0, 2).toUpperCase();
+
+  // ── Two-Factor Authentication ─────────────────────────────
+  type TotpStep = 'idle' | 'setup' | 'backup-codes' | 'disable';
+
+  let totpEnabled = false;
+  let totpStep: TotpStep = 'idle';
+  let totpSecret = '';
+  let totpQrUrl = '';
+  let totpQrDataUrl = '';
+  let totpCode = '';
+  let totpDisableCode = '';
+  let totpDisablePassword = '';
+  let totpBackupCodes: string[] = [];
+  let totpLoading = false;
+  let totpError = '';
+  let totpRegenCode = '';
+  let totpRegenLoading = false;
+  let totpRegenError = '';
+  let totpRegenSuccess = false;
+  let totpRegenCodes: string[] = [];
+
+  async function loadTotpStatus() {
+    try {
+      const res = await apiFetch<{ enabled: boolean }>('/auth/totp/status');
+      totpEnabled = res.enabled;
+    } catch {}
+  }
+
+  loadTotpStatus();
+
+  async function startTotpSetup() {
+    totpError = '';
+    totpLoading = true;
+    try {
+      const res = await apiFetch<{ secret: string; otpauth_url: string }>('/auth/totp/setup', { method: 'POST' });
+      totpSecret = res.secret;
+      totpQrUrl = res.otpauth_url;
+      totpQrDataUrl = await QRCode.toDataURL(res.otpauth_url, { width: 200, margin: 1 });
+      totpCode = '';
+      totpStep = 'setup';
+    } catch (err: any) {
+      totpError = err?.message ?? 'Failed to start setup.';
+    } finally {
+      totpLoading = false;
+    }
+  }
+
+  async function confirmTotpEnable() {
+    if (!totpCode) { totpError = 'Enter the 6-digit code from your app.'; return; }
+    totpError = '';
+    totpLoading = true;
+    try {
+      const res = await apiFetch<{ backup_codes: string[] }>('/auth/totp/enable', {
+        method: 'POST',
+        body: JSON.stringify({ code: totpCode })
+      });
+      totpBackupCodes = res.backup_codes;
+      totpEnabled = true;
+      totpCode = '';
+      totpStep = 'backup-codes';
+    } catch (err: any) {
+      totpError = err?.message ?? 'Failed to enable 2FA.';
+    } finally {
+      totpLoading = false;
+    }
+  }
+
+  async function disableTotp() {
+    if (!totpDisablePassword || !totpDisableCode) { totpError = 'Password and code required.'; return; }
+    totpError = '';
+    totpLoading = true;
+    try {
+      await apiFetch('/auth/totp/disable', {
+        method: 'POST',
+        body: JSON.stringify({ password: totpDisablePassword, code: totpDisableCode })
+      });
+      totpEnabled = false;
+      totpDisableCode = '';
+      totpDisablePassword = '';
+      totpStep = 'idle';
+    } catch (err: any) {
+      totpError = err?.message ?? 'Failed to disable 2FA.';
+    } finally {
+      totpLoading = false;
+    }
+  }
+
+  async function regenBackupCodes() {
+    if (!totpRegenCode) { totpRegenError = 'Enter your authenticator code.'; return; }
+    totpRegenError = '';
+    totpRegenLoading = true;
+    totpRegenSuccess = false;
+    try {
+      const res = await apiFetch<{ backup_codes: string[] }>('/auth/totp/backup-codes/regenerate', {
+        method: 'POST',
+        body: JSON.stringify({ code: totpRegenCode })
+      });
+      totpRegenCodes = res.backup_codes;
+      totpRegenCode = '';
+      totpRegenSuccess = true;
+    } catch (err: any) {
+      totpRegenError = err?.message ?? 'Failed to regenerate codes.';
+    } finally {
+      totpRegenLoading = false;
+    }
+  }
+
+  function closeTotpSetup() {
+    totpStep = 'idle';
+    totpSecret = '';
+    totpQrDataUrl = '';
+    totpCode = '';
+    totpError = '';
+  }
+
+  // ── Streaming Quality Prefs ────────────────────────────────
+  let sqLoading = false;
+  let sqSaving  = false;
+  let sqError   = '';
+  let sqSuccess = false;
+  let sqTab: 'any' | 'wifi' | 'mobile' = 'any';
+  let sqAnyShowCustom  = false;
+  let sqWifiShowCustom = false;
+  let sqMobiShowCustom = false;
+
+  let sqMaxBitrate = '';
+  let sqMaxSampleRate = '';
+  let sqMaxBitDepth = '';
+  let sqWifiMaxBitrate = '';
+  let sqWifiMaxSampleRate = '';
+  let sqWifiMaxBitDepth = '';
+  let sqMobileMaxBitrate = '';
+  let sqMobileMaxSampleRate = '';
+  let sqMobileMaxBitDepth = '';
+
+  const SQ_PRESETS = [
+    {
+      id: 'unlimited',
+      name: 'No Limit',
+      desc: 'Original quality',
+      detail: 'No restrictions on any parameter',
+      wifiDesc: 'Uses your Default quality setting',
+      bitrate:    null as number | null,
+      sampleRate: null as number | null,
+      bitDepth:   null as number | null,
+    },
+    {
+      id: 'hires',
+      name: 'Hi-Res',
+      desc: 'Studio & hi-res audio',
+      detail: 'Up to 192 kHz · 32-bit',
+      wifiDesc: 'Up to 192 kHz · 32-bit',
+      bitrate:    null as number | null,
+      sampleRate: 192000,
+      bitDepth:   32,
+    },
+    {
+      id: 'cd',
+      name: 'CD Quality',
+      desc: 'Standard CD fidelity',
+      detail: '44.1 kHz · 16-bit · ~700–1400 kbps',
+      wifiDesc: '44.1 kHz · 16-bit · ~700–1400 kbps',
+      bitrate:    null as number | null,
+      sampleRate: 44100,
+      bitDepth:   16,
+    },
+    {
+      id: 'saver',
+      name: 'Data Saver',
+      desc: 'Cuts bandwidth usage',
+      detail: 'Max 320 kbps, CD-quality resolution',
+      wifiDesc: 'Max 320 kbps, CD-quality resolution',
+      bitrate:    320,
+      sampleRate: 44100,
+      bitDepth:   16,
+    },
+  ];
+
+  function parseOptInt(s: string): number | null {
+    const n = parseInt(s, 10);
+    return s.trim() === '' || isNaN(n) ? null : n;
+  }
+
+  function matchPreset(bitrate: string, sampleRate: string, bitDepth: string): string {
+    const b = parseOptInt(bitrate);
+    const s = parseOptInt(sampleRate);
+    const d = parseOptInt(bitDepth);
+    for (const p of SQ_PRESETS) {
+      if (p.bitrate === b && p.sampleRate === s && p.bitDepth === d) return p.id;
+    }
+    return 'custom';
+  }
+
+  $: anyPresetId    = matchPreset(sqMaxBitrate,       sqMaxSampleRate,       sqMaxBitDepth);
+  $: wifiPresetId   = matchPreset(sqWifiMaxBitrate,   sqWifiMaxSampleRate,   sqWifiMaxBitDepth);
+  $: mobilePresetId = matchPreset(sqMobileMaxBitrate, sqMobileMaxSampleRate, sqMobileMaxBitDepth);
+
+  $: if (anyPresetId    !== 'custom') sqAnyShowCustom  = false;
+  $: if (wifiPresetId   !== 'custom') sqWifiShowCustom = false;
+  $: if (mobilePresetId !== 'custom') sqMobiShowCustom = false;
+
+  function applyPreset(tier: 'any' | 'wifi' | 'mobile', p: typeof SQ_PRESETS[number]) {
+    const b = p.bitrate    != null ? String(p.bitrate)    : '';
+    const s = p.sampleRate != null ? String(p.sampleRate) : '';
+    const d = p.bitDepth   != null ? String(p.bitDepth)   : '';
+    if (tier === 'any') {
+      sqMaxBitrate = b; sqMaxSampleRate = s; sqMaxBitDepth = d;
+    } else if (tier === 'wifi') {
+      sqWifiMaxBitrate = b; sqWifiMaxSampleRate = s; sqWifiMaxBitDepth = d;
+    } else {
+      sqMobileMaxBitrate = b; sqMobileMaxSampleRate = s; sqMobileMaxBitDepth = d;
+    }
+  }
+
+  function toggleCustom(tier: 'any' | 'wifi' | 'mobile') {
+    if (tier === 'any')        sqAnyShowCustom  = !sqAnyShowCustom;
+    else if (tier === 'wifi')  sqWifiShowCustom = !sqWifiShowCustom;
+    else                       sqMobiShowCustom = !sqMobiShowCustom;
+  }
+
+  async function loadStreamingPrefs() {
+    sqLoading = true;
+    try {
+      const res = await apiFetch<{
+        max_bitrate_kbps:        number | null;
+        max_sample_rate:         number | null;
+        max_bit_depth:           number | null;
+        wifi_max_bitrate_kbps:   number | null;
+        wifi_max_sample_rate:    number | null;
+        wifi_max_bit_depth:      number | null;
+        mobile_max_bitrate_kbps: number | null;
+        mobile_max_sample_rate:  number | null;
+        mobile_max_bit_depth:    number | null;
+      }>('/user/streaming-prefs');
+      sqMaxBitrate          = res.max_bitrate_kbps        != null ? String(res.max_bitrate_kbps)        : '';
+      sqMaxSampleRate       = res.max_sample_rate          != null ? String(res.max_sample_rate)          : '';
+      sqMaxBitDepth         = res.max_bit_depth            != null ? String(res.max_bit_depth)            : '';
+      sqWifiMaxBitrate      = res.wifi_max_bitrate_kbps    != null ? String(res.wifi_max_bitrate_kbps)    : '';
+      sqWifiMaxSampleRate   = res.wifi_max_sample_rate     != null ? String(res.wifi_max_sample_rate)     : '';
+      sqWifiMaxBitDepth     = res.wifi_max_bit_depth       != null ? String(res.wifi_max_bit_depth)       : '';
+      sqMobileMaxBitrate    = res.mobile_max_bitrate_kbps  != null ? String(res.mobile_max_bitrate_kbps)  : '';
+      sqMobileMaxSampleRate = res.mobile_max_sample_rate   != null ? String(res.mobile_max_sample_rate)   : '';
+      sqMobileMaxBitDepth   = res.mobile_max_bit_depth     != null ? String(res.mobile_max_bit_depth)     : '';
+    } catch (e) {
+      console.error('loadStreamingPrefs error:', e);
+    } finally {
+      sqLoading = false;
+    }
+  }
+
+  loadStreamingPrefs();
+
+  async function saveStreamingPrefs() {
+    sqError = '';
+    sqSuccess = false;
+    sqSaving = true;
+    try {
+      await apiFetch('/user/streaming-prefs', {
+        method: 'PUT',
+        body: JSON.stringify({
+          max_bitrate_kbps:        parseOptInt(sqMaxBitrate),
+          max_sample_rate:         parseOptInt(sqMaxSampleRate),
+          max_bit_depth:           parseOptInt(sqMaxBitDepth),
+          wifi_max_bitrate_kbps:   parseOptInt(sqWifiMaxBitrate),
+          wifi_max_sample_rate:    parseOptInt(sqWifiMaxSampleRate),
+          wifi_max_bit_depth:      parseOptInt(sqWifiMaxBitDepth),
+          mobile_max_bitrate_kbps: parseOptInt(sqMobileMaxBitrate),
+          mobile_max_sample_rate:  parseOptInt(sqMobileMaxSampleRate),
+          mobile_max_bit_depth:    parseOptInt(sqMobileMaxBitDepth),
+        })
+      });
+      sqSuccess = true;
+      setTimeout(() => sqSuccess = false, 3000);
+    } catch (err: any) {
+      sqError = err?.message ?? 'Failed to save streaming preferences.';
+    } finally {
+      sqSaving = false;
+    }
+  }
+
+  // ── Genres (for EQ per-genre mapping) ─────────────────────
+  let allGenres: Genre[] = [];
+  library.genres().then(g => { allGenres = g; }).catch(() => {});
 </script>
 
 <div class="page">
@@ -297,6 +585,455 @@
     </div>
   </section>
 
+  <!-- ── Two-Factor Authentication ────────────────────────── -->
+  <section class="card">
+    <h2 class="section-title">Two-factor authentication</h2>
+
+    {#if totpStep === 'idle'}
+      <div class="setting-row" style="border-top:none;padding-top:0">
+        <div class="setting-info">
+          <span class="setting-name">Authenticator app</span>
+          <span class="setting-desc">
+            {totpEnabled ? 'Enabled — your account requires a code on login.' : 'Disabled — add an extra layer of security.'}
+          </span>
+        </div>
+        {#if totpEnabled}
+          <button class="btn-danger" on:click={() => { totpStep = 'disable'; totpError = ''; }}>Disable</button>
+        {:else}
+          <button class="btn-primary" on:click={startTotpSetup} disabled={totpLoading}>
+            {totpLoading ? 'Loading…' : 'Set up'}
+          </button>
+        {/if}
+      </div>
+
+      {#if totpEnabled}
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name">Backup codes</span>
+            <span class="setting-desc">Generate new backup codes (current ones will be invalidated).</span>
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:-4px">
+          <label class="form-label" for="totp-regen-code">Authenticator code</label>
+          <input id="totp-regen-code" class="form-input" type="text" inputmode="numeric" maxlength="6"
+            placeholder="6-digit code" bind:value={totpRegenCode} disabled={totpRegenLoading} />
+        </div>
+        {#if totpRegenError}<p class="msg msg--error">{totpRegenError}</p>{/if}
+        {#if totpRegenSuccess}
+          <p class="msg msg--ok">New backup codes generated — save them now, they won't be shown again.</p>
+          <div class="backup-grid">
+            {#each totpRegenCodes as code}<code class="backup-code">{code}</code>{/each}
+          </div>
+        {/if}
+        <div>
+          <button class="btn-ghost" on:click={regenBackupCodes} disabled={totpRegenLoading}>
+            {totpRegenLoading ? 'Generating…' : 'Regenerate backup codes'}
+          </button>
+        </div>
+      {/if}
+
+      {#if totpError}<p class="msg msg--error">{totpError}</p>{/if}
+
+    {:else if totpStep === 'setup'}
+      <p class="totp-hint">Scan this QR code with Google Authenticator, Authy, or any TOTP app, then enter the 6-digit code to confirm.</p>
+      {#if totpQrDataUrl}
+        <div class="qr-wrap"><img src={totpQrDataUrl} alt="TOTP QR code" class="qr-img" /></div>
+      {/if}
+      <p class="totp-hint" style="margin-top:4px">
+        Can't scan? Enter this secret manually:
+        <code class="inline-secret">{totpSecret}</code>
+      </p>
+      <div class="form-grid">
+        <label class="form-label" for="totp-confirm-code">Verification code</label>
+        <input id="totp-confirm-code" class="form-input totp-input" type="text" inputmode="numeric"
+          maxlength="6" placeholder="••••••" bind:value={totpCode} disabled={totpLoading}
+          autocomplete="one-time-code" />
+      </div>
+      {#if totpError}<p class="msg msg--error">{totpError}</p>{/if}
+      <div class="btn-row">
+        <button class="btn-primary" on:click={confirmTotpEnable} disabled={totpLoading}>
+          {totpLoading ? 'Verifying…' : 'Enable 2FA'}
+        </button>
+        <button class="btn-ghost" on:click={closeTotpSetup} disabled={totpLoading}>Cancel</button>
+      </div>
+
+    {:else if totpStep === 'backup-codes'}
+      <p class="totp-hint">
+        <strong>2FA enabled!</strong> Save these backup codes somewhere safe.
+        Each code can be used once to sign in if you lose access to your authenticator app.
+        They won't be shown again.
+      </p>
+      <div class="backup-grid">
+        {#each totpBackupCodes as code}<code class="backup-code">{code}</code>{/each}
+      </div>
+      <div>
+        <button class="btn-primary" on:click={closeTotpSetup}>Done</button>
+      </div>
+
+    {:else if totpStep === 'disable'}
+      <p class="totp-hint">Enter your password and a current authenticator code to disable 2FA.</p>
+      <div class="form-grid">
+        <label class="form-label" for="totp-dis-pw">Password</label>
+        <input id="totp-dis-pw" class="form-input" type="password" autocomplete="current-password"
+          bind:value={totpDisablePassword} disabled={totpLoading} />
+        <label class="form-label" for="totp-dis-code">Authenticator code</label>
+        <input id="totp-dis-code" class="form-input totp-input" type="text" inputmode="numeric"
+          maxlength="6" placeholder="••••••" bind:value={totpDisableCode} disabled={totpLoading}
+          autocomplete="one-time-code" />
+      </div>
+      {#if totpError}<p class="msg msg--error">{totpError}</p>{/if}
+      <div class="btn-row">
+        <button class="btn-danger" on:click={disableTotp} disabled={totpLoading}>
+          {totpLoading ? 'Disabling…' : 'Disable 2FA'}
+        </button>
+        <button class="btn-ghost" on:click={() => { totpStep = 'idle'; totpError = ''; }} disabled={totpLoading}>Cancel</button>
+      </div>
+    {/if}
+  </section>
+
+  <!-- ── Streaming Quality ──────────────────────────────── -->
+  <section class="card">
+    <h2 class="section-title">Streaming quality</h2>
+    <p class="sq-hint">Server-enforced quality limits. Set a different level per connection type to save mobile data while keeping full quality at home.</p>
+
+    {#if sqLoading}
+      <p class="msg" style="color:var(--text-2)">Loading…</p>
+    {:else}
+      <!-- Tab bar -->
+      <div class="sq-tabs">
+        <button class="sq-tab" class:active={sqTab === 'any'}
+          on:click={() => sqTab = 'any'}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          Default
+        </button>
+        <button class="sq-tab" class:active={sqTab === 'wifi'}
+          on:click={() => sqTab = 'wifi'}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
+            <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <circle cx="12" cy="20" r="1" fill="currentColor"/>
+          </svg>
+          Wi-Fi
+        </button>
+        <button class="sq-tab" class:active={sqTab === 'mobile'}
+          on:click={() => sqTab = 'mobile'}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="12" y1="18" x2="12.01" y2="18"/>
+          </svg>
+          Mobile Data
+        </button>
+      </div>
+
+      <!-- ── Default tab ── -->
+      {#if sqTab === 'any'}
+        <div class="sq-presets">
+          {#each SQ_PRESETS as p (p.id)}
+            <button class="sq-preset" class:active={anyPresetId === p.id}
+              on:click={() => applyPreset('any', p)} disabled={sqSaving}>
+              <div class="sq-preset-icon">
+                {#if p.id === 'unlimited'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4zm0 0c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/>
+                  </svg>
+                {:else if p.id === 'hires'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <rect x="2" y="10" width="3" height="10" rx="1" fill="currentColor" stroke="none" opacity="0.5"/>
+                    <rect x="8" y="6" width="3" height="14" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
+                    <rect x="14" y="2" width="3" height="18" rx="1" fill="currentColor" stroke="none"/>
+                    <rect x="20" y="4" width="2" height="16" rx="1" fill="currentColor" stroke="none"/>
+                  </svg>
+                {:else if p.id === 'cd'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9"/>
+                    <circle cx="12" cy="12" r="3"/>
+                    <line x1="12" y1="3" x2="12" y2="9"/>
+                  </svg>
+                {:else if p.id === 'saver'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <rect x="5" y="2" width="14" height="20" rx="2"/>
+                    <path d="M12 8v6m-3-3 3 3 3-3"/>
+                  </svg>
+                {/if}
+              </div>
+              <span class="sq-preset-name">{p.name}</span>
+              <span class="sq-preset-desc">{p.desc}</span>
+              <span class="sq-preset-detail">{p.detail}</span>
+            </button>
+          {/each}
+        </div>
+
+        <!-- Custom toggle -->
+        <button class="sq-custom-btn" class:open={sqAnyShowCustom || anyPresetId === 'custom'}
+          on:click={() => toggleCustom('any')} disabled={sqSaving}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/>
+            <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/>
+            <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/>
+          </svg>
+          Custom values
+          <svg class="sq-chevron" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        {#if sqAnyShowCustom || anyPresetId === 'custom'}
+          <div class="sq-custom-form">
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max bitrate <code>kbps</code></span>
+                <span class="sq-custom-sub">Controls transfer speed. FLAC at CD quality ≈ 700–1400 kbps.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="no limit"
+                bind:value={sqMaxBitrate} disabled={sqSaving} />
+            </div>
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max sample rate <code>Hz</code></span>
+                <span class="sq-custom-sub">Frequency ceiling. 44100 = CD, 96000 = hi-res, 192000 = studio.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="no limit"
+                bind:value={sqMaxSampleRate} disabled={sqSaving} />
+            </div>
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max bit depth <code>bits</code></span>
+                <span class="sq-custom-sub">Dynamic range. 16 = CD standard, 24 or 32 = hi-res.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="no limit"
+                bind:value={sqMaxBitDepth} disabled={sqSaving} />
+            </div>
+          </div>
+        {/if}
+
+      <!-- ── Wi-Fi tab ── -->
+      {:else if sqTab === 'wifi'}
+        <p class="sq-tab-note">Overrides Default when your device is on Wi-Fi. Leave at "No Limit" to simply use your Default setting.</p>
+        <div class="sq-presets">
+          {#each SQ_PRESETS as p (p.id)}
+            <button class="sq-preset" class:active={wifiPresetId === p.id}
+              on:click={() => applyPreset('wifi', p)} disabled={sqSaving}>
+              <div class="sq-preset-icon">
+                {#if p.id === 'unlimited'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4zm0 0c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/>
+                  </svg>
+                {:else if p.id === 'hires'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <rect x="2" y="10" width="3" height="10" rx="1" fill="currentColor" stroke="none" opacity="0.5"/>
+                    <rect x="8" y="6" width="3" height="14" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
+                    <rect x="14" y="2" width="3" height="18" rx="1" fill="currentColor" stroke="none"/>
+                    <rect x="20" y="4" width="2" height="16" rx="1" fill="currentColor" stroke="none"/>
+                  </svg>
+                {:else if p.id === 'cd'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9"/>
+                    <circle cx="12" cy="12" r="3"/>
+                    <line x1="12" y1="3" x2="12" y2="9"/>
+                  </svg>
+                {:else if p.id === 'saver'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <rect x="5" y="2" width="14" height="20" rx="2"/>
+                    <path d="M12 8v6m-3-3 3 3 3-3"/>
+                  </svg>
+                {/if}
+              </div>
+              <span class="sq-preset-name">{p.id === 'unlimited' ? 'Use Default' : p.name}</span>
+              <span class="sq-preset-desc">{p.id === 'unlimited' ? 'Follow Default setting' : p.desc}</span>
+              <span class="sq-preset-detail">{p.id === 'unlimited' ? 'No Wi-Fi override applied' : p.wifiDesc}</span>
+            </button>
+          {/each}
+        </div>
+
+        <button class="sq-custom-btn" class:open={sqWifiShowCustom || wifiPresetId === 'custom'}
+          on:click={() => toggleCustom('wifi')} disabled={sqSaving}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/>
+            <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/>
+            <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/>
+          </svg>
+          Custom values
+          <svg class="sq-chevron" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        {#if sqWifiShowCustom || wifiPresetId === 'custom'}
+          <div class="sq-custom-form">
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max bitrate <code>kbps</code></span>
+                <span class="sq-custom-sub">Leave blank to inherit from Default.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="inherit default"
+                bind:value={sqWifiMaxBitrate} disabled={sqSaving} />
+            </div>
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max sample rate <code>Hz</code></span>
+                <span class="sq-custom-sub">Leave blank to inherit from Default.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="inherit default"
+                bind:value={sqWifiMaxSampleRate} disabled={sqSaving} />
+            </div>
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max bit depth <code>bits</code></span>
+                <span class="sq-custom-sub">Leave blank to inherit from Default.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="inherit default"
+                bind:value={sqWifiMaxBitDepth} disabled={sqSaving} />
+            </div>
+          </div>
+        {/if}
+
+      <!-- ── Mobile Data tab ── -->
+      {:else if sqTab === 'mobile'}
+        <p class="sq-tab-note">Overrides Default on cellular connections. Set "Data Saver" here to protect your mobile data plan.</p>
+        <div class="sq-presets">
+          {#each SQ_PRESETS as p (p.id)}
+            <button class="sq-preset" class:active={mobilePresetId === p.id}
+              on:click={() => applyPreset('mobile', p)} disabled={sqSaving}>
+              <div class="sq-preset-icon">
+                {#if p.id === 'unlimited'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4zm0 0c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z"/>
+                  </svg>
+                {:else if p.id === 'hires'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <rect x="2" y="10" width="3" height="10" rx="1" fill="currentColor" stroke="none" opacity="0.5"/>
+                    <rect x="8" y="6" width="3" height="14" rx="1" fill="currentColor" stroke="none" opacity="0.7"/>
+                    <rect x="14" y="2" width="3" height="18" rx="1" fill="currentColor" stroke="none"/>
+                    <rect x="20" y="4" width="2" height="16" rx="1" fill="currentColor" stroke="none"/>
+                  </svg>
+                {:else if p.id === 'cd'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9"/>
+                    <circle cx="12" cy="12" r="3"/>
+                    <line x1="12" y1="3" x2="12" y2="9"/>
+                  </svg>
+                {:else if p.id === 'saver'}
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <rect x="5" y="2" width="14" height="20" rx="2"/>
+                    <path d="M12 8v6m-3-3 3 3 3-3"/>
+                  </svg>
+                {/if}
+              </div>
+              <span class="sq-preset-name">{p.id === 'unlimited' ? 'Use Default' : p.name}</span>
+              <span class="sq-preset-desc">{p.id === 'unlimited' ? 'Follow Default setting' : p.desc}</span>
+              <span class="sq-preset-detail">{p.id === 'unlimited' ? 'No mobile override applied' : p.wifiDesc}</span>
+              {#if p.id === 'saver'}
+                <span class="sq-preset-badge">Recommended</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+
+        <button class="sq-custom-btn" class:open={sqMobiShowCustom || mobilePresetId === 'custom'}
+          on:click={() => toggleCustom('mobile')} disabled={sqSaving}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/>
+            <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/>
+            <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/>
+          </svg>
+          Custom values
+          <svg class="sq-chevron" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        {#if sqMobiShowCustom || mobilePresetId === 'custom'}
+          <div class="sq-custom-form">
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max bitrate <code>kbps</code></span>
+                <span class="sq-custom-sub">Leave blank to inherit from Default.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="inherit default"
+                bind:value={sqMobileMaxBitrate} disabled={sqSaving} />
+            </div>
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max sample rate <code>Hz</code></span>
+                <span class="sq-custom-sub">Leave blank to inherit from Default.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="inherit default"
+                bind:value={sqMobileMaxSampleRate} disabled={sqSaving} />
+            </div>
+            <div class="sq-custom-row">
+              <div class="sq-custom-info">
+                <span class="sq-custom-label">Max bit depth <code>bits</code></span>
+                <span class="sq-custom-sub">Leave blank to inherit from Default.</span>
+              </div>
+              <input class="form-input sq-custom-input" type="number" min="1" placeholder="inherit default"
+                bind:value={sqMobileMaxBitDepth} disabled={sqSaving} />
+            </div>
+          </div>
+        {/if}
+      {/if}
+
+      {#if sqError}<p class="msg msg--error">{sqError}</p>{/if}
+      {#if sqSuccess}<p class="msg msg--ok">Streaming preferences saved.</p>{/if}
+
+      <div>
+        <button class="btn-primary" on:click={saveStreamingPrefs} disabled={sqSaving}>
+          {sqSaving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    {/if}
+  </section>
+
+  <!-- ── Equalizer ──────────────────────────────────────── -->
+  <section class="card">
+    <h2 class="section-title">Equalizer</h2>
+    <EQEditor genres={allGenres} />
+  </section>
+
+  <!-- ── Playback ───────────────────────────────────────── -->
+  <section class="card">
+    <h2 class="section-title">Playback</h2>
+
+    <div class="setting-row" style="border-top:none;padding-top:0">
+      <div class="setting-info">
+        <span class="setting-name">Autoplay</span>
+        <span class="setting-desc">
+          When the queue ends, automatically add similar tracks based on what you were listening to.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$autoplayEnabled}
+        role="switch"
+        aria-checked={$autoplayEnabled}
+        on:click={() => autoplayEnabled.set(!$autoplayEnabled)}
+        title={$autoplayEnabled ? 'Disable autoplay' : 'Enable autoplay'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+    {#if isTauri()}
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Discord Rich Presence</span>
+        <span class="setting-desc">
+          Show what you're listening to in your Discord status. Requires Discord to be running.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$discordEnabled}
+        role="switch"
+        aria-checked={$discordEnabled}
+        on:click={() => discordEnabled.set(!$discordEnabled)}
+        title={$discordEnabled ? 'Disable Discord presence' : 'Enable Discord presence'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+    {/if}
+  </section>
+
   <!-- ── Appearance ─────────────────────────────────────── -->
   <section class="card">
     <h2 class="section-title">Appearance</h2>
@@ -400,6 +1137,38 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-2);
+  }
+
+  /* ── Toggle switch ── */
+  .toggle-btn {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    border: 1px solid var(--border);
+    background: var(--bg-2, var(--surface));
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .toggle-btn.on {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .toggle-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle-btn.on .toggle-knob {
+    transform: translateX(18px);
+    background: #fff;
   }
 
   /* ── Profile ── */
@@ -537,6 +1306,87 @@
   }
   .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
 
+  .btn-danger {
+    padding: 7px 16px;
+    border-radius: 7px;
+    border: none;
+    background: #ef4444;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-danger:hover:not(:disabled) { opacity: 0.85; }
+  .btn-danger:disabled { opacity: 0.5; cursor: default; }
+
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* ── 2FA ── */
+  .totp-hint {
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .qr-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 12px 0;
+  }
+
+  .qr-img {
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    width: 180px;
+    height: 180px;
+  }
+
+  .inline-secret {
+    display: inline-block;
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.05em;
+    word-break: break-all;
+    color: var(--text);
+    margin-top: 4px;
+  }
+
+  .backup-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .backup-code {
+    background: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 6px;
+    padding: 6px 0;
+    text-align: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--text);
+  }
+
+  .totp-input {
+    letter-spacing: 0.2em;
+    text-align: center;
+    font-size: 1.1rem;
+    font-family: 'DM Mono', monospace;
+  }
+
   /* ── Appearance ── */
   .setting-row {
     display: flex;
@@ -617,4 +1467,199 @@
   }
   .swatch:hover { transform: scale(1.1); box-shadow: 0 0 0 4px var(--swatch-glow); }
   .swatch.selected { border-color: white; box-shadow: 0 0 0 3px var(--swatch-glow); transform: scale(1.05); }
+
+  /* ── Streaming Quality ── */
+  .sq-hint {
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .sq-tab-note {
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.5;
+    margin: 0;
+    padding: 8px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+  }
+
+  .sq-tabs {
+    display: flex;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .sq-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 6px;
+    background: none;
+    border: none;
+    font-size: 11.5px;
+    font-weight: 500;
+    font-family: 'Syne', sans-serif;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .sq-tab + .sq-tab { border-left: 1px solid var(--border-2); }
+  .sq-tab.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+  .sq-tab:hover:not(.active) { background: var(--surface-2); color: var(--text); }
+
+  .sq-presets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .sq-preset {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 12px 13px 10px;
+    background: var(--surface-2);
+    border: 1.5px solid var(--border-2);
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  }
+  .sq-preset:hover:not(:disabled)  { border-color: var(--accent); }
+  .sq-preset.active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .sq-preset:disabled { opacity: 0.5; cursor: default; }
+
+  .sq-preset-icon {
+    color: var(--text-2);
+    margin-bottom: 6px;
+    line-height: 1;
+  }
+  .sq-preset.active .sq-preset-icon { color: var(--accent); }
+
+  .sq-preset-name {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    line-height: 1.2;
+  }
+  .sq-preset.active .sq-preset-name { color: var(--accent); }
+
+  .sq-preset-desc {
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.3;
+  }
+
+  .sq-preset-detail {
+    font-size: 10px;
+    color: var(--text-2);
+    opacity: 0.65;
+    font-family: 'DM Mono', monospace;
+    line-height: 1.3;
+    margin-top: 3px;
+  }
+
+  .sq-preset-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--accent);
+    color: white;
+    padding: 2px 6px;
+    border-radius: 20px;
+  }
+
+  .sq-custom-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: 1px dashed var(--border-2);
+    border-radius: 8px;
+    color: var(--text-2);
+    font-size: 11.5px;
+    font-family: 'Syne', sans-serif;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .sq-custom-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+  .sq-custom-btn.open { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); border-style: solid; }
+  .sq-custom-btn:disabled { opacity: 0.5; cursor: default; }
+  .sq-chevron { margin-left: auto; transition: transform 0.2s; }
+  .sq-custom-btn.open .sq-chevron { transform: rotate(180deg); }
+
+  .sq-custom-form {
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    padding: 4px 0;
+    background: var(--surface-2);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sq-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+  }
+  .sq-custom-row + .sq-custom-row { border-top: 1px solid var(--border); }
+
+  .sq-custom-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .sq-custom-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+  }
+  .sq-custom-label code {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    color: var(--text-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 4px;
+    margin-left: 4px;
+  }
+
+  .sq-custom-sub {
+    font-size: 10.5px;
+    color: var(--text-2);
+    line-height: 1.4;
+  }
+
+  .sq-custom-input {
+    width: 110px;
+    flex-shrink: 0;
+    text-align: right;
+    font-family: 'DM Mono', monospace;
+  }
 </style>

@@ -10,6 +10,15 @@ export default defineConfig({
 	define: {
 		__IS_TAURI__: isTauriBuild,
 	},
+	build: {
+		rollupOptions: {
+			// Tauri API packages are only available inside the Tauri desktop shell.
+			// When building the web/Docker image they must be left as external so
+			// Rollup does not attempt to resolve them (they are only imported at
+			// runtime behind an `if (isTauri())` guard).
+			external: isTauriBuild ? [] : [/^@tauri-apps\//],
+		},
+	},
 	server: {
 		proxy: {
 			'/api': {
