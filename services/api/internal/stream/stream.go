@@ -15,6 +15,7 @@ import (
 	"github.com/alexander-bruun/orb/pkg/kvkeys"
 	"github.com/alexander-bruun/orb/pkg/objstore"
 	"github.com/alexander-bruun/orb/pkg/store"
+	"github.com/alexander-bruun/orb/services/api/internal/auth"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -24,7 +25,78 @@ const (
 	coverMaxAge    = 86400      // 1 day
 	chunkSize      = 256 * 1024 // 256KB default chunk
 	hlsSegmentSecs = 10.0       // target HLS segment duration in seconds
+	userPrefsTTL   = 10 * time.Minute
 )
+
+// cachedUserPrefs mirrors store.UserStreamingPrefs but lives only in KV.
+type cachedUserPrefs struct {
+	Any    networkPrefs `json:"any"`
+	Wifi   networkPrefs `json:"wifi"`
+	Mobile networkPrefs `json:"mobile"`
+}
+
+// networkPrefs holds quality limits for a single network tier.
+// A nil field means "inherit from the default (any) tier or no limit".
+type networkPrefs struct {
+	MaxBitrateKbps *int `json:"max_bitrate_kbps,omitempty"`
+	MaxSampleRate  *int `json:"max_sample_rate,omitempty"`
+	MaxBitDepth    *int `json:"max_bit_depth,omitempty"`
+}
+
+// effectivePrefs returns the resolved quality limits for a given network type by
+// overlaying network-specific settings on top of the "any" defaults.
+// netType should be "wifi", "mobile", or "" (treated as any).
+func effectivePrefs(p *cachedUserPrefs, netType string) networkPrefs {
+	result := p.Any
+	var override networkPrefs
+	switch netType {
+	case "wifi":
+		override = p.Wifi
+	case "mobile":
+		override = p.Mobile
+	}
+	if override.MaxBitrateKbps != nil {
+		result.MaxBitrateKbps = override.MaxBitrateKbps
+	}
+	if override.MaxSampleRate != nil {
+		result.MaxSampleRate = override.MaxSampleRate
+	}
+	if override.MaxBitDepth != nil {
+		result.MaxBitDepth = override.MaxBitDepth
+	}
+	return result
+}
+
+// throttledReader wraps an io.Reader and limits throughput to the configured
+// byte rate. It uses a total-bytes-sent / desired-rate timing approach so
+// short reads don't accumulate error over time.
+type throttledReader struct {
+	r           io.Reader
+	bytesPerSec float64
+	start       time.Time
+	sent        int64
+}
+
+func newThrottledReader(r io.Reader, maxKbps int) *throttledReader {
+	return &throttledReader{
+		r:           r,
+		bytesPerSec: float64(maxKbps) * 1000.0 / 8.0,
+		start:       time.Now(),
+	}
+}
+
+func (t *throttledReader) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if n > 0 {
+		t.sent += int64(n)
+		// Time it should have taken to send this many bytes at the target rate.
+		expected := time.Duration(float64(t.sent) / t.bytesPerSec * float64(time.Second))
+		if delay := expected - time.Since(t.start); delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	return n, err
+}
 
 // trackMeta is cached in KeyVal to avoid a DB round-trip per chunk.
 type trackMeta struct {
@@ -60,6 +132,12 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve streaming quality prefs for the authenticated user.
+	userID := auth.UserIDFromCtx(r.Context())
+	cachedPrefs, _ := s.resolveUserPrefs(r, userID)
+	netType := r.URL.Query().Get("net") // "wifi", "mobile", or ""
+	prefs := effectivePrefs(cachedPrefs, netType)
+
 	fileSize := meta.FileSize
 	rangeHeader := r.Header.Get("Range")
 
@@ -93,6 +171,31 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Orb-Bit-Depth", strconv.Itoa(int(meta.BitDepth)))
 	w.Header().Set("X-Orb-Sample-Rate", strconv.Itoa(int(meta.SampleRate)))
 
+	// Apply quality advisory headers so the client knows which prefs are active.
+	if prefs.MaxBitrateKbps != nil {
+		w.Header().Set("X-Orb-Max-Bitrate", strconv.Itoa(*prefs.MaxBitrateKbps))
+	}
+	if prefs.MaxSampleRate != nil {
+		w.Header().Set("X-Orb-Max-Sample-Rate", strconv.Itoa(*prefs.MaxSampleRate))
+		if int(meta.SampleRate) > *prefs.MaxSampleRate {
+			w.Header().Set("X-Orb-Quality-Advisory", "sample-rate-exceeds-limit")
+		}
+	}
+	if prefs.MaxBitDepth != nil {
+		w.Header().Set("X-Orb-Max-Bit-Depth", strconv.Itoa(*prefs.MaxBitDepth))
+		if int(meta.BitDepth) > *prefs.MaxBitDepth {
+			existing := w.Header().Get("X-Orb-Quality-Advisory")
+			if existing != "" {
+				w.Header().Set("X-Orb-Quality-Advisory", existing+",bit-depth-exceeds-limit")
+			} else {
+				w.Header().Set("X-Orb-Quality-Advisory", "bit-depth-exceeds-limit")
+			}
+		}
+	}
+	if netType != "" {
+		w.Header().Set("X-Orb-Network-Tier", netType)
+	}
+
 	if rangeHeader != "" {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, fileSize))
 		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
@@ -101,9 +204,15 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
 	}
 
+	// Wrap reader with bandwidth throttle if a limit is configured.
+	var src io.Reader = rc
+	if prefs.MaxBitrateKbps != nil && *prefs.MaxBitrateKbps > 0 {
+		src = newThrottledReader(rc, *prefs.MaxBitrateKbps)
+	}
+
 	// Stream in 64KB chunks — never buffer the whole file.
 	buf := make([]byte, 64*1024)
-	_, _ = io.CopyBuffer(w, rc, buf)
+	_, _ = io.CopyBuffer(w, src, buf)
 }
 
 // ServeByTrackID serves an audio track by its ID without relying on a chi URL
@@ -231,6 +340,50 @@ func (s *Service) serveCover(w http.ResponseWriter, r *http.Request, key string)
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", coverMaxAge))
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	_, _ = io.Copy(w, rc)
+}
+
+// resolveUserPrefs fetches streaming quality preferences for the given user,
+// first consulting the KV cache and falling back to Postgres on a miss.
+// It never returns an error — callers always get a best-effort result.
+func (s *Service) resolveUserPrefs(r *http.Request, userID string) (*cachedUserPrefs, error) {
+	if userID == "" {
+		return &cachedUserPrefs{}, nil
+	}
+	// Try KV cache.
+	raw, err := s.kv.Get(r.Context(), kvkeys.UserStreamingPrefs(userID)).Result()
+	if err == nil {
+		var p cachedUserPrefs
+		if json.Unmarshal([]byte(raw), &p) == nil {
+			return &p, nil
+		}
+	}
+	// Fall back to Postgres.
+	dbPrefs, err := s.db.GetUserStreamingPrefs(r.Context(), userID)
+	if err != nil {
+		// Non-fatal: proceed without limits.
+		return &cachedUserPrefs{}, nil
+	}
+	out := &cachedUserPrefs{
+		Any: networkPrefs{
+			MaxBitrateKbps: dbPrefs.MaxBitrateKbps,
+			MaxSampleRate:  dbPrefs.MaxSampleRate,
+			MaxBitDepth:    dbPrefs.MaxBitDepth,
+		},
+		Wifi: networkPrefs{
+			MaxBitrateKbps: dbPrefs.WifiMaxBitrateKbps,
+			MaxSampleRate:  dbPrefs.WifiMaxSampleRate,
+			MaxBitDepth:    dbPrefs.WifiMaxBitDepth,
+		},
+		Mobile: networkPrefs{
+			MaxBitrateKbps: dbPrefs.MobileMaxBitrateKbps,
+			MaxSampleRate:  dbPrefs.MobileMaxSampleRate,
+			MaxBitDepth:    dbPrefs.MobileMaxBitDepth,
+		},
+	}
+	if b, err := json.Marshal(out); err == nil {
+		s.kv.Set(r.Context(), kvkeys.UserStreamingPrefs(userID), b, userPrefsTTL)
+	}
+	return out, nil
 }
 
 func (s *Service) resolveMeta(r *http.Request, trackID string) (*trackMeta, error) {
