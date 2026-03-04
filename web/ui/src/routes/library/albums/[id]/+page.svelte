@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { library as libApi } from '$lib/api/library';
   import TrackList from '$lib/components/library/TrackList.svelte';
@@ -16,26 +15,30 @@
   let artistId: string | null = null;
   let loading = true;
 
-  onMount(async () => {
-      const id = $page.params.id;
-      if (!id) {
-        loading = false;
-        return;
+  async function loadAlbum(id: string) {
+    loading = true;
+    album = null;
+    tracks = [];
+    genres = [];
+    variants = [];
+    artistName = null;
+    artistId = null;
+    try {
+      const res = await libApi.album(id);
+      album = res.album;
+      tracks = res.tracks;
+      genres = res.genres ?? [];
+      variants = res.variants ?? [];
+      if (res.artist) {
+        artistName = res.artist.name;
+        artistId = res.artist.id;
       }
-      try {
-        const res = await libApi.album(id);
-        album = res.album;
-        tracks = res.tracks;
-        genres = res.genres ?? [];
-        variants = res.variants ?? [];
-        if (res.artist) {
-          artistName = res.artist.name;
-          artistId = res.artist.id;
-        }
-      } finally {
-        loading = false;
-      }
-  });
+    } finally {
+      loading = false;
+    }
+  }
+
+  $: if ($page.params.id) loadAlbum($page.params.id);
 
   function playAll() {
     if (tracks.length > 0) playTrack(tracks[0], tracks);
