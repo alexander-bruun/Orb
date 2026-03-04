@@ -1726,6 +1726,102 @@ func (s *Store) ListAllRelatedArtists(ctx context.Context) ([]RelatedArtistPair,
 	return out, rows.Err()
 }
 
+// ListAllTrackInfosFull returns all tracks with the album and artist metadata
+// needed for the multi-signal similarity algorithm. A single joined query is
+// used to minimise round-trips.
+func (s *Store) ListAllTrackInfosFull(ctx context.Context) ([]TrackInfoFull, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			t.id,
+			COALESCE(t.artist_id, '')     AS artist_id,
+			COALESCE(t.album_id, '')      AS album_id,
+			t.title,
+			t.duration_ms,
+			t.format,
+			COALESCE(t.bit_depth, 0)      AS bit_depth,
+			t.sample_rate,
+			t.channels,
+			COALESCE(t.bitrate_kbps, 0)   AS bitrate_kbps,
+			COALESCE(al.release_year, 0)  AS release_year,
+			COALESCE(al.album_type, '')   AS album_type,
+			COALESCE(al.album_group_id, '') AS album_group_id,
+			COALESCE(ar.country, '')      AS country,
+			COALESCE(ar.artist_type, '')  AS artist_type
+		FROM tracks t
+		LEFT JOIN albums  al ON al.id = t.album_id
+		LEFT JOIN artists ar ON ar.id = t.artist_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TrackInfoFull
+	for rows.Next() {
+		var f TrackInfoFull
+		if err := rows.Scan(
+			&f.ID, &f.ArtistID, &f.AlbumID, &f.Title, &f.DurationMs,
+			&f.Format, &f.BitDepth, &f.SampleRate, &f.Channels, &f.BitrateKbps,
+			&f.ReleaseYear, &f.AlbumType, &f.AlbumGroupID, &f.Country, &f.ArtistType,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// ListAllFeaturedArtistsMap returns a map of track_id → []artistID for every
+// track that has featured-artist entries.
+func (s *Store) ListAllFeaturedArtistsMap(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT track_id, artist_id FROM track_featured_artists ORDER BY track_id, position`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]string)
+	for rows.Next() {
+		var trackID, artistID string
+		if err := rows.Scan(&trackID, &artistID); err != nil {
+			return nil, err
+		}
+		out[trackID] = append(out[trackID], artistID)
+	}
+	return out, rows.Err()
+}
+
+// ListCoPlayCounts returns canonical (track_a < track_b) pairs of tracks that
+// were played by the same user within a 30-minute window, together with the
+// count of distinct users that co-played them.  Only pairs played by at least
+// one user are returned; pairs with very few co-plays still contribute a small
+// behavioral signal.
+func (s *Store) ListCoPlayCounts(ctx context.Context) ([]CoPlayPair, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			ph1.track_id  AS track_a,
+			ph2.track_id  AS track_b,
+			COUNT(DISTINCT ph1.user_id) AS coplay_count
+		FROM play_history ph1
+		JOIN play_history ph2
+			ON  ph2.user_id  = ph1.user_id
+			AND ph2.track_id > ph1.track_id
+			AND ph2.played_at BETWEEN ph1.played_at - INTERVAL '30 minutes'
+			                      AND ph1.played_at + INTERVAL '30 minutes'
+		GROUP BY ph1.track_id, ph2.track_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CoPlayPair
+	for rows.Next() {
+		var cp CoPlayPair
+		if err := rows.Scan(&cp.TrackA, &cp.TrackB, &cp.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, cp)
+	}
+	return out, rows.Err()
+}
+
 // BatchUpsertSimilarity bulk-inserts similarity rows. Uses a batch for efficiency.
 func (s *Store) BatchUpsertSimilarity(ctx context.Context, rows []TrackSimilarityRow) error {
 	if len(rows) == 0 {
@@ -1862,7 +1958,7 @@ func (s *Store) AutoplayAfter(ctx context.Context, userID, trackID string, exclu
 }
 
 func scanTracksWithScore(rows pgx.Rows) ([]TrackWithScore, error) {
-	var out []TrackWithScore
+	out := []TrackWithScore{}
 	for rows.Next() {
 		var tw TrackWithScore
 		var albumID, artistID, fp, artistName sql.NullString

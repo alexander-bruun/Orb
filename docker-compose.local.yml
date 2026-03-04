@@ -83,7 +83,7 @@ services:
       DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
       STORE_ROOT: /data/audio
       INGEST_DIRS: /music/drive-d
-    command: ["--recursive", "--watch"]
+    command: ["--recursive", "--watch", "--compute-similarity"]
     volumes:
       - audio_data:/data/audio
       - /mnt/d/Music:/music/drive-d:ro

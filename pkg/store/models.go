@@ -355,11 +355,40 @@ type TrackWithScore struct {
 }
 
 // TrackBasic holds minimal track info needed for bulk similarity computation.
+// Deprecated: use TrackInfoFull instead.
 type TrackBasic struct {
 	ID         string
 	ArtistID   string
 	AlbumID    string
 	DurationMs int
+}
+
+// TrackInfoFull holds all track data needed for the multi-signal similarity
+// algorithm, loaded in a single query joining tracks, albums, and artists.
+type TrackInfoFull struct {
+	ID           string
+	ArtistID     string
+	AlbumID      string
+	Title        string
+	DurationMs   int
+	Format       string
+	BitDepth     int    // 0 when not set (lossy formats)
+	SampleRate   int
+	Channels     int
+	BitrateKbps  int    // 0 when not set (lossless formats)
+	ReleaseYear  int    // 0 when unknown; from the track's album
+	AlbumType    string // "Album" | "EP" | "Single" | "Live" | etc.
+	AlbumGroupID string // shared across editions of the same record
+	Country      string // ISO 3166-1 alpha-2; from the track's artist
+	ArtistType   string // "Person" | "Group" | etc.
+}
+
+// CoPlayPair holds a pair of tracks that were played in the same listening
+// session, together with the number of distinct users that co-played them.
+type CoPlayPair struct {
+	TrackA string
+	TrackB string
+	Count  int
 }
 
 // RelatedArtistPair is a minimal related-artist edge.
