@@ -266,4 +266,27 @@
     opacity: 0.7;
   }
   .variant-pill.active .variant-count { opacity: 1; }
+
+  /* ── Mobile ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .header {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .cover {
+      width: min(200px, 60vw);
+      height: min(200px, 60vw);
+    }
+    .meta {
+      width: 100%;
+      align-items: center;
+    }
+    .title { font-size: 1.5rem; }
+    .actions { justify-content: center; flex-wrap: wrap; }
+    .meta-row { justify-content: center; flex-wrap: wrap; }
+    .genre-pills { justify-content: center; }
+  }
 </style>

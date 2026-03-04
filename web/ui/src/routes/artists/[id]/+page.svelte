@@ -239,4 +239,25 @@
   .related-artist:hover { border-color: var(--accent); }
   .related-name { font-size: 0.875rem; font-weight: 600; color: var(--text); }
   .related-type { font-size: 0.7rem; color: var(--text-muted); }
+
+  /* ── Mobile ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .header {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .artist-photo {
+      width: min(140px, 50vw);
+      height: min(140px, 50vw);
+    }
+    .header-text { width: 100%; }
+    .title { font-size: 1.75rem; }
+    .artist-meta { justify-content: center; flex-wrap: wrap; }
+    .genre-pills { justify-content: center; }
+    .header-actions { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+    .related-list { justify-content: center; }
+  }
 </style>
