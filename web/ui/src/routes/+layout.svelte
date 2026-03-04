@@ -5,6 +5,7 @@
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import BottomBar from '$lib/components/layout/BottomBar.svelte';
   import ContextMenu from '$lib/components/ui/ContextMenu.svelte';
+  import ToastContainer from '$lib/components/ui/ToastContainer.svelte';
   import QueueModal from '$lib/components/ui/QueueModal.svelte';
   import ListenPartyPanel from '$lib/components/layout/ListenPartyPanel.svelte';
   import LyricsModal from '$lib/components/layout/LyricsModal.svelte';
@@ -34,6 +35,7 @@
   }
 
   let { children } = $props();
+  let dataLoaded = false;
 
   onMount(async () => {
     themeStore.init();
@@ -83,10 +85,14 @@
         goto($isAuthenticated ? '/' : '/login');
       } else if (path !== '/login' && !$isAuthenticated) {
         // Token expired or logged out — send to login.
+        dataLoaded = false;
         goto('/login');
       } else if ($isAuthenticated) {
-        favorites.load();
-        loadEQProfiles().catch(() => {});
+        if (!dataLoaded) {
+          dataLoaded = true;
+          favorites.load();
+          loadEQProfiles().catch(() => {});
+        }
       }
     }
   });
@@ -149,6 +155,7 @@
   <QueueModal />
   <ListenPartyPanel />
   <LyricsModal />
+  <ToastContainer />
 {/if}
 
 <style>
@@ -174,4 +181,16 @@
   :global(header.topbar)    { grid-area: top; }
   :global(aside.sidebar)    { grid-area: sidebar; }
   :global(footer.bottom-bar) { grid-area: bottom; }
+
+  /* ── Mobile layout (no sidebar column in grid) ─────────────────────────── */
+  @media (max-width: 640px) {
+    .shell {
+      grid-template-rows: var(--top-h) 1fr auto;
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "top"
+        "content"
+        "bottom";
+    }
+  }
 </style>

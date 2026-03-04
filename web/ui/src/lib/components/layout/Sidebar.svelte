@@ -1,17 +1,27 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { afterNavigate } from '$app/navigation';
   import { currentTrack } from '$lib/stores/player';
   import { expanded } from './coverExpandStore';
   import { authStore } from '$lib/stores/auth';
+  import { sidebarOpen } from '$lib/stores/sidebar';
 
   function toggleExpand() {
     expanded.update(v => !v);
   }
 
+  // Close sidebar on navigation (mobile drawer behaviour)
+  afterNavigate(() => sidebarOpen.set(false));
+
   import { getApiBase } from '$lib/api/base';
 </script>
 
-<aside class="sidebar">
+{#if $sidebarOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <div class="sidebar-backdrop" role="presentation" on:click={() => sidebarOpen.set(false)}></div>
+{/if}
+
+<aside class="sidebar" class:mobile-open={$sidebarOpen}>
   <nav class="nav">
     <a href="/" class:active={$page.url.pathname === '/'}>Home</a>
     <a href="/library" class:active={$page.url.pathname.startsWith('/library')}>Library</a>
@@ -105,5 +115,34 @@
     position: absolute;
     top: 8px;
     right: 8px;
+  }
+
+  /* ── Mobile overlay drawer ──────────────────────────────── */
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 49;
+    backdrop-filter: blur(2px);
+  }
+
+  @media (max-width: 640px) {
+    .sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      height: 100dvh;
+      z-index: 50;
+      transform: translateX(-100%);
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      /* keep the sidebar visible above the grid's sidebar cell (which is gone on mobile) */
+    }
+    .sidebar.mobile-open {
+      transform: translateX(0);
+    }
+    .sidebar-backdrop {
+      display: block;
+    }
   }
 </style>

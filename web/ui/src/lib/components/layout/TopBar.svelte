@@ -4,6 +4,7 @@
   import { searchQuery } from '$lib/stores/library';
   import { formattedFormat } from '$lib/stores/player';
   import { avatarStore } from '$lib/stores/theme';
+  import { sidebarOpen } from '$lib/stores/sidebar';
 
   let query = '';
   let menuOpen = false;
@@ -41,6 +42,15 @@
 <svelte:window on:click={closeMenu} />
 
 <header class="topbar">
+  <!-- Hamburger: only visible on mobile -->
+  <button class="hamburger" on:click|stopPropagation={() => sidebarOpen.update(v => !v)} aria-label="Toggle navigation">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
+
   <a href="/" class="wordmark">orb</a>
 
   <form class="search-box" on:submit={handleSearch}>
@@ -304,5 +314,28 @@
   .menu-item--danger:hover {
     color: #f87171;
     background: rgba(248,113,113,0.08);
+  }
+
+  /* ── Hamburger (mobile only) ────────────────────────────── */
+  .hamburger {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-2);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+  }
+  .hamburger:hover { color: var(--text); background: var(--surface-2); }
+
+  @media (max-width: 640px) {
+    .hamburger { display: flex; }
+    .format-badge { display: none; }
+    .search-box { max-width: none; }
+    .topbar { padding: 0 12px; gap: 10px; }
   }
 </style>

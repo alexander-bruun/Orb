@@ -591,4 +591,56 @@
     color: var(--accent);
     pointer-events: none;
   }
+
+  /* ── Mobile player ──────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .bottom-bar {
+      flex-direction: column;
+      height: auto;
+      padding: 8px 12px;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      gap: 4px;
+      align-items: stretch;
+    }
+
+    .info-section {
+      width: 100%;
+      padding: 0;
+    }
+
+    .playback-section {
+      width: 100%;
+      padding: 0;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    /* Seek bar goes full-width above the controls row */
+    .seek-area {
+      order: -1;
+      width: 100%;
+      flex-basis: 100%;
+    }
+
+    /* Controls row takes full width, centred */
+    .controls {
+      flex: 1;
+      justify-content: center;
+    }
+
+    /* Hide secondary controls on mobile */
+    .right-controls {
+      display: none;
+    }
+
+    /* Larger touch targets */
+    .ctrl-btn {
+      height: 36px;
+      padding: 0 10px;
+    }
+    .play-btn {
+      font-size: 1.8rem;
+      width: 44px;
+    }
+  }
 </style>
