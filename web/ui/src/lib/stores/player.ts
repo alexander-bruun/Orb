@@ -5,6 +5,7 @@ import { getApiBase } from '$lib/api/base';
 import { queue as queueApi } from '$lib/api/queue';
 import { library as libraryApi } from '$lib/api/library';
 import { recommend } from '$lib/api/recommend';
+import { isTauri } from '$lib/utils/platform';
 
 export const currentTrack = writable<Track | null>(null);
 export const playbackState = writable<PlaybackState>('idle');
@@ -25,6 +26,8 @@ export const userQueue = writable<Track[]>([]);
 export const queueModalOpen = writable(false);
 /** When true, similar tracks auto-queue when the queue runs out. */
 export const autoplayEnabled = writable(true);
+/** When true, display current track in Discord Rich Presence (desktop only). */
+export const discordEnabled = writable(false);
 
 /** Fisher-Yates shuffle, optionally pinning one index to position 0. */
 function generateShuffle(length: number, pinIndex = -1): number[] {
@@ -249,6 +252,29 @@ export async function loadQueue() {
 	}
 }
 
+/**
+ * Start a radio queue.
+ * If a seed track ID is provided, loads tracks similar to that track.
+ * Otherwise loads a personalised station based on the user's listening history.
+ */
+export async function startRadio(seedTrackId?: string) {
+	let tracks: Track[];
+	try {
+		tracks = seedTrackId
+			? await recommend.similar(seedTrackId, 50)
+			: await recommend.radio(50);
+	} catch (err) {
+		console.error('startRadio error', err);
+		return;
+	}
+	if (!tracks || tracks.length === 0) return;
+	shuffle.set(false);
+	shuffleOrder.set([]);
+	queue.set(tracks);
+	queueIndex.set(0);
+	await playTrack(tracks[0], tracks);
+}
+
 // Persistence: save minimal player state so we can resume after a refresh.
 const STORAGE_KEY = 'orb-player-state-v1';
 const POSITION_SAVE_INTERVAL_MS = 1000;
@@ -270,7 +296,8 @@ function writeState() {
 			repeat: get(repeatMode),
 			shuffle: get(shuffle),
 			shuffleOrder: get(shuffleOrder),
-			autoplay: get(autoplayEnabled)
+			autoplay: get(autoplayEnabled),
+			discord: get(discordEnabled)
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 	} catch {
@@ -319,6 +346,7 @@ volume.subscribe(() => scheduleStateSave());
 repeatMode.subscribe(() => scheduleStateSave());
 shuffle.subscribe(() => scheduleStateSave());
 autoplayEnabled.subscribe(() => scheduleStateSave());
+discordEnabled.subscribe(() => scheduleStateSave());
 
 // ─── Media Session API ───────────────────────────────────────────────────────
 // Wires hardware media keys (Play/Pause, Next, Previous on keyboard/headphones)
@@ -375,6 +403,76 @@ if (mediaSessionSupported()) {
 currentTrack.subscribe(syncMediaMetadata);
 playbackState.subscribe(syncMediaSessionPlaybackState);
 
+// ─── Discord Rich Presence ───────────────────────────────────────────────────
+// Only active in the Tauri desktop shell. Updates presence when the track
+// changes or Discord is toggled on; clears it when toggled off.
+if (isTauri()) {
+	async function pushDiscordPresence(track: Track | null) {
+		if (!get(discordEnabled) || !track) return;
+		try {
+			const { invoke } = await import(/* @vite-ignore */ '@tauri-apps/api/core');
+			await invoke('discord_update', {
+				title: track.title,
+				artist: track.artist_name ?? '',
+				album: ''
+			});
+		} catch {
+			// Discord may not be running — ignore silently.
+		}
+	}
+
+	async function clearDiscordPresence() {
+		try {
+			const { invoke } = await import(/* @vite-ignore */ '@tauri-apps/api/core');
+			await invoke('discord_clear');
+		} catch {
+			// ignore
+		}
+	}
+
+	currentTrack.subscribe((track) => {
+		if (get(discordEnabled)) {
+			if (track) pushDiscordPresence(track);
+			else clearDiscordPresence();
+		}
+	});
+
+	discordEnabled.subscribe(async (enabled) => {
+		if (!enabled) {
+			await clearDiscordPresence();
+		} else {
+			const track = get(currentTrack);
+			if (track) await pushDiscordPresence(track);
+		}
+	});
+}
+
+// ─── System Tray Integration ─────────────────────────────────────────────────
+// Syncs playback state to the tray Play/Pause label and handles tray menu
+// button clicks (Previous / Play-Pause / Next) via Tauri events.
+if (isTauri()) {
+	playbackState.subscribe(async (state) => {
+		try {
+			const { invoke } = await import(/* @vite-ignore */ '@tauri-apps/api/core');
+			await invoke('set_tray_playback_state', { playing: state === 'playing' });
+		} catch {
+			// ignore — tray may not be ready yet on first load
+		}
+	});
+
+	// Listen for tray menu button events emitted from Rust.
+	(async () => {
+		try {
+			const { listen } = await import(/* @vite-ignore */ '@tauri-apps/api/event');
+			await listen('tray-play-pause', () => togglePlayPause());
+			await listen('tray-previous', () => previous());
+			await listen('tray-next', () => next());
+		} catch {
+			// ignore
+		}
+	})();
+}
+
 // Throttle position state updates — positionMs fires every ~250 ms.
 let _posStateTimer: ReturnType<typeof setTimeout> | null = null;
 function schedulePositionStateSync() {
@@ -415,6 +513,7 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 			if (Array.isArray(st.shuffleOrder)) shuffleOrder.set(st.shuffleOrder);
 		}
 		if (st.autoplay === false) autoplayEnabled.set(false);
+		if (st.discord === true) discordEnabled.set(true);
 
 		if (Array.isArray(st.queueIds) && st.queueIds.length) {
 			const qTracks = (
