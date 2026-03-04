@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { Track, Album, Artist, Genre, RelatedArtist } from '$lib/types';
+import type { Track, Album, Artist, Genre, RelatedArtist, SearchFilters } from '$lib/types';
 
 export const library = {
 	tracks: (limit = 50, offset = 0) =>
@@ -8,7 +8,7 @@ export const library = {
 		apiFetch<{ items: Album[]; total: number }>(`/library/albums?limit=${limit}&offset=${offset}&sort_by=${sortBy}`),
 	artists: (limit = 50, offset = 0) =>
 		apiFetch<Artist[]>(`/library/artists?limit=${limit}&offset=${offset}`),
-	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist; genres?: Genre[] }>(`/library/albums/${id}`),
+	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist; genres?: Genre[]; variants?: Album[] }>(`/library/albums/${id}`),
 	artist: (id: string) => apiFetch<{ artist: Artist; albums: Album[]; genres?: Genre[]; related_artists?: RelatedArtist[] }>(`/library/artists/${id}`),
 	track: (id: string) => apiFetch<{ track: Track; genres?: Genre[] }>(`/library/tracks/${id}`),
 	genres: () => apiFetch<Genre[]>('/library/genres'),
@@ -19,8 +19,21 @@ export const library = {
 		apiFetch<Album[]>(`/library/genres/${id}/albums?limit=${limit}&offset=${offset}`),
 	addTrack: (id: string) => apiFetch(`/library/tracks/${id}`, { method: 'POST' }),
 	removeTrack: (id: string) => apiFetch(`/library/tracks/${id}`, { method: 'DELETE' }),
-	search: (q: string) =>
-		apiFetch<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>(`/library/search?q=${encodeURIComponent(q)}`),
+	search: (q: string, filters?: SearchFilters) => {
+		const p = new URLSearchParams({ q });
+		if (filters) {
+			if (filters.genre) p.set('genre', filters.genre);
+			if (filters.year_from) p.set('year_from', String(filters.year_from));
+			if (filters.year_to) p.set('year_to', String(filters.year_to));
+			if (filters.format) p.set('format', filters.format);
+			if (filters.bitrate_min) p.set('bitrate_min', String(filters.bitrate_min));
+			if (filters.bitrate_max) p.set('bitrate_max', String(filters.bitrate_max));
+			if (filters.types?.length) p.set('types', filters.types.join(','));
+			if (filters.sort_tracks) p.set('sort_tracks', filters.sort_tracks);
+			if (filters.sort_albums) p.set('sort_albums', filters.sort_albums);
+		}
+		return apiFetch<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>(`/library/search?${p}`);
+	},
 	recentlyPlayed: (limit = 100, from?: string, to?: string) => {
 		const p = new URLSearchParams({ limit: String(limit) });
 		if (from) p.set('from', from);
