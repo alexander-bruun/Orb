@@ -187,21 +187,32 @@ func (s *Store) ListAlbums(ctx context.Context, p ListAlbumsParams) ([]Album, er
 	var orderBy string
 	switch p.SortBy {
 	case "artist":
-		orderBy = `regexp_replace(lower(coalesce(ar.sort_name, ar.name, '')), '^(the |a |an )\s*', '') ASC,` +
-			` regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
+		orderBy = `regexp_replace(lower(coalesce(ar_name, '')), '^(the |a |an )\s*', '') ASC,` +
+			` regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`
 	case "year":
-		orderBy = `al.release_year DESC NULLS LAST,` +
-			` regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
+		orderBy = `release_year DESC NULLS LAST,` +
+			` regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`
 	default: // "title"
-		orderBy = `regexp_replace(lower(al.title), '^(the |a |an )\s*', '') ASC`
+		orderBy = `regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`
 	}
+	// Use ROW_NUMBER to pick one representative per album group (prefer albums
+	// that have cover art; otherwise pick the earliest-created one).
 	rows, err := s.pool.Query(ctx,
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
-FROM albums al
-LEFT JOIN artists ar ON ar.id = al.artist_id
-LEFT JOIN tracks t ON t.album_id = al.id
-GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
-ORDER BY `+orderBy+` LIMIT $1 OFFSET $2`,
+		`WITH ranked AS (
+			SELECT al.id, al.artist_id, ar.name AS ar_name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) AS track_count,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY COALESCE(al.album_group_id, al.id)
+			           ORDER BY (al.cover_art_key IS NULL) ASC, al.created_at ASC
+			       ) AS rn
+			FROM albums al
+			LEFT JOIN artists ar ON ar.id = al.artist_id
+			LEFT JOIN tracks t ON t.album_id = al.id
+			GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
+		)
+		SELECT id, artist_id, ar_name, title, release_year, label, cover_art_key, mbid, created_at, track_count
+		FROM ranked
+		WHERE rn = 1
+		ORDER BY `+orderBy+` LIMIT $1 OFFSET $2`,
 		p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
@@ -973,10 +984,10 @@ func (s *Store) ListFavoriteIDs(ctx context.Context, userID string) ([]string, e
 	return ids, rows.Err()
 }
 
-// CountAlbums returns the total number of albums.
+// CountAlbums returns the number of distinct album groups (i.e. deduped by album_group_id).
 func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM albums`).Scan(&count)
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT COALESCE(album_group_id, id) FROM albums) s`).Scan(&count)
 	return count, err
 }
 
