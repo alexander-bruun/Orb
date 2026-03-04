@@ -6,8 +6,11 @@ export interface ScoredTrack extends Track {
 }
 
 export const recommend = {
-	similar: (trackId: string, limit = 20) =>
-		apiFetch<ScoredTrack[]>(`/recommend/similar/${trackId}?limit=${limit}`),
+	similar: (trackId: string, limit = 20, excludeAlbumId?: string) => {
+		const params = new URLSearchParams({ limit: String(limit) });
+		if (excludeAlbumId) params.set('exclude_album', excludeAlbumId);
+		return apiFetch<ScoredTrack[]>(`/recommend/similar/${trackId}?${params}`);
+	},
 
 	radio: (limit = 50) => apiFetch<ScoredTrack[]>(`/recommend/radio?limit=${limit}`),
 

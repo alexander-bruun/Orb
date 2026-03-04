@@ -21,11 +21,13 @@ import (
 // trackWithArtists wraps a store.Track with its featured artists for API responses.
 type trackWithArtists struct {
 	store.Track
+	ArtistName      *string        `json:"artist_name,omitempty"`
 	FeaturedArtists []store.Artist `json:"featured_artists,omitempty"`
 }
 
-// enrichTracks fetches featured artists for a slice of tracks in a single query
-// and returns a parallel slice of trackWithArtists ready for serialisation.
+// enrichTracks fetches featured artists and the main artist name for a slice of
+// tracks in two batched queries, then returns a parallel slice of
+// trackWithArtists ready for serialisation.
 func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trackWithArtists {
 	ids := make([]string, len(tracks))
 	for i, t := range tracks {
@@ -35,9 +37,32 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 	if err != nil {
 		featMap = map[string][]store.Artist{}
 	}
+
+	// Collect the unique main artist IDs so we can resolve names in one query.
+	artistIDSet := make(map[string]struct{})
+	for _, t := range tracks {
+		if t.ArtistID != nil && *t.ArtistID != "" {
+			artistIDSet[*t.ArtistID] = struct{}{}
+		}
+	}
+	artistIDs := make([]string, 0, len(artistIDSet))
+	for id := range artistIDSet {
+		artistIDs = append(artistIDs, id)
+	}
+	artistNames, err := s.db.GetArtistNamesByIDs(ctx, artistIDs)
+	if err != nil {
+		artistNames = map[string]string{}
+	}
+
 	out := make([]trackWithArtists, len(tracks))
 	for i, t := range tracks {
-		out[i] = trackWithArtists{Track: t, FeaturedArtists: featMap[t.ID]}
+		var artistName *string
+		if t.ArtistID != nil {
+			if name, ok := artistNames[*t.ArtistID]; ok {
+				artistName = &name
+			}
+		}
+		out[i] = trackWithArtists{Track: t, ArtistName: artistName, FeaturedArtists: featMap[t.ID]}
 	}
 	return out
 }

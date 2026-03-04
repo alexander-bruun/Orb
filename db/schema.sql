@@ -174,10 +174,11 @@ CREATE INDEX artists_search_idx ON artists USING GIN(search_vector);
 
 -- Audio features extracted during ingest for similarity computation.
 CREATE TABLE track_features (
-    track_id        TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-    chromaprint     INTEGER[],       -- raw chromaprint fingerprint (array of int32)
-    chromaprint_dur REAL,            -- duration reported by fpcalc (seconds)
-    extracted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    track_id     TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    bpm          REAL,        -- track tempo in beats per minute; NULL = unknown
+    key_estimate TEXT,        -- musical key, e.g. "Cm", "F#"; NULL = unknown
+    replay_gain  REAL,        -- track replay-gain in dB; NULL = not set
+    extracted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Pre-computed track similarity scores. Symmetric: only the canonical

@@ -64,26 +64,29 @@ type Album struct {
 
 // Track represents a track in the database.
 type Track struct {
-	ID          string     `json:"id"`
-	AlbumID     *string    `json:"album_id,omitempty"`
-	ArtistID    *string    `json:"artist_id,omitempty"`
-	Title       string     `json:"title"`
-	TrackNumber *int       `json:"track_number,omitempty"`
-	DiscNumber  int        `json:"disc_number"`
-	DurationMs  int        `json:"duration_ms"`
-	FileKey     string     `json:"file_key"`
-	FileSize    int64      `json:"file_size"`
-	Format      string     `json:"format"`
-	BitDepth    *int       `json:"bit_depth,omitempty"`
-	SampleRate  int        `json:"sample_rate"`
-	Channels    int        `json:"channels"`
-	BitrateKbps *int       `json:"bitrate_kbps,omitempty"`
-	SeekTable   []byte     `json:"seek_table,omitempty"`
-	Fingerprint string     `json:"fingerprint,omitempty"`
-	Isrc        *string    `json:"isrc,omitempty"`
-	Mbid        *string    `json:"mbid,omitempty"`
-	EnrichedAt  *time.Time `json:"enriched_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID             string     `json:"id"`
+	AlbumID        *string    `json:"album_id,omitempty"`
+	ArtistID       *string    `json:"artist_id,omitempty"`
+	Title          string     `json:"title"`
+	TrackNumber    *int       `json:"track_number,omitempty"`
+	DiscNumber     int        `json:"disc_number"`
+	DurationMs     int        `json:"duration_ms"`
+	FileKey        string     `json:"file_key"`
+	FileSize       int64      `json:"file_size"`
+	Format         string     `json:"format"`
+	BitDepth       *int       `json:"bit_depth,omitempty"`
+	SampleRate     int        `json:"sample_rate"`
+	Channels       int        `json:"channels"`
+	BitrateKbps    *int       `json:"bitrate_kbps,omitempty"`
+	SeekTable      []byte     `json:"seek_table,omitempty"`
+	Fingerprint    string     `json:"fingerprint,omitempty"`
+	Isrc           *string    `json:"isrc,omitempty"`
+	Mbid           *string    `json:"mbid,omitempty"`
+	EnrichedAt     *time.Time `json:"enriched_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	// ReplayGainTrack is the track-level ReplayGain value in dB (from track_features).
+	// Nil when no ReplayGain data is available.
+	ReplayGainTrack *float64  `json:"replay_gain_track,omitempty"`
 }
 
 // UpsertArtistParams for upserting an artist.
@@ -333,11 +336,12 @@ type UpdateTrackEnrichmentParams struct {
 	Isrc *string
 }
 
-// TrackFeatures holds chromaprint data extracted during ingest.
+// TrackFeatures holds in-house audio features extracted during ingest.
 type TrackFeatures struct {
 	TrackID     string  `json:"track_id"`
-	Chromaprint []int32 `json:"chromaprint"`
-	Duration    float64 `json:"chromaprint_dur"`
+	BPM         float64 `json:"bpm"`          // 0 = unknown
+	KeyEstimate string  `json:"key_estimate"` // e.g. "Cm", "F#"; "" = unknown
+	ReplayGain  float64 `json:"replay_gain"`  // track gain in dB; 0 = not set
 }
 
 // TrackSimilarityRow is a row in the track_similarity table.

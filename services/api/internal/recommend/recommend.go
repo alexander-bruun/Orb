@@ -30,12 +30,13 @@ func (s *Service) Routes(r chi.Router) {
 }
 
 // similarTracks returns tracks similar to the given track.
-// GET /recommend/similar/{track_id}?limit=20
+// GET /recommend/similar/{track_id}?limit=20&exclude_album=<album_id>
 func (s *Service) similarTracks(w http.ResponseWriter, r *http.Request) {
 	trackID := chi.URLParam(r, "track_id")
 	limit := intQuery(r, "limit", 20)
+	excludeAlbum := r.URL.Query().Get("exclude_album")
 
-	tracks, err := s.db.ListSimilarTracks(r.Context(), trackID, limit)
+	tracks, err := s.db.ListSimilarTracks(r.Context(), trackID, limit, excludeAlbum)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

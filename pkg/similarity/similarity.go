@@ -5,17 +5,19 @@
 //
 // # Algorithm Overview
 //
-// Eight independent signals are computed for each track pair, each normalised
+// Ten independent signals are computed for each track pair, each normalised
 // to [0, 1], then blended using fixed weights that sum to 1.0:
 //
-//  1. Genre IDF similarity  (0.30) — IDF-weighted Jaccard over merged genre sets
-//  2. Artist graph          (0.25) — multi-hop relationship traversal
-//  3. Release era           (0.12) — Gaussian decay over release year distance
-//  4. Audio tech profile    (0.10) — format tier, resolution tier, channel count
-//  5. Album context         (0.08) — same album / variant group / album type
-//  6. Duration proximity    (0.07) — exponential decay over duration difference
-//  7. Title token overlap   (0.05) — token Jaccard, penalising near-identical titles
-//  8. Co-play behavior      (0.03) — sessions where both tracks were played together
+//  1. Genre IDF similarity  (0.28) — IDF-weighted Jaccard over merged genre sets
+//  2. Artist graph          (0.22) — multi-hop relationship traversal
+//  3. BPM proximity         (0.15) — Gaussian decay over tempo difference
+//  4. Release era           (0.10) — Gaussian decay over release year distance
+//  5. Album context         (0.07) — same album / variant group / album type
+//  6. Audio tech profile    (0.06) — format tier, resolution tier, channel count
+//  7. Musical key           (0.05) — circle-of-fifths distance
+//  8. Duration proximity    (0.04) — exponential decay over duration difference
+//  9. Title token overlap   (0.02) — token Jaccard, penalising near-identical titles
+// 10. Co-play behavior      (0.01) — sessions where both tracks were played together
 package similarity
 
 import (
@@ -35,14 +37,16 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-wGenreIDF    = 0.30 // Signal 1: IDF-weighted genre Jaccard similarity
-wArtistGraph = 0.25 // Signal 2: multi-hop artist relationship graph
-wEra         = 0.12 // Signal 3: release year / decade proximity
-wAudioTech   = 0.10 // Signal 4: format / bit-depth / sample-rate profile
-wAlbumCtx    = 0.08 // Signal 5: same album / variant group / album type
-wDuration    = 0.07 // Signal 6: song length proximity
-wTitleToken  = 0.05 // Signal 7: title token overlap (version detection)
-wCoPlay      = 0.03 // Signal 8: behavioral co-play session count
+wGenreIDF    = 0.28 // Signal 1:  IDF-weighted genre Jaccard similarity
+wArtistGraph = 0.22 // Signal 2:  multi-hop artist relationship graph
+wBPM         = 0.15 // Signal 3:  tempo proximity (Gaussian decay)
+wEra         = 0.10 // Signal 4:  release year / decade proximity
+wAlbumCtx    = 0.07 // Signal 5:  same album / variant group / album type
+wAudioTech   = 0.06 // Signal 6:  format / bit-depth / sample-rate profile
+wKey         = 0.05 // Signal 7:  musical key (circle-of-fifths distance)
+wDuration    = 0.04 // Signal 8:  song length proximity
+wTitleToken  = 0.02 // Signal 9:  title token overlap (version detection)
+wCoPlay      = 0.01 // Signal 10: behavioral co-play session count
 
 // MaxSimilarPerTrack is the maximum number of similar tracks stored per track.
 MaxSimilarPerTrack = 50
@@ -76,6 +80,8 @@ Country           string // ISO 3166-1 alpha-2 artist country
 ArtistType        string // "Person" | "Group" | …
 Genres            []string // merged track + album + artist genre IDs
 FeaturedArtistIDs []string // artists featured on this specific track
+BPM               float64  // tempo in BPM; 0 = unknown
+KeyEstimate       string   // musical key, e.g. "Cm", "F#"; "" = unknown
 }
 
 // similarPair is an intermediate result before top-K selection.
@@ -151,10 +157,19 @@ for _, cp := range coPlayRaw {
 coPlay[[2]string{cp.TrackA, cp.TrackB}] = cp.Count
 }
 
-// ── 6. Assemble feature vectors ────────────────────────────────────────
+// ── 6. In-house audio features (BPM, key, replay-gain) ─────────────────
+featuresMap, err := db.ListAllTrackFeaturesMap(ctx)
+if err != nil {
+// Non-fatal: features improve quality but are optional.
+slog.Warn("load track features failed — continuing without BPM/key signals", "err", err)
+featuresMap = map[string]store.TrackFeatures{}
+}
+
+// ── 7. Assemble feature vectors ────────────────────────────────────────
 vecs := make([]trackFeatureVec, 0, len(basics))
 for _, b := range basics {
 genres := mergeGenres(b.ID, b.AlbumID, b.ArtistID, trackGenres, albumGenres, artistGenresMap)
+feat := featuresMap[b.ID]
 vecs = append(vecs, trackFeatureVec{
 ID:                b.ID,
 ArtistID:          b.ArtistID,
@@ -174,22 +189,24 @@ Country:           b.Country,
 ArtistType:        b.ArtistType,
 Genres:            genres,
 FeaturedArtistIDs: featMap[b.ID],
+BPM:               feat.BPM,
+KeyEstimate:       feat.KeyEstimate,
 })
 }
 
-// ── 7. Compute genre IDF weights (used by Signal 1) ───────────────────
+// ── 8. Compute genre IDF weights (used by Signal 1) ───────────────────
 allGenreSets := make([][]string, len(vecs))
 for i := range vecs {
 allGenreSets[i] = vecs[i].Genres
 }
 genreIDF := computeGenreIDF(allGenreSets)
 
-// ── 8. Build co-feature artist-pair set (used by Signal 2) ───────────
+// ── 9. Build co-feature artist-pair set (used by Signal 2) ───────────
 coFeatArtists := buildCoFeatArtistPairs(vecs)
 
 slog.Info("computing pairwise similarity", "tracks", len(vecs))
 
-// ── 9. Pairwise comparison with bounded top-K accumulation ────────────
+// ── 10. Pairwise comparison with bounded top-K accumulation ────────────
 topK := make(map[string][]similarPair, len(vecs))
 for i := 0; i < len(vecs); i++ {
 for j := i + 1; j < len(vecs); j++ {
@@ -205,7 +222,7 @@ topK[b.ID] = appendTopK(topK[b.ID], pair, MaxSimilarPerTrack)
 }
 }
 
-// ── 10. Deduplicate and persist ────────────────────────────────────────
+// ── 11. Deduplicate and persist ────────────────────────────────────────
 seen := make(map[[2]string]bool)
 var rows []store.TrackSimilarityRow
 for _, pairs := range topK {
@@ -234,7 +251,7 @@ return nil
 // Score composition
 // ---------------------------------------------------------------------------
 
-// computeScore combines all eight signals into a single score in [0, 1].
+// computeScore combines all ten signals into a single score in [0, 1].
 func computeScore(
 a, b *trackFeatureVec,
 genreIDF map[string]float64,
@@ -244,18 +261,22 @@ coPlay map[[2]string]int,
 ) float64 {
 gSim := genreIDFSimilarity(a.Genres, b.Genres, genreIDF)
 artSim := artistGraphSimilarity(a, b, related, coFeatArtists)
+bpmSim := bpmSimilarity(a.BPM, b.BPM)
 eraSim := eraSimilarity(a.ReleaseYear, b.ReleaseYear)
-techSim := audioProfileSimilarity(a, b)
 albSim := albumContextSimilarity(a, b)
+techSim := audioProfileSimilarity(a, b)
+keySim := keySimilarity(a.KeyEstimate, b.KeyEstimate)
 durSim := durationSimilarity(a.DurationMs, b.DurationMs)
 titleSim := titleTokenSimilarity(a.TitleTokens, b.TitleTokens)
 cpSim := coPlaySimilarity(a.ID, b.ID, coPlay)
 
 score := wGenreIDF*gSim +
 wArtistGraph*artSim +
+wBPM*bpmSim +
 wEra*eraSim +
-wAudioTech*techSim +
 wAlbumCtx*albSim +
+wAudioTech*techSim +
+wKey*keySim +
 wDuration*durSim +
 wTitleToken*titleSim +
 wCoPlay*cpSim
@@ -551,7 +572,83 @@ return 0.0
 }
 
 // ---------------------------------------------------------------------------
-// Signal 6: Duration Proximity
+// Signal 3: BPM (Tempo) Proximity
+// ---------------------------------------------------------------------------
+
+// bpmSigma is the standard deviation for the Gaussian BPM decay.
+// Two tracks 15 BPM apart score ≈ 0.61; 30 BPM apart score ≈ 0.13.
+const bpmSigma = 15.0
+
+// bpmSimilarity returns a Gaussian-decay similarity in [0, 1].
+// When either track has an unknown BPM (0) a neutral 0.5 is returned so that
+// missing data does not distort the overall score.
+func bpmSimilarity(bpmA, bpmB float64) float64 {
+if bpmA == 0 || bpmB == 0 {
+return 0.5
+}
+diff := bpmA - bpmB
+return math.Exp(-(diff * diff) / (2.0 * bpmSigma * bpmSigma))
+}
+
+// ---------------------------------------------------------------------------
+// Signal 7: Musical Key Compatibility (circle of fifths)
+// ---------------------------------------------------------------------------
+
+// keyToChroma maps common key notation (as stored by popular tag editors) to a
+// chromatic pitch class [0, 11] where 0=C, 1=C#/Db, 2=D, … 11=B.
+// Minor keys map to the same pitch class as their relative major (they share
+// the same key signature); the "m" suffix is stripped before lookup.
+var keyToChroma = map[string]int{
+"C": 0, "C#": 1, "Db": 1,
+"D": 2, "D#": 3, "Eb": 3,
+"E": 4,
+"F": 5, "F#": 6, "Gb": 6,
+"G": 7, "G#": 8, "Ab": 8,
+"A": 9, "A#": 10, "Bb": 10,
+"B": 11,
+}
+
+// parseChroma converts a key string to a chroma value [0, 11] and reports
+// whether the lookup succeeded.
+func parseChroma(key string) (int, bool) {
+if key == "" {
+return 0, false
+}
+// Strip minor suffix — "Cm" → "C", "F#m" → "F#", "Bb minor" → "Bb"
+k := strings.TrimSuffix(strings.TrimSuffix(key, " minor"), "m")
+k = strings.TrimSpace(k)
+// Normalise enharmonic spellings to one canonical form.
+k = strings.Replace(k, "♭", "b", 1)
+k = strings.Replace(k, "♯", "#", 1)
+if c, ok := keyToChroma[k]; ok {
+return c, true
+}
+return 0, false
+}
+
+// keySimilarity scores key compatibility via the circle-of-fifths distance.
+// Adjacent keys on the circle (distance 1) are highly compatible; opposite
+// keys (distance 6) are dissonant.
+// Distance 0 → 1.0     (same key / relative major-minor pair)
+// Distance 1 → ≈0.89   (adjacent; e.g. C and G)
+// Distance 6 → 0.0     (distant tritone)
+// Unknown key → neutral 0.5
+func keySimilarity(keyA, keyB string) float64 {
+cA, okA := parseChroma(keyA)
+cB, okB := parseChroma(keyB)
+if !okA || !okB {
+return 0.5
+}
+diff := (cA - cB + 12) % 12
+if diff > 6 {
+diff = 12 - diff // shortest path on the circle
+}
+// Map distance [0, 6] → similarity [1.0, 0.0]
+return 1.0 - float64(diff)/6.0
+}
+
+// ---------------------------------------------------------------------------
+// Signal 8: Duration Proximity
 // ---------------------------------------------------------------------------
 
 // durationSimilarity applies an exponential decay: similarity halves for every
@@ -565,7 +662,7 @@ return math.Exp(-diff / 120_000.0)
 }
 
 // ---------------------------------------------------------------------------
-// Signal 7: Title Token Similarity (version / variant detection)
+// Signal 9: Title Token Similarity (version / variant detection)
 // ---------------------------------------------------------------------------
 
 // nonAlphanumRe strips everything that is not a letter, digit, or whitespace.
@@ -631,7 +728,7 @@ return j
 }
 
 // ---------------------------------------------------------------------------
-// Signal 8: Co-play Behavioral Similarity
+// Signal 10: Co-Play Behavioral Similarity
 // ---------------------------------------------------------------------------
 
 // coPlaySimilarity returns a score in [0, 1] based on how many distinct user

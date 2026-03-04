@@ -141,8 +141,9 @@ func (s *Store) GetPlaylistByID(ctx context.Context, id string) (Playlist, error
 
 func (s *Store) ListPlaylistTracks(ctx context.Context, id string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN playlist_tracks pt ON pt.track_id = t.id
 WHERE pt.playlist_id = $1
 ORDER BY pt.position ASC`,
@@ -168,8 +169,9 @@ func (s *Store) DeletePlaylist(ctx context.Context, p DeletePlaylistParams) erro
 
 func (s *Store) ListTracksByUser(ctx context.Context, p ListTracksByUserParams) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN user_library ul ON ul.track_id = t.id
 WHERE ul.user_id = $1
 ORDER BY t.title ASC
@@ -234,10 +236,11 @@ func (s *Store) ListArtists(ctx context.Context, p ListArtistsParams) ([]Artist,
 
 func (s *Store) ListTracksByAlbum(ctx context.Context, albumID string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, album_id, artist_id, title, track_number, disc_number, duration_ms, file_key, file_size, format, bit_depth, sample_rate, channels, bitrate_kbps, seek_table, fingerprint, created_at
-FROM tracks
-WHERE album_id = $1
-ORDER BY disc_number ASC, track_number ASC`,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
+FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
+WHERE t.album_id = $1
+ORDER BY t.disc_number ASC, t.track_number ASC`,
 		albumID)
 	if err != nil {
 		return nil, err
@@ -281,6 +284,30 @@ func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, err
 		a.EnrichedAt = &enrichedAt.Time
 	}
 	return a, nil
+}
+
+// GetArtistNamesByIDs returns a map of artist ID → name for the given IDs.
+// Only id and name are fetched, making it efficient for bulk display enrichment.
+func (s *Store) GetArtistNamesByIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, name FROM artists WHERE id = ANY($1)`,
+		ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string, len(ids))
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		result[id] = name
+	}
+	return result, rows.Err()
 }
 
 func (s *Store) ListAlbumsByArtist(ctx context.Context, artistID string) ([]Album, error) {
@@ -335,8 +362,9 @@ func (s *Store) RemoveTrackFromLibrary(ctx context.Context, userID, trackID stri
 
 func (s *Store) GetQueue(ctx context.Context, userID string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN queue_entries qe ON qe.track_id = t.id
 WHERE qe.user_id = $1
 ORDER BY qe.position ASC`,
@@ -375,7 +403,7 @@ func (s *Store) GetMaxQueuePosition(ctx context.Context, userID string) (int, er
 // GetTrackByID returns a track by ID.
 func (s *Store) GetTrackByID(ctx context.Context, id string) (Track, error) {
 	var t Track
-	row := s.pool.QueryRow(ctx, `SELECT id, album_id, artist_id, title, track_number, disc_number, duration_ms, file_key, file_size, format, bit_depth, sample_rate, channels, bitrate_kbps, seek_table, fingerprint, isrc, mbid, enriched_at, created_at FROM tracks WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.isrc, t.mbid, t.enriched_at, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track FROM tracks t LEFT JOIN track_features tf ON tf.track_id = t.id WHERE t.id = $1`, id)
 	var albumID, artistID, format sql.NullString
 	var trackNumber, discNumber, durationMs, sampleRate, channels sql.NullInt64
 	var fileKey sql.NullString
@@ -385,7 +413,8 @@ func (s *Store) GetTrackByID(ctx context.Context, id string) (Track, error) {
 	var fingerprintVal, isrc, mbid sql.NullString
 	var enrichedAt sql.NullTime
 	var createdAt time.Time
-	err := row.Scan(&t.ID, &albumID, &artistID, &t.Title, &trackNumber, &discNumber, &durationMs, &fileKey, &fileSize, &format, &bitDepth, &sampleRate, &channels, &bitrateKbps, &seekTable, &fingerprintVal, &isrc, &mbid, &enrichedAt, &createdAt)
+	var replayGain sql.NullFloat64
+	err := row.Scan(&t.ID, &albumID, &artistID, &t.Title, &trackNumber, &discNumber, &durationMs, &fileKey, &fileSize, &format, &bitDepth, &sampleRate, &channels, &bitrateKbps, &seekTable, &fingerprintVal, &isrc, &mbid, &enrichedAt, &createdAt, &replayGain)
 	if albumID.Valid {
 		t.AlbumID = &albumID.String
 	}
@@ -427,6 +456,10 @@ func (s *Store) GetTrackByID(ctx context.Context, id string) (Track, error) {
 	}
 	if enrichedAt.Valid {
 		t.EnrichedAt = &enrichedAt.Time
+	}
+	if replayGain.Valid && replayGain.Float64 != 0 {
+		rg := replayGain.Float64
+		t.ReplayGainTrack = &rg
 	}
 	t.CreatedAt = createdAt
 	return t, err
@@ -495,8 +528,9 @@ func (s *Store) SearchTracks(ctx context.Context, p SearchTracksParams) ([]Track
 
 	args = append(args, p.Limit)
 	q := fmt.Sprintf(
-		`SELECT DISTINCT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT DISTINCT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
 LEFT JOIN artists ar ON ar.id = t.artist_id%s
 WHERE %s
 ORDER BY %s
@@ -609,15 +643,17 @@ func (s *Store) ListRecentlyPlayed(ctx context.Context, p ListRecentlyPlayedPara
 	rows, err := s.pool.Query(ctx,
 		`SELECT sub.id, sub.album_id, sub.artist_id, sub.title, sub.track_number, sub.disc_number,
 		        sub.duration_ms, sub.file_key, sub.file_size, sub.format, sub.bit_depth,
-		        sub.sample_rate, sub.channels, sub.bitrate_kbps, sub.seek_table, sub.fingerprint, sub.created_at
+		        sub.sample_rate, sub.channels, sub.bitrate_kbps, sub.seek_table, sub.fingerprint, sub.created_at, sub.replay_gain_track
 		FROM (
 		  SELECT DISTINCT ON (ph.track_id)
 		    t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
 		    t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
 		    t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		    COALESCE(tf.replay_gain, 0) AS replay_gain_track,
 		    ph.played_at
 		  FROM play_history ph
 		  JOIN tracks t ON t.id = ph.track_id
+		  LEFT JOIN track_features tf ON tf.track_id = t.id
 		  WHERE ph.user_id = $1
 		    AND ($3::timestamptz IS NULL OR ph.played_at >= $3)
 		    AND ($4::timestamptz IS NULL OR ph.played_at < $4)
@@ -638,8 +674,9 @@ func (s *Store) ListMostPlayed(ctx context.Context, p ListMostPlayedParams) ([]T
 	rows, err := s.pool.Query(ctx,
 		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
 		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
-		        t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		        t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 		FROM tracks t
+		LEFT JOIN track_features tf ON tf.track_id = t.id
 		JOIN (
 		  SELECT track_id, COUNT(*) AS play_count
 		  FROM play_history
@@ -978,8 +1015,9 @@ func (s *Store) RemoveFavorite(ctx context.Context, p FavoriteParams) error {
 // ListFavorites returns all favorited tracks for a user, newest first.
 func (s *Store) ListFavorites(ctx context.Context, userID string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN user_favorites uf ON uf.track_id = t.id
 WHERE uf.user_id = $1
 ORDER BY uf.added_at DESC`,
@@ -1106,7 +1144,8 @@ func scanTracks(rows pgx.Rows) ([]Track, error) {
 		var trackNumber, discNumber, durationMs, fileSize, sampleRate, channels, bitDepth, bitrateKbps sql.NullInt64
 		var seekTable []byte
 		var createdAt time.Time
-		if err := rows.Scan(&t.ID, &albumID, &artistID, &t.Title, &trackNumber, &discNumber, &durationMs, &fileKey, &fileSize, &format, &bitDepth, &sampleRate, &channels, &bitrateKbps, &seekTable, &fp, &createdAt); err != nil {
+		var replayGain sql.NullFloat64
+		if err := rows.Scan(&t.ID, &albumID, &artistID, &t.Title, &trackNumber, &discNumber, &durationMs, &fileKey, &fileSize, &format, &bitDepth, &sampleRate, &channels, &bitrateKbps, &seekTable, &fp, &createdAt, &replayGain); err != nil {
 			return nil, err
 		}
 		if albumID.Valid {
@@ -1141,6 +1180,10 @@ func scanTracks(rows pgx.Rows) ([]Track, error) {
 		t.SeekTable = seekTable
 		if fp.Valid {
 			t.Fingerprint = fp.String
+		}
+		if replayGain.Valid && replayGain.Float64 != 0 {
+			rg := replayGain.Float64
+			t.ReplayGainTrack = &rg
 		}
 		t.CreatedAt = createdAt
 		out = append(out, t)
@@ -1238,8 +1281,9 @@ func scanPlaylists(rows pgx.Rows) ([]Playlist, error) {
 // ListPlaylistTopPlayedTracks returns the top 4 most played tracks in a playlist.
 func (s *Store) ListPlaylistTopPlayedTracks(ctx context.Context, playlistID string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN playlist_tracks pt ON pt.track_id = t.id
 LEFT JOIN (
   SELECT track_id, COUNT(*) AS play_count
@@ -1585,12 +1629,13 @@ ORDER BY al.title LIMIT $1`, whereClause)
 // ListUnenrichedTracks returns tracks that haven't been enriched yet.
 // If force is true, returns all tracks regardless of enrichment status.
 func (s *Store) ListUnenrichedTracks(ctx context.Context, limit int, force bool) ([]Track, error) {
-	q := `SELECT id, album_id, artist_id, title, track_number, disc_number, duration_ms, file_key, file_size, format, bit_depth, sample_rate, channels, bitrate_kbps, seek_table, fingerprint, created_at
-FROM tracks`
+	q := `SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
+FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id`
 	if !force {
-		q += ` WHERE enriched_at IS NULL`
+		q += ` WHERE t.enriched_at IS NULL`
 	}
-	q += ` ORDER BY title LIMIT $1`
+	q += ` ORDER BY t.title LIMIT $1`
 	rows, err := s.pool.Query(ctx, q, limit)
 	if err != nil {
 		return nil, err
@@ -1645,19 +1690,23 @@ func (s *Store) GetGenreByID(ctx context.Context, id string) (Genre, error) {
 // Track similarity & recommendation methods
 // ---------------------------------------------------------------------------
 
-// UpsertTrackFeatures stores chromaprint data for a track.
-func (s *Store) UpsertTrackFeatures(ctx context.Context, trackID string, chromaprint []int32, dur float64) error {
+// UpsertTrackFeatures stores in-house audio features for a track.
+func (s *Store) UpsertTrackFeatures(ctx context.Context, trackID string, bpm float64, keyEstimate string, replayGain float64) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO track_features (track_id, chromaprint, chromaprint_dur)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (track_id) DO UPDATE SET chromaprint = $2, chromaprint_dur = $3, extracted_at = now()`,
-		trackID, chromaprint, dur)
+		`INSERT INTO track_features (track_id, bpm, key_estimate, replay_gain)
+		 VALUES ($1, NULLIF($2, 0), NULLIF($3, ''), NULLIF($4, 0))
+		 ON CONFLICT (track_id) DO UPDATE
+		   SET bpm          = COALESCE(NULLIF($2, 0), track_features.bpm),
+		       key_estimate = COALESCE(NULLIF($3, ''), track_features.key_estimate),
+		       replay_gain  = COALESCE(NULLIF($4, 0), track_features.replay_gain),
+		       extracted_at = now()`,
+		trackID, bpm, keyEstimate, replayGain)
 	return err
 }
 
 // ListAllTrackFeatures returns all rows from track_features.
 func (s *Store) ListAllTrackFeatures(ctx context.Context) ([]TrackFeatures, error) {
-	rows, err := s.pool.Query(ctx, `SELECT track_id, chromaprint, chromaprint_dur FROM track_features`)
+	rows, err := s.pool.Query(ctx, `SELECT track_id, COALESCE(bpm, 0), COALESCE(key_estimate, ''), COALESCE(replay_gain, 0) FROM track_features`)
 	if err != nil {
 		return nil, err
 	}
@@ -1665,12 +1714,26 @@ func (s *Store) ListAllTrackFeatures(ctx context.Context) ([]TrackFeatures, erro
 	var out []TrackFeatures
 	for rows.Next() {
 		var f TrackFeatures
-		if err := rows.Scan(&f.TrackID, &f.Chromaprint, &f.Duration); err != nil {
+		if err := rows.Scan(&f.TrackID, &f.BPM, &f.KeyEstimate, &f.ReplayGain); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
 	}
 	return out, rows.Err()
+}
+
+// ListAllTrackFeaturesMap returns track features indexed by track ID for bulk
+// similarity computation. Tracks without a features row are omitted.
+func (s *Store) ListAllTrackFeaturesMap(ctx context.Context) (map[string]TrackFeatures, error) {
+	all, err := s.ListAllTrackFeatures(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]TrackFeatures, len(all))
+	for _, f := range all {
+		m[f.TrackID] = f
+	}
+	return m, nil
 }
 
 // ListAllTracksBasic returns minimal track info for bulk similarity computation.
@@ -1902,22 +1965,45 @@ func (s *Store) BatchUpsertSimilarity(ctx context.Context, rows []TrackSimilarit
 }
 
 // ListSimilarTracks returns tracks similar to the given track, ordered by score.
-func (s *Store) ListSimilarTracks(ctx context.Context, trackID string, limit int) ([]TrackWithScore, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
-		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
-		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
-		        s.score, ar.name AS artist_name
-		 FROM (
-		     SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = $1
-		     UNION ALL
-		     SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = $1
-		 ) s
-		 JOIN tracks t ON t.id = s.similar_id
-		 LEFT JOIN artists ar ON ar.id = t.artist_id
-		 ORDER BY s.score DESC
-		 LIMIT $2`,
-		trackID, limit)
+// If excludeAlbumID is non-empty, tracks belonging to that album are excluded.
+func (s *Store) ListSimilarTracks(ctx context.Context, trackID string, limit int, excludeAlbumID string) ([]TrackWithScore, error) {
+	var (rows pgx.Rows; err error)
+	if excludeAlbumID != "" {
+		rows, err = s.pool.Query(ctx,
+			`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+			        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+			        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+			        COALESCE(tf.replay_gain, 0) AS replay_gain_track, s.score, ar.name AS artist_name
+			 FROM (
+			     SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = $1
+			     UNION ALL
+			     SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = $1
+			 ) s
+			 JOIN tracks t ON t.id = s.similar_id
+			 LEFT JOIN track_features tf ON tf.track_id = t.id
+			 LEFT JOIN artists ar ON ar.id = t.artist_id
+			 WHERE t.album_id != $3
+			 ORDER BY s.score DESC
+			 LIMIT $2`,
+			trackID, limit, excludeAlbumID)
+	} else {
+		rows, err = s.pool.Query(ctx,
+			`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+			        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+			        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+			        COALESCE(tf.replay_gain, 0) AS replay_gain_track, s.score, ar.name AS artist_name
+			 FROM (
+			     SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = $1
+			     UNION ALL
+			     SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = $1
+			 ) s
+			 JOIN tracks t ON t.id = s.similar_id
+			 LEFT JOIN track_features tf ON tf.track_id = t.id
+			 LEFT JOIN artists ar ON ar.id = t.artist_id
+			 ORDER BY s.score DESC
+			 LIMIT $2`,
+			trackID, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1953,10 +2039,10 @@ func (s *Store) RecommendForUser(ctx context.Context, userID string, limit int) 
 		 SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
 		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
 		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
-		        c.score, ar.name AS artist_name
+		        COALESCE(tf.replay_gain, 0) AS replay_gain_track, c.score, ar.name AS artist_name
 		 FROM candidates c
 		 JOIN tracks t ON t.id = c.similar_id
-		 JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $1
+		 LEFT JOIN track_features tf ON tf.track_id = t.id
 		 LEFT JOIN artists ar ON ar.id = t.artist_id
 		 ORDER BY c.score DESC
 		 LIMIT $2`,
@@ -1975,19 +2061,19 @@ func (s *Store) AutoplayAfter(ctx context.Context, userID, trackID string, exclu
 		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
 		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
 		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
-		        s.score, ar.name AS artist_name
+		        COALESCE(tf.replay_gain, 0) AS replay_gain_track, s.score, ar.name AS artist_name
 		 FROM (
 		     SELECT track_b AS similar_id, score FROM track_similarity WHERE track_a = $1
 		     UNION ALL
 		     SELECT track_a AS similar_id, score FROM track_similarity WHERE track_b = $1
 		 ) s
 		 JOIN tracks t ON t.id = s.similar_id
-		 JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $2
+		 LEFT JOIN track_features tf ON tf.track_id = t.id
 		 LEFT JOIN artists ar ON ar.id = t.artist_id
-		 WHERE t.id != ALL($3::text[])
+		 WHERE t.id != ALL($2::text[])
 		 ORDER BY s.score DESC
-		 LIMIT $4`,
-		trackID, userID, exclude, limit)
+		 LIMIT $3`,
+		trackID, exclude, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -2006,6 +2092,7 @@ func scanTracksWithScore(rows pgx.Rows) ([]TrackWithScore, error) {
 		var fileSize int64
 		var seekTable []byte
 		var createdAt time.Time
+		var replayGain sql.NullFloat64
 
 		if err := rows.Scan(
 			&tw.ID, &albumID, &artistID, &tw.Title,
@@ -2013,7 +2100,7 @@ func scanTracksWithScore(rows pgx.Rows) ([]TrackWithScore, error) {
 			&fileKey, &fileSize, &format,
 			&bitDepth, &sampleRate, &channels, &bitrateKbps,
 			&seekTable, &fp, &createdAt,
-			&tw.Score, &artistName,
+			&replayGain, &tw.Score, &artistName,
 		); err != nil {
 			return nil, err
 		}
@@ -2051,6 +2138,10 @@ func scanTracksWithScore(rows pgx.Rows) ([]TrackWithScore, error) {
 			tw.Fingerprint = fp.String
 		}
 		tw.CreatedAt = createdAt
+		if replayGain.Valid && replayGain.Float64 != 0 {
+			rg := replayGain.Float64
+			tw.ReplayGainTrack = &rg
+		}
 		if artistName.Valid {
 			tw.ArtistName = &artistName.String
 		}

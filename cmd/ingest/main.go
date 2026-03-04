@@ -14,10 +14,12 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,13 +85,58 @@ func parseFeaturedArtists(title string) (cleanTitle string, featuredNames []stri
 // albumEditionFromDir extracts a human-readable edition label from an album
 // directory name by collecting all [...] and {...} bracketed segments.
 // e.g. "Artist - Title (2026) {cat#} [WEB FLAC 24-88.2]" →
-//      "{cat#} [WEB FLAC 24-88.2]"
+//
+//	"{cat#} [WEB FLAC 24-88.2]"
 func albumEditionFromDir(dirName string) string {
 	matches := editionBracketsRe.FindAllString(dirName, -1)
 	if len(matches) == 0 {
 		return ""
 	}
 	return strings.Join(matches, " ")
+}
+
+// parseBPMTag parses a BPM value from a raw tag string. Returns 0 if unknown/invalid.
+func parseBPMTag(s string) float64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil || v <= 0 || v > 400 {
+		return 0
+	}
+	return math.Round(v*10) / 10 // round to 1 decimal place
+}
+
+// normalizeKeyTag cleans and returns a musical key string (e.g. "Cm", "F#").
+// Returns "" if the value is empty or clearly invalid.
+func normalizeKeyTag(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.EqualFold(s, "none") || strings.EqualFold(s, "unknown") {
+		return ""
+	}
+	// capitalise the first letter only, keep the rest as-is.
+	if len(s) > 0 {
+		return strings.ToUpper(s[:1]) + s[1:]
+	}
+	return s
+}
+
+// parseReplayGainTag parses a replay-gain string like "+3.21 dB" into a float64.
+// Returns 0 if unparseable or zero gain.
+func parseReplayGainTag(s string) float64 {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(strings.ToLower(s), " db")
+	s = strings.TrimSuffix(s, "db")
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // rawTagString returns the first matching key from a raw tag map as a string,
@@ -222,8 +269,8 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagDryRun, "dry-run", false, "Print what would be done without modifying anything")
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Watch directory for new files and ingest continuously")
 	rootCmd.Flags().IntVar(&flagWorkers, "workers", runtime.NumCPU(), "Number of parallel ingest workers")
-	rootCmd.Flags().BoolVar(&flagComputeSimilarity, "compute-similarity", false, "Recompute track similarity matrix after scan")
-	rootCmd.Flags().BoolVar(&flagEnrich, "enrich", false, "Enrich metadata from MusicBrainz (requires internet; rate-limited to 1 req/s)")
+	rootCmd.Flags().BoolVar(&flagComputeSimilarity, "compute-similarity", true, "Recompute track similarity matrix after scan (default true; pass --compute-similarity=false to skip)")
+	rootCmd.Flags().BoolVar(&flagEnrich, "enrich", true, "Enrich metadata from MusicBrainz (requires internet; rate-limited to 1 req/s)")
 	rootCmd.Flags().DurationVar(&flagPollInterval, "poll-interval", defaultPollInterval(), "Polling interval used when inotify is unavailable (env: INGEST_POLL_INTERVAL)")
 }
 
@@ -458,7 +505,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		g.mb = musicbrainz.New()
 		slog.Info("MusicBrainz enrichment enabled")
 	} else {
-		slog.Info("MusicBrainz enrichment disabled (pass --enrich to enable)")
+		slog.Info("MusicBrainz enrichment disabled (pass --enrich=false to disable)")
 	}
 
 	// One bulk load — no per-file DB queries during the scan.
@@ -862,6 +909,18 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	// MusicBrainz enrichment (artist + album only; rate-limited, best-effort).
 	if g.mb != nil {
 		g.enrichAfterIngest(ctx, albumArtistID, albumArtistName, albumID, albumTitle, coverArtKeyPtr == nil)
+	}
+
+	// In-house audio feature extraction from embedded tags (best-effort, non-fatal).
+	// These features feed the similarity algorithm without any external dependencies.
+	raw := m.Raw()
+	bpm := parseBPMTag(rawTagString(raw, "bpm", "TEMPO", "TBPM"))
+	keyEst := normalizeKeyTag(rawTagString(raw, "key", "initialkey", "TKEY"))
+	rgain := parseReplayGainTag(rawTagString(raw, "replaygain_track_gain", "TXXX:REPLAYGAIN_TRACK_GAIN"))
+	if bpm != 0 || keyEst != "" || rgain != 0 {
+		if err := g.db.UpsertTrackFeatures(ctx, trackID, bpm, keyEst, rgain); err != nil {
+			slog.Warn("upsert track features failed", "track_id", trackID, "err", err)
+		}
 	}
 
 	return trackID, nil

@@ -192,11 +192,19 @@ CREATE INDEX IF NOT EXISTS related_artists_idx      ON related_artists(artist_id
 
 -- Audio features for similarity computation
 CREATE TABLE IF NOT EXISTS track_features (
-    track_id        TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-    chromaprint     INTEGER[],
-    chromaprint_dur REAL,
-    extracted_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    track_id     TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    bpm          REAL,
+    key_estimate TEXT,
+    replay_gain  REAL,
+    extracted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migrate existing chromaprint columns to the new in-house feature set.
+ALTER TABLE track_features DROP COLUMN IF EXISTS chromaprint;
+ALTER TABLE track_features DROP COLUMN IF EXISTS chromaprint_dur;
+ALTER TABLE track_features ADD COLUMN IF NOT EXISTS bpm          REAL;
+ALTER TABLE track_features ADD COLUMN IF NOT EXISTS key_estimate TEXT;
+ALTER TABLE track_features ADD COLUMN IF NOT EXISTS replay_gain  REAL;
 
 CREATE TABLE IF NOT EXISTS track_similarity (
     track_a  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
