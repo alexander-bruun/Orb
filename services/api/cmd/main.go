@@ -14,16 +14,18 @@ import (
 
 	"github.com/alexander-bruun/orb/pkg/config"
 	"github.com/alexander-bruun/orb/pkg/kvkeys"
-	"github.com/alexander-bruun/orb/services/api/internal/discovery"
 	"github.com/alexander-bruun/orb/pkg/objstore"
 	"github.com/alexander-bruun/orb/pkg/store"
+	"github.com/alexander-bruun/orb/services/api/internal/admin"
 	"github.com/alexander-bruun/orb/services/api/internal/auth"
+	"github.com/alexander-bruun/orb/services/api/internal/discovery"
 	"github.com/alexander-bruun/orb/services/api/internal/library"
 	"github.com/alexander-bruun/orb/services/api/internal/listenparty"
 	"github.com/alexander-bruun/orb/services/api/internal/playlist"
 	"github.com/alexander-bruun/orb/services/api/internal/queue"
 	"github.com/alexander-bruun/orb/services/api/internal/recommend"
 	"github.com/alexander-bruun/orb/services/api/internal/stream"
+	"github.com/alexander-bruun/orb/services/api/internal/user"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
@@ -130,6 +132,15 @@ func run(ctx context.Context) error {
 
 		recSvc := recommend.New(db)
 		r.Route("/recommend", recSvc.Routes)
+
+		userSvc := user.New(db, kv)
+		r.Route("/user", userSvc.Routes)
+
+		adminSvc := admin.New(db)
+		r.Group(func(r chi.Router) {
+			r.Use(adminSvc.AdminMiddleware)
+			r.Route("/admin", adminSvc.Routes)
+		})
 	})
 
 	// Listen party routes (auth validated per-handler internally)
