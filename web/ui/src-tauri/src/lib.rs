@@ -2,11 +2,12 @@ use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
 use std::sync::Mutex;
 use std::time::Duration;
+#[cfg(desktop)]
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager,
 };
+use tauri::{Emitter, Manager};
 
 // ---- mDNS discovery ----
 
@@ -155,32 +156,46 @@ fn discord_disconnect(state: tauri::State<'_, DiscordState>) -> Result<(), Strin
 
 // ---- System Tray ----
 
+#[cfg(desktop)]
 /// IDs for tray menu items — used to identify click events and locate items for updates.
 const TRAY_PREVIOUS: &str = "tray_previous";
+#[cfg(desktop)]
 const TRAY_PLAY_PAUSE: &str = "tray_play_pause";
+#[cfg(desktop)]
 const TRAY_NEXT: &str = "tray_next";
+#[cfg(desktop)]
 const TRAY_QUIT: &str = "tray_quit";
 
 /// Managed state for the tray play/pause menu item so we can update its label.
+#[cfg(desktop)]
 pub struct TrayState {
     play_pause_item: Mutex<Option<MenuItem<tauri::Wry>>>,
 }
 
 /// Call from the frontend when playback state changes so the tray label stays in sync.
+#[cfg(desktop)]
 #[tauri::command]
 fn set_tray_playback_state(
     playing: bool,
     state: tauri::State<'_, TrayState>,
 ) -> Result<(), String> {
-    let lock = state.play_pause_item.lock().map_err(|e| e.to_string())?;
+    let lock = state.play_pause_item.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     if let Some(item) = lock.as_ref() {
         let label = if playing { "⏸  Pause" } else { "▶  Play" };
-        item.set_text(label).map_err(|e| e.to_string())?;
+        item.set_text(label).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
 
+/// Mobile stub — tray is not available on mobile.
+#[cfg(mobile)]
+#[tauri::command]
+fn set_tray_playback_state(_playing: bool) -> Result<(), String> {
+    Ok(())
+}
+
 /// Build and register the system tray with media control menu items.
+#[cfg(desktop)]
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let previous = MenuItem::with_id(app, TRAY_PREVIOUS, "⏮  Previous", true, None::<&str>)?;
     let play_pause = MenuItem::with_id(app, TRAY_PLAY_PAUSE, "▶  Play", true, None::<&str>)?;
@@ -200,7 +215,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
+        .on_menu_event(|app: &tauri::AppHandle, event: tauri::menu::MenuEvent| match event.id().as_ref() {
             TRAY_PREVIOUS => {
                 let _ = app.emit("tray-previous", ());
             }
@@ -215,7 +230,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             }
             _ => {}
         })
-        .on_tray_icon_event(|tray_icon, event| {
+        .on_tray_icon_event(|tray_icon: &tauri::tray::TrayIcon, event: tauri::tray::TrayIconEvent| {
             use tauri::tray::TrayIconEvent;
             if let TrayIconEvent::Click { .. } = event {
                 let app = tray_icon.app_handle();
@@ -223,6 +238,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
+
             }
         })
         .build(app)?;
@@ -232,13 +248,18 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .manage(DiscordState {
             client: Mutex::new(None),
-        })
-        .manage(TrayState {
-            play_pause_item: Mutex::new(None),
-        })
+        });
+
+    #[cfg(desktop)]
+    let builder = builder.manage(TrayState {
+        play_pause_item: Mutex::new(None),
+    });
+
+    builder
         .setup(|app| {
             // Only set up the tray on desktop targets.
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
