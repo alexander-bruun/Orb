@@ -50,6 +50,11 @@ export const lpParticipants = writable<Participant[]>([]);
 export const lpPanelOpen   = writable(false);
 export const lpConnected   = writable(false);
 
+/** Host-only: whether access code protection is enabled */
+export const lpCodeEnabled = writable(false);
+/** Host-only: the current 4-digit access code (null when disabled) */
+export const lpAccessCode  = writable<string | null>(null);
+
 /** Guest-only: auth token for stream URLs */
 export const lpGuestToken     = writable<string | null>(null);
 /** Guest-only: currently playing track metadata */
@@ -124,6 +129,11 @@ function _connectHost(sessionId: string) {
 
 function _handleHostMessage(msg: Record<string, unknown>) {
 	switch (msg.type) {
+		case 'joined':
+			// Restore code state when host reconnects (server echoes current session state)
+			lpCodeEnabled.set(!!(msg.code_enabled));
+			lpAccessCode.set(msg.code_enabled && msg.access_code ? (msg.access_code as string) : null);
+			break;
 		case 'participants':
 			lpParticipants.set((msg.participants as Participant[]) ?? []);
 			break;
@@ -242,11 +252,34 @@ export async function hostEndSession() {
 	_resetState();
 }
 
+/**
+ * Enable or regenerate the 4-digit access code for the current session.
+ * Updates lpCodeEnabled and lpAccessCode stores with the new code.
+ */
+export async function hostEnableCode(): Promise<void> {
+	const sessionId = get(lpSessionId);
+	if (!sessionId) return;
+	const { code } = await listenPartyApi.enableCode(sessionId);
+	lpCodeEnabled.set(true);
+	lpAccessCode.set(code);
+}
+
+/**
+ * Disable access code protection for the current session.
+ */
+export async function hostDisableCode(): Promise<void> {
+	const sessionId = get(lpSessionId);
+	if (!sessionId) return;
+	await listenPartyApi.disableCode(sessionId);
+	lpCodeEnabled.set(false);
+	lpAccessCode.set(null);
+}
+
 // ---------------------------------------------------------------------------
 // Guest: connect to an existing session
 // ---------------------------------------------------------------------------
 
-export async function connectAsGuest(sessionId: string, nickname: string): Promise<void> {
+export async function connectAsGuest(sessionId: string, nickname: string, code?: string): Promise<void> {
 	return new Promise((resolve, reject) => {
 		ws = new WebSocket(`${getWsBase()}/listen/${sessionId}/ws`);
 		lpRole.set('guest');
@@ -254,7 +287,7 @@ export async function connectAsGuest(sessionId: string, nickname: string): Promi
 
 		let joined = false;
 
-		ws.onopen = () => ws!.send(JSON.stringify({ type: 'join', nickname }));
+		ws.onopen = () => ws!.send(JSON.stringify({ type: 'join', nickname, ...(code ? { code } : {}) }));
 
 		ws.onmessage = (ev) => {
 			try {
@@ -289,8 +322,17 @@ export async function connectAsGuest(sessionId: string, nickname: string): Promi
 		ws.onclose = (ev) => {
 			lpConnected.set(false);
 			_clearPositionTick();
-			if (!joined) reject(new Error('WebSocket closed before join'));
-			if (ev.code === 1008) lpKicked.set(true);
+			if (!joined) {
+				// Code 1008 (Policy Violation) is used by the server for invalid access code.
+				if (ev.code === 1008 && ev.reason === 'invalid access code') {
+					reject(new Error('invalid_code'));
+				} else {
+					reject(new Error('WebSocket closed before join'));
+				}
+			} else if (ev.code === 1008) {
+				// Only mark as kicked after the guest was already in the session.
+				lpKicked.set(true);
+			}
 		};
 
 		ws.onerror = () => {
@@ -470,6 +512,8 @@ function _resetState() {
 	lpParticipants.set([]);
 	lpPanelOpen.set(false);
 	lpConnected.set(false);
+	lpCodeEnabled.set(false);
+	lpAccessCode.set(null);
 	lpGuestToken.set(null);
 	lpGuestTrack.set(null);
 	lpGuestPositionMs.set(0);

@@ -5,14 +5,20 @@
     lpParticipants,
     lpPanelOpen,
     lpConnected,
+    lpCodeEnabled,
+    lpAccessCode,
     hostKick,
     hostEndSession,
+    hostEnableCode,
+    hostDisableCode,
     createAndConnect,
   } from '$lib/stores/listenParty';
 
   const APP_BASE = typeof location !== 'undefined' ? location.origin : '';
 
   let copied = $state(false);
+  let codeCopied = $state(false);
+  let togglingCode = $state(false);
 
   let inviteUrl = $derived(
     $lpSessionId
@@ -25,6 +31,35 @@
     await navigator.clipboard.writeText(inviteUrl).catch(() => {});
     copied = true;
     setTimeout(() => (copied = false), 2000);
+  }
+
+  async function copyCode() {
+    if (!$lpAccessCode) return;
+    await navigator.clipboard.writeText($lpAccessCode).catch(() => {});
+    codeCopied = true;
+    setTimeout(() => (codeCopied = false), 2000);
+  }
+
+  async function toggleCode() {
+    togglingCode = true;
+    try {
+      if ($lpCodeEnabled) {
+        await hostDisableCode();
+      } else {
+        await hostEnableCode();
+      }
+    } finally {
+      togglingCode = false;
+    }
+  }
+
+  async function regenerateCode() {
+    togglingCode = true;
+    try {
+      await hostEnableCode();
+    } finally {
+      togglingCode = false;
+    }
   }
 
   async function startSession() {
@@ -74,6 +109,48 @@
           {/if}
         </button>
       </div>
+    </div>
+
+    <div class="code-section">
+      <div class="code-header-row">
+        <p class="section-label" style="margin:0">Access Code</p>
+        <button
+          class="code-toggle-btn"
+          class:active={$lpCodeEnabled}
+          onclick={toggleCode}
+          disabled={togglingCode}
+          aria-label={$lpCodeEnabled ? 'Disable access code' : 'Enable access code'}
+        >
+          <span class="toggle-track" class:on={$lpCodeEnabled}>
+            <span class="toggle-thumb"></span>
+          </span>
+        </button>
+      </div>
+      {#if $lpCodeEnabled && $lpAccessCode}
+        <div class="code-display-row">
+          <span class="code-digits">{$lpAccessCode}</span>
+          <button class="icon-btn" onclick={copyCode} title="Copy code" aria-label="Copy access code">
+            {#if codeCopied}
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 10 8 14 16 6"/>
+              </svg>
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="7" y="7" width="10" height="10" rx="1"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>
+              </svg>
+            {/if}
+          </button>
+          <button class="icon-btn" onclick={regenerateCode} disabled={togglingCode} title="Generate new code" aria-label="Generate new code">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1 4 1 10 7 10"/>
+              <path d="M3.51 15a9 9 0 1 0 .49-4.11"/>
+            </svg>
+          </button>
+        </div>
+        <p class="code-hint">Share this code with guests to let them join.</p>
+      {:else if !$lpCodeEnabled}
+        <p class="code-hint">Enable to require guests to enter a 4-digit code before joining.</p>
+      {/if}
     </div>
 
     <div class="participants-section">
@@ -172,7 +249,7 @@
   .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
   .status-label { font-size: 0.78rem; color: var(--text-muted); }
 
-  .invite-section, .participants-section {
+  .invite-section, .participants-section, .code-section {
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
   }
@@ -321,4 +398,91 @@
     transition: background 0.15s;
   }
   .end-btn:hover { background: #ef444415; }
+
+  /* Access code section */
+  .code-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .code-toggle-btn {
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  .code-toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .toggle-track {
+    display: flex;
+    align-items: center;
+    width: 32px;
+    height: 18px;
+    border-radius: 9px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    padding: 2px;
+    transition: background 0.2s, border-color 0.2s;
+    cursor: pointer;
+  }
+  .toggle-track.on {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .toggle-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform 0.2s, background 0.2s;
+  }
+  .toggle-track.on .toggle-thumb {
+    transform: translateX(14px);
+    background: #fff;
+  }
+
+  .code-display-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .code-digits {
+    font-family: 'DM Mono', monospace, monospace;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border-radius: 8px;
+    padding: 6px 14px;
+    flex: 1;
+    text-align: center;
+  }
+
+  .icon-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    transition: color 0.15s, background 0.15s;
+  }
+  .icon-btn:hover:not(:disabled) { color: var(--text); background: var(--bg-hover); }
+  .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .code-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.4;
+  }
 </style>

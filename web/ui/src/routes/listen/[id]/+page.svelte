@@ -27,6 +27,11 @@
   let errorMsg = $state('');
   let nickname = $state('');
   let nicknameError = $state('');
+  let code = $state('');
+  let codeError = $state('');
+  // True when the server rejects a join due to a missing/wrong code — shows the
+  // code input even if the session was loaded before the host enabled it.
+  let requiresCode = $state(false);
   let joining = $state(false);
   let volume = $state(1);
 
@@ -195,13 +200,35 @@
     if (!name) { nicknameError = 'Please enter a nickname.'; return; }
     if (name.length > 32) { nicknameError = 'Nickname must be 32 characters or fewer.'; return; }
     nicknameError = '';
+
+    // Re-fetch session to pick up the latest code_enabled state — the host may
+    // have enabled the code after this page was first loaded.
+    try { session = await listenPartyApi.getSession(sessionId); } catch { /* use cached */ }
+
+    const needsCode = !!(session?.code_enabled) || requiresCode;
+
+    // Validate access code if required.
+    if (needsCode) {
+      const c = code.trim();
+      if (!c) { codeError = 'Please enter the access code.'; return; }
+      if (!/^\d{4}$/.test(c)) { codeError = 'Code must be exactly 4 digits.'; return; }
+      codeError = '';
+    }
+
     joining = true;
     try {
-      await connectAsGuest(sessionId, name);
+      await connectAsGuest(sessionId, name, needsCode ? code.trim() : undefined);
       phase = 'playing';
     } catch (e: unknown) {
       const err = e instanceof Error ? e.message : 'Could not connect.';
-      nicknameError = err;
+      if (err === 'invalid_code') {
+        requiresCode = true;
+        codeError = code.trim()
+          ? 'Incorrect access code. Please try again.'
+          : 'This session requires an access code.';
+      } else {
+        nicknameError = err;
+      }
     } finally {
       joining = false;
     }
@@ -260,6 +287,27 @@
           <p class="field-error">{nicknameError}</p>
         {/if}
       </div>
+      {#if session?.code_enabled || requiresCode}
+        <div class="nickname-field">
+          <label for="code-input" class="field-label">Access code</label>
+          <input
+            id="code-input"
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            class="nickname-input code-input"
+            class:invalid={!!codeError}
+            bind:value={code}
+            placeholder="0000"
+            maxlength="4"
+            onkeydown={(e) => e.key === 'Enter' && join()}
+            disabled={joining}
+          />
+          {#if codeError}
+            <p class="field-error">{codeError}</p>
+          {/if}
+        </div>
+      {/if}
       <button class="join-btn" onclick={join} disabled={joining}>
         {joining ? 'Joining…' : 'Join'}
       </button>
@@ -483,6 +531,14 @@
   }
   .nickname-input:focus { border-color: var(--accent, #7c3aed); }
   .nickname-input.invalid { border-color: #ef4444; }
+
+  .code-input {
+    font-family: 'DM Mono', monospace, monospace;
+    font-size: 1.4rem;
+    letter-spacing: 0.5em;
+    text-align: center;
+    padding: 10px 14px;
+  }
 
   .field-error {
     font-size: 0.78rem;

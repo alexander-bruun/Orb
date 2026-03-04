@@ -64,7 +64,7 @@
         <span class="dot"></span>
       </span>
     {:else}
-      {index + 1}
+      {track.track_number ?? (index + 1)}
     {/if}
   </span>
   {#if showCover}
