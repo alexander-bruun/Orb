@@ -24,6 +24,7 @@ jobs:
           args: --latest --strip header
         env:
           OUTPUT: CHANGELOG.md
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Create draft release
         id: create
         uses: softprops/action-gh-release@v2

@@ -1,3 +1,7 @@
+[remote.github]
+owner = "alexander-bruun"
+repo = "orb"
+
 [changelog]
 header = ""
 body = """
@@ -7,6 +11,15 @@ body = """
 - {{ commit.message | split(pat="\n") | first | trim }}\
 {% endfor %}
 {% endfor %}
+{% if contributors | length > 0 %}
+### Contributors
+{% for contributor in contributors | unique(attribute="username") %}
+* @{{ contributor.username }}
+{% endfor %}
+{% endif %}
+{% if previous.version %}
+**Full Changelog**: https://github.com/alexander-bruun/orb/compare/{{ previous.version }}...{{ version }}
+{% endif %}
 """
 trim = true
 footer = ""
