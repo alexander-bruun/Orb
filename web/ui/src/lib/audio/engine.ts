@@ -17,6 +17,8 @@ import { getApiBase } from '$lib/api/base';
 class AudioEngine {
 	private ctx: AudioContext | null = null;
 	private gainNode: GainNode | null = null;
+	/** Dedicated gain node for ReplayGain offset. Sits between gainNode and the EQ chain. */
+	private replayGainNode: GainNode | null = null;
 	/** Sits between gainNode and destination; shared by both WASM and native paths. */
 	private analyserNode: AnalyserNode | null = null;
 	/**
@@ -27,6 +29,8 @@ class AudioEngine {
 	private nativeCtx: AudioContext | null = null;
 	private nativeAnalyser: AnalyserNode | null = null;
 	private nativeGain: GainNode | null = null;
+	/** Dedicated gain node for ReplayGain offset on the native path. */
+	private nativeReplayGainNode: GainNode | null = null;
 	private nativeMediaSource: MediaElementSourceNode | null = null;
 	private nativePlayer: NativePlayer | null = null;
 	/** BiquadFilterNode chain for the WASM/Web Audio path. */
@@ -101,10 +105,12 @@ class AudioEngine {
 				if (this.ctx) this.ctx.close().catch(() => {});
 				this.ctx = new AudioContext({ sampleRate });
 				this.gainNode = this.ctx.createGain();
+				this.replayGainNode = this.ctx.createGain();
+				this.gainNode.connect(this.replayGainNode);
 				this.analyserNode = this.ctx.createAnalyser();
 				this.analyserNode.fftSize = 2048;
 				this.analyserNode.smoothingTimeConstant = 0.8;
-				this.eqNodes = this._buildEQChain(this.ctx, this.gainNode, this.analyserNode, this.currentEQBands);
+				this.eqNodes = this._buildEQChain(this.ctx, this.replayGainNode, this.analyserNode, this.currentEQBands);
 				this.analyserNode.connect(this.ctx.destination);
 			} catch {
 				/* ignore — will retry in getCtx() */
@@ -140,15 +146,18 @@ class AudioEngine {
 			this.ctx.close().catch(() => {});
 			this.ctx = null;
 			this.gainNode = null;
+			this.replayGainNode = null;
 			this.analyserNode = null; // released with the context
 		}
 		if (!this.ctx) {
 			this.ctx = new AudioContext({ sampleRate });
 			this.gainNode = this.ctx.createGain();
+			this.replayGainNode = this.ctx.createGain();
+			this.gainNode.connect(this.replayGainNode);
 			this.analyserNode = this.ctx.createAnalyser();
 			this.analyserNode.fftSize = 2048;
 			this.analyserNode.smoothingTimeConstant = 0.8;
-			this.eqNodes = this._buildEQChain(this.ctx, this.gainNode, this.analyserNode, this.currentEQBands);
+			this.eqNodes = this._buildEQChain(this.ctx, this.replayGainNode, this.analyserNode, this.currentEQBands);
 			this.analyserNode.connect(this.ctx.destination);
 		}
 		// Tauri's WebView (and some browsers) create AudioContexts in a
@@ -375,10 +384,12 @@ class AudioEngine {
 				const el = this.nativePlayer.getElement();
 				this.nativeCtx = new AudioContext();
 				this.nativeGain = this.nativeCtx.createGain();
+				this.nativeReplayGainNode = this.nativeCtx.createGain();
+				this.nativeGain.connect(this.nativeReplayGainNode);
 				this.nativeAnalyser = this.nativeCtx.createAnalyser();
 				this.nativeAnalyser.fftSize = 2048;
 				this.nativeAnalyser.smoothingTimeConstant = 0.8;
-				this.nativeEqNodes = this._buildEQChain(this.nativeCtx, this.nativeGain, this.nativeAnalyser, this.currentEQBands);
+				this.nativeEqNodes = this._buildEQChain(this.nativeCtx, this.nativeReplayGainNode, this.nativeAnalyser, this.currentEQBands);
 				this.nativeAnalyser.connect(this.nativeCtx.destination);
 				this.nativeMediaSource = this.nativeCtx.createMediaElementSource(el);
 				this.nativeMediaSource.connect(this.nativeGain);
@@ -460,26 +471,26 @@ class AudioEngine {
 
 	/**
 	 * Apply an EQ band configuration to both audio paths.
-	 * Rebuilds the BiquadFilterNode chains between the gain node and analyser node.
+	 * Rebuilds the BiquadFilterNode chains between the replay-gain node and analyser node.
 	 * Safe to call at any time, including during playback.
 	 */
 	setEQ(bands: EQBand[]): void {
 		this.currentEQBands = bands;
 
 		// Rebuild WASM path chain
-		if (this.ctx && this.gainNode && this.analyserNode) {
+		if (this.ctx && this.replayGainNode && this.analyserNode) {
 			for (const node of this.eqNodes) {
 				try { node.disconnect(); } catch { /* ignore */ }
 			}
-			this.eqNodes = this._buildEQChain(this.ctx, this.gainNode, this.analyserNode, bands);
+			this.eqNodes = this._buildEQChain(this.ctx, this.replayGainNode, this.analyserNode, bands);
 		}
 
 		// Rebuild native path chain
-		if (this.nativeCtx && this.nativeGain && this.nativeAnalyser) {
+		if (this.nativeCtx && this.nativeReplayGainNode && this.nativeAnalyser) {
 			for (const node of this.nativeEqNodes) {
 				try { node.disconnect(); } catch { /* ignore */ }
 			}
-			this.nativeEqNodes = this._buildEQChain(this.nativeCtx, this.nativeGain, this.nativeAnalyser, bands);
+			this.nativeEqNodes = this._buildEQChain(this.nativeCtx, this.nativeReplayGainNode, this.nativeAnalyser, bands);
 		}
 	}
 
@@ -530,6 +541,21 @@ class AudioEngine {
 		// in any active visualizer.
 		if (this.nativeGain) {
 			this.nativeGain.gain.value = clamped;
+		}
+	}
+
+	/**
+	 * Apply a ReplayGain offset (in dB) to the dedicated replay-gain nodes on
+	 * both audio paths. Pass 0 to disable (unity gain).
+	 * The conversion is: linear = 10^(dB/20).
+	 */
+	setReplayGainDb(db: number): void {
+		const linear = db === 0 ? 1 : Math.pow(10, db / 20);
+		if (this.replayGainNode) {
+			this.replayGainNode.gain.value = linear;
+		}
+		if (this.nativeReplayGainNode) {
+			this.nativeReplayGainNode.gain.value = linear;
 		}
 	}
 

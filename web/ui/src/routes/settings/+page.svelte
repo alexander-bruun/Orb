@@ -8,7 +8,7 @@
   import EQEditor from '$lib/components/ui/EQEditor.svelte';
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
-  import { autoplayEnabled, discordEnabled } from '$lib/stores/player';
+  import { autoplayEnabled, discordEnabled, replayGainEnabled } from '$lib/stores/player';
 
   // ── Avatar ────────────────────────────────────────────────
   let fileInput: HTMLInputElement;
@@ -1012,6 +1012,25 @@
         <span class="toggle-knob"></span>
       </button>
     </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Auto Volume Leveling</span>
+        <span class="setting-desc">
+          Normalize track loudness using ReplayGain metadata so every track plays at a consistent volume.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$replayGainEnabled}
+        role="switch"
+        aria-checked={$replayGainEnabled}
+        on:click={() => replayGainEnabled.set(!$replayGainEnabled)}
+        title={$replayGainEnabled ? 'Disable auto volume leveling' : 'Enable auto volume leveling'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
     {#if isTauri()}
     <div class="setting-row">
       <div class="setting-info">
@@ -1661,5 +1680,29 @@
     flex-shrink: 0;
     text-align: right;
     font-family: 'DM Mono', monospace;
+  }
+
+  /* ── Mobile ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .page { padding: 4px 0 24px; }
+
+    /* Stack form labels above inputs */
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+    .form-label {
+      text-align: left;
+      padding-top: 4px;
+    }
+
+    /* Backup codes: 2 columns instead of 4 */
+    .backup-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    /* Settings rows: allow wrapping */
+    .setting-row {
+      flex-wrap: wrap;
+    }
   }
 </style>

@@ -5,6 +5,7 @@ import { getApiBase } from '$lib/api/base';
 import { queue as queueApi } from '$lib/api/queue';
 import { library as libraryApi } from '$lib/api/library';
 import { recommend } from '$lib/api/recommend';
+import { addToast } from '$lib/stores/toast';
 import { isTauri } from '$lib/utils/platform';
 
 export const currentTrack = writable<Track | null>(null);
@@ -28,6 +29,8 @@ export const queueModalOpen = writable(false);
 export const autoplayEnabled = writable(true);
 /** When true, display current track in Discord Rich Presence (desktop only). */
 export const discordEnabled = writable(false);
+/** When true, normalize track loudness using ReplayGain metadata. */
+export const replayGainEnabled = writable(false);
 
 /** Fisher-Yates shuffle, optionally pinning one index to position 0. */
 function generateShuffle(length: number, pinIndex = -1): number[] {
@@ -85,6 +88,10 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	currentTrack.set(track);
 	playbackState.set('loading');
 	try {
+		// Apply replay gain before starting playback so the engine applies it
+		// from the very first decoded sample.
+		const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
+		audioEngine.setReplayGainDb(rgDb);
 		await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
 		playbackState.set('playing');
 		// Record the play fire-and-forget; ignore errors so playback is never blocked.
@@ -189,8 +196,8 @@ export async function next() {
 					const nextIdx = idx + 1;
 					queueIndex.set(nextIdx);
 					await playTrack(newQueue[actualIndex(nextIdx)]);
-					return;
-				}
+					return;					} else {
+						addToast('No similar tracks found — run the ingest to compute similarities.', 'info');				}
 			} catch {
 				// Fall through to stop.
 			}
@@ -290,14 +297,17 @@ function writeState() {
 		const st = {
 			trackId: get(currentTrack)?.id ?? null,
 			pos: Math.floor(get(positionMs) / 1000),
-			queueIds: get(queue).map((t) => t.id),
+			// Store full track objects so restore doesn't need individual API calls.
+			// The legacy "queueIds" key is intentionally omitted from new saves.
+			queue: get(queue),
 			queueIndex: get(queueIndex),
 			volume: get(volume),
 			repeat: get(repeatMode),
 			shuffle: get(shuffle),
 			shuffleOrder: get(shuffleOrder),
 			autoplay: get(autoplayEnabled),
-			discord: get(discordEnabled)
+			discord: get(discordEnabled),
+			replayGain: get(replayGainEnabled)
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 	} catch {
@@ -347,6 +357,16 @@ repeatMode.subscribe(() => scheduleStateSave());
 shuffle.subscribe(() => scheduleStateSave());
 autoplayEnabled.subscribe(() => scheduleStateSave());
 discordEnabled.subscribe(() => scheduleStateSave());
+replayGainEnabled.subscribe(() => {
+	scheduleStateSave();
+	// Re-apply (or clear) replay gain for the currently playing track when the
+	// user toggles the feature, so the change takes effect immediately.
+	const track = get(currentTrack);
+	if (track) {
+		const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
+		audioEngine.setReplayGainDb(rgDb);
+	}
+});
 
 // ─── Media Session API ───────────────────────────────────────────────────────
 // Wires hardware media keys (Play/Pause, Next, Previous on keyboard/headphones)
@@ -514,8 +534,13 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		}
 		if (st.autoplay === false) autoplayEnabled.set(false);
 		if (st.discord === true) discordEnabled.set(true);
+		if (st.replayGain === true) replayGainEnabled.set(true);
 
-		if (Array.isArray(st.queueIds) && st.queueIds.length) {
+		if (Array.isArray(st.queue) && st.queue.length) {
+			// New format: full track objects stored directly — no API calls needed.
+			queue.set(st.queue as Track[]);
+		} else if (Array.isArray(st.queueIds) && st.queueIds.length) {
+			// Legacy format: only IDs were saved, fetch tracks individually.
 			const qTracks = (
 				await Promise.all(
 					st.queueIds.map((id: string) =>

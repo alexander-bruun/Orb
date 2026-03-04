@@ -67,6 +67,8 @@ export interface Track {
     artist?: Artist;
     featured_artist_ids?: string[];
     featured_artists?: Artist[];
+	/** Track-level ReplayGain offset in dB. Undefined when no ReplayGain data is available. */
+	replay_gain_track?: number;
 }
 
 export interface Playlist {
