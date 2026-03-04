@@ -30,13 +30,6 @@ dev-ingest:
 	STORE_ROOT=$(STORE_ROOT) \
 	go run . --dir $(DIR) --user-id $(USER_ID) --recursive
 
-migrate-up:     ; atlas migrate apply --env local
-migrate-down:   ; atlas migrate down --env local --amount 1
-migrate-status: ; atlas migrate status --env local
-migrate-diff:
-	@read -p "Migration name: " name; \
-	atlas migrate diff --env local --name $$name
-
 test:
 	go test ./...
 
