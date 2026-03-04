@@ -14,12 +14,16 @@ type Playlist struct {
 
 // User represents a user in the database.
 type User struct {
-	ID           string     `json:"id"`
-	Username     string     `json:"username"`
-	Email        string     `json:"email"`
-	PasswordHash string     `json:"-"`
-	CreatedAt    time.Time  `json:"created_at"`
-	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
+	ID              string     `json:"id"`
+	Username        string     `json:"username"`
+	Email           string     `json:"email"`
+	PasswordHash    string     `json:"-"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastLoginAt     *time.Time `json:"last_login_at,omitempty"`
+	TOTPSecret      *string    `json:"-"`
+	TOTPEnabled     bool       `json:"totp_enabled"`
+	TOTPBackupCodes *string    `json:"-"`
+	IsAdmin         bool       `json:"is_admin"`
 }
 
 // Artist represents an artist in the database.
@@ -52,6 +56,8 @@ type Album struct {
 	ReleaseDate      *string    `json:"release_date,omitempty"`
 	ReleaseGroupMbid *string    `json:"release_group_mbid,omitempty"`
 	EnrichedAt       *time.Time `json:"enriched_at,omitempty"`
+	AlbumGroupID     *string    `json:"album_group_id,omitempty"`
+	Edition          *string    `json:"edition,omitempty"`
 	TrackCount       int        `json:"track_count"`
 	CreatedAt        time.Time  `json:"created_at"`
 }
@@ -90,13 +96,15 @@ type UpsertArtistParams struct {
 
 // UpsertAlbumParams for upserting an album.
 type UpsertAlbumParams struct {
-	ID          string
-	ArtistID    *string
-	Title       string
-	ReleaseYear *int
-	Label       *string
-	CoverArtKey *string
-	Mbid        *string
+	ID           string
+	ArtistID     *string
+	Title        string
+	ReleaseYear  *int
+	Label        *string
+	CoverArtKey  *string
+	Mbid         *string
+	AlbumGroupID *string
+	Edition      *string
 }
 
 // UpsertTrackParams for upserting a track.
@@ -192,14 +200,25 @@ type RemoveTrackFromLibraryParams struct {
 
 // SearchTracksParams for searching tracks.
 type SearchTracksParams struct {
-	ToTsquery string
-	Limit     int
+	ToTsquery  string
+	Limit      int
+	Genre      string // filter by genre name (case-insensitive, empty = no filter)
+	YearFrom   *int   // filter by album release_year >= YearFrom
+	YearTo     *int   // filter by album release_year <= YearTo
+	Format     string // filter by format (flac/mp3/wav etc., empty = no filter)
+	BitrateMin *int   // filter by bitrate_kbps >= BitrateMin
+	BitrateMax *int   // filter by bitrate_kbps <= BitrateMax
+	SortBy     string // "relevance" | "title" | "year" | "bitrate" | "duration"
 }
 
 // SearchAlbumsParams for searching albums.
 type SearchAlbumsParams struct {
 	ToTsquery string
 	Limit     int
+	Genre     string // filter by genre name (case-insensitive, empty = no filter)
+	YearFrom  *int   // filter by release_year >= YearFrom
+	YearTo    *int   // filter by release_year <= YearTo
+	SortBy    string // "relevance" | "title" | "year"
 }
 
 // SearchArtistsParams for searching artists.
@@ -347,4 +366,124 @@ type TrackBasic struct {
 type RelatedArtistPair struct {
 	ArtistID  string
 	RelatedID string
+}
+
+// UserStreamingPrefs holds per-user streaming quality limits.
+// NULL fields mean "no limit". The top-level Max* fields are the "any network" defaults;
+// Wifi* and Mobile* fields override them when the client is on a specific network type.
+type UserStreamingPrefs struct {
+	UserID               string    `json:"user_id"`
+	MaxBitrateKbps       *int      `json:"max_bitrate_kbps"`        // NULL = unlimited (any network default)
+	MaxSampleRate        *int      `json:"max_sample_rate"`         // NULL = unlimited (advisory)
+	MaxBitDepth          *int      `json:"max_bit_depth"`           // NULL = unlimited (advisory)
+	WifiMaxBitrateKbps   *int      `json:"wifi_max_bitrate_kbps"`   // NULL = inherit default
+	WifiMaxSampleRate    *int      `json:"wifi_max_sample_rate"`    // NULL = inherit default
+	WifiMaxBitDepth      *int      `json:"wifi_max_bit_depth"`      // NULL = inherit default
+	MobileMaxBitrateKbps *int      `json:"mobile_max_bitrate_kbps"` // NULL = inherit default
+	MobileMaxSampleRate  *int      `json:"mobile_max_sample_rate"`  // NULL = inherit default
+	MobileMaxBitDepth    *int      `json:"mobile_max_bit_depth"`    // NULL = inherit default
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// UpsertUserStreamingPrefsParams holds the parameters for upserting streaming prefs.
+
+type UpsertUserStreamingPrefsParams struct {
+	UserID               string
+	MaxBitrateKbps       *int
+	MaxSampleRate        *int
+	MaxBitDepth          *int
+	WifiMaxBitrateKbps   *int
+	WifiMaxSampleRate    *int
+	WifiMaxBitDepth      *int
+	MobileMaxBitrateKbps *int
+	MobileMaxSampleRate  *int
+	MobileMaxBitDepth    *int
+}
+
+// EQBand represents a single band in a parametric equalizer.
+type EQBand struct {
+	Frequency float64 `json:"frequency"` // center frequency in Hz
+	Gain      float64 `json:"gain"`      // dB, range [-12, +12]
+	Type      string  `json:"type"`      // "lowshelf" | "peaking" | "highshelf"
+}
+
+// EQProfile represents a named equalizer preset owned by a user.
+type EQProfile struct {
+	ID        string    `json:"id"`
+	UserID    string    `json:"user_id"`
+	Name      string    `json:"name"`
+	Bands     []EQBand  `json:"bands"`
+	IsDefault bool      `json:"is_default"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GenreEQMapping associates a genre with an EQ profile for a specific user.
+type GenreEQMapping struct {
+	UserID    string `json:"user_id"`
+	GenreID   string `json:"genre_id"`
+	GenreName string `json:"genre_name,omitempty"`
+	ProfileID string `json:"profile_id"`
+}
+
+// CreateEQProfileParams holds the parameters for creating an EQ profile.
+type CreateEQProfileParams struct {
+	ID        string
+	UserID    string
+	Name      string
+	Bands     []EQBand
+	IsDefault bool
+}
+
+// UpdateEQProfileParams holds the parameters for updating an EQ profile.
+type UpdateEQProfileParams struct {
+	ID     string
+	UserID string
+	Name   string
+	Bands  []EQBand
+}
+
+// --- Admin analytics ---
+
+// AdminSummary holds high-level server statistics.
+type AdminSummary struct {
+	TotalUsers    int `json:"total_users"`
+	TotalTracks   int `json:"total_tracks"`
+	TotalAlbums   int `json:"total_albums"`
+	TotalArtists  int `json:"total_artists"`
+	TotalPlays    int `json:"total_plays"`
+	TotalPlayedMs int `json:"total_played_ms"`
+}
+
+// UserPlayStat holds a user's listening statistics.
+type UserPlayStat struct {
+	UserID      string     `json:"user_id"`
+	Username    string     `json:"username"`
+	Email       string     `json:"email"`
+	IsAdmin     bool       `json:"is_admin"`
+	PlayCount   int        `json:"play_count"`
+	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// TrackPlayCount holds a track's total play count.
+type TrackPlayCount struct {
+	TrackID    string  `json:"track_id"`
+	Title      string  `json:"title"`
+	ArtistName *string `json:"artist_name,omitempty"`
+	AlbumTitle *string `json:"album_title,omitempty"`
+	Plays      int     `json:"plays"`
+}
+
+// ArtistPlayCount holds an artist's total play count.
+type ArtistPlayCount struct {
+	ArtistID string `json:"artist_id"`
+	Name     string `json:"name"`
+	Plays    int    `json:"plays"`
+}
+
+// DailyPlayCount holds the number of plays on a given day.
+type DailyPlayCount struct {
+	Date  string `json:"date"` // YYYY-MM-DD
+	Plays int    `json:"plays"`
 }

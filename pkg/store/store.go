@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"database/sql"
 	"time"
@@ -46,11 +48,18 @@ func (s *Store) Ping(ctx context.Context) error {
 // GetUserByID returns a user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
-	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at FROM users WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin FROM users WHERE id = $1`, id)
 	var lastLoginAt sql.NullTime
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt)
+	var totpSecret, totpBackupCodes sql.NullString
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin)
 	if lastLoginAt.Valid {
 		u.LastLoginAt = &lastLoginAt.Time
+	}
+	if totpSecret.Valid {
+		u.TOTPSecret = &totpSecret.String
+	}
+	if totpBackupCodes.Valid {
+		u.TOTPBackupCodes = &totpBackupCodes.String
 	}
 	return u, err
 }
@@ -73,13 +82,13 @@ ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, sort_name = EXCLUDED.sort_n
 // UpsertAlbum inserts or updates an album.
 func (s *Store) UpsertAlbum(ctx context.Context, p UpsertAlbumParams) (Album, error) {
 	var alb Album
-	row := s.pool.QueryRow(ctx, `INSERT INTO albums (id, artist_id, title, release_year, label, cover_art_key, mbid)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.title, release_year = EXCLUDED.release_year, label = EXCLUDED.label, cover_art_key = COALESCE(EXCLUDED.cover_art_key, albums.cover_art_key), mbid = EXCLUDED.mbid RETURNING id, artist_id, title, release_year, label, cover_art_key, mbid, created_at`,
-		p.ID, p.ArtistID, p.Title, p.ReleaseYear, p.Label, p.CoverArtKey, p.Mbid)
-	var artistID, label, coverArtKey, mbid sql.NullString
+	row := s.pool.QueryRow(ctx, `INSERT INTO albums (id, artist_id, title, release_year, label, cover_art_key, mbid, album_group_id, edition)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.title, release_year = EXCLUDED.release_year, label = EXCLUDED.label, cover_art_key = COALESCE(EXCLUDED.cover_art_key, albums.cover_art_key), mbid = EXCLUDED.mbid, album_group_id = EXCLUDED.album_group_id, edition = EXCLUDED.edition RETURNING id, artist_id, title, release_year, label, cover_art_key, mbid, album_group_id, edition, created_at`,
+		p.ID, p.ArtistID, p.Title, p.ReleaseYear, p.Label, p.CoverArtKey, p.Mbid, p.AlbumGroupID, p.Edition)
+	var artistID, label, coverArtKey, mbid, albumGroupID, edition sql.NullString
 	var releaseYear sql.NullInt64
-	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt)
+	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &albumGroupID, &edition, &alb.CreatedAt)
 	if artistID.Valid {
 		alb.ArtistID = &artistID.String
 	}
@@ -95,6 +104,12 @@ ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.
 	}
 	if mbid.Valid {
 		alb.Mbid = &mbid.String
+	}
+	if albumGroupID.Valid {
+		alb.AlbumGroupID = &albumGroupID.String
+	}
+	if edition.Valid {
+		alb.Edition = &edition.String
 	}
 	return alb, err
 }
@@ -386,15 +401,71 @@ func (s *Store) GetMaxPlaylistPosition(ctx context.Context, playlistID string) (
 }
 
 func (s *Store) SearchTracks(ctx context.Context, p SearchTracksParams) ([]Track, error) {
-	rows, err := s.pool.Query(ctx,
+	args := []any{p.ToTsquery}
+	argIdx := 2
+
+	extraJoins := strings.Builder{}
+	conds := []string{"(t.search_vector @@ websearch_to_tsquery('english', $1) OR ar.search_vector @@ websearch_to_tsquery('english', $1))"}
+	needAlbumJoin := p.YearFrom != nil || p.YearTo != nil || p.SortBy == "year"
+
+	if p.Genre != "" {
+		extraJoins.WriteString(" JOIN track_genres tg ON tg.track_id = t.id JOIN genres g ON g.id = tg.genre_id")
+		args = append(args, strings.ToLower(p.Genre))
+		conds = append(conds, fmt.Sprintf("LOWER(g.name) = $%d", argIdx))
+		argIdx++
+	}
+	if needAlbumJoin {
+		extraJoins.WriteString(" LEFT JOIN albums al_f ON al_f.id = t.album_id")
+	}
+	if p.YearFrom != nil {
+		args = append(args, *p.YearFrom)
+		conds = append(conds, fmt.Sprintf("al_f.release_year >= $%d", argIdx))
+		argIdx++
+	}
+	if p.YearTo != nil {
+		args = append(args, *p.YearTo)
+		conds = append(conds, fmt.Sprintf("al_f.release_year <= $%d", argIdx))
+		argIdx++
+	}
+	if p.Format != "" {
+		args = append(args, strings.ToLower(p.Format))
+		conds = append(conds, fmt.Sprintf("LOWER(t.format) = $%d", argIdx))
+		argIdx++
+	}
+	if p.BitrateMin != nil {
+		args = append(args, *p.BitrateMin)
+		conds = append(conds, fmt.Sprintf("t.bitrate_kbps >= $%d", argIdx))
+		argIdx++
+	}
+	if p.BitrateMax != nil {
+		args = append(args, *p.BitrateMax)
+		conds = append(conds, fmt.Sprintf("t.bitrate_kbps <= $%d", argIdx))
+		argIdx++
+	}
+
+	orderBy := "ts_rank(t.search_vector, websearch_to_tsquery('english', $1)) DESC"
+	switch p.SortBy {
+	case "title":
+		orderBy = "t.title ASC"
+	case "year":
+		orderBy = "al_f.release_year DESC NULLS LAST"
+	case "bitrate":
+		orderBy = "t.bitrate_kbps DESC NULLS LAST"
+	case "duration":
+		orderBy = "t.duration_ms ASC"
+	}
+
+	args = append(args, p.Limit)
+	q := fmt.Sprintf(
 		`SELECT DISTINCT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at
 FROM tracks t
-LEFT JOIN artists ar ON ar.id = t.artist_id
-WHERE t.search_vector @@ websearch_to_tsquery('english', $1)
-   OR ar.search_vector @@ websearch_to_tsquery('english', $1)
-ORDER BY ts_rank(t.search_vector, websearch_to_tsquery('english', $1)) DESC
-LIMIT $2`,
-		p.ToTsquery, p.Limit)
+LEFT JOIN artists ar ON ar.id = t.artist_id%s
+WHERE %s
+ORDER BY %s
+LIMIT $%d`,
+		extraJoins.String(), strings.Join(conds, " AND "), orderBy, argIdx)
+
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -403,15 +474,49 @@ LIMIT $2`,
 }
 
 func (s *Store) SearchAlbums(ctx context.Context, p SearchAlbumsParams) ([]Album, error) {
-	rows, err := s.pool.Query(ctx,
+	args := []any{p.ToTsquery}
+	argIdx := 2
+
+	extraJoins := strings.Builder{}
+	conds := []string{"al.search_vector @@ websearch_to_tsquery('english', $1)"}
+
+	if p.Genre != "" {
+		extraJoins.WriteString(" JOIN album_genres ag ON ag.album_id = al.id JOIN genres g ON g.id = ag.genre_id")
+		args = append(args, strings.ToLower(p.Genre))
+		conds = append(conds, fmt.Sprintf("LOWER(g.name) = $%d", argIdx))
+		argIdx++
+	}
+	if p.YearFrom != nil {
+		args = append(args, *p.YearFrom)
+		conds = append(conds, fmt.Sprintf("al.release_year >= $%d", argIdx))
+		argIdx++
+	}
+	if p.YearTo != nil {
+		args = append(args, *p.YearTo)
+		conds = append(conds, fmt.Sprintf("al.release_year <= $%d", argIdx))
+		argIdx++
+	}
+
+	orderBy := "ts_rank(al.search_vector, websearch_to_tsquery('english', $1)) DESC"
+	switch p.SortBy {
+	case "title":
+		orderBy = "al.title ASC"
+	case "year":
+		orderBy = "al.release_year DESC NULLS LAST"
+	}
+
+	args = append(args, p.Limit)
+	q := fmt.Sprintf(
 		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
-LEFT JOIN tracks t ON t.album_id = al.id
-WHERE al.search_vector @@ websearch_to_tsquery('english', $1)
+LEFT JOIN tracks t ON t.album_id = al.id%s
+WHERE %s
 GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
-ORDER BY ts_rank(al.search_vector, websearch_to_tsquery('english', $1)) DESC LIMIT $2`,
-		p.ToTsquery, p.Limit)
+ORDER BY %s LIMIT $%d`,
+		extraJoins.String(), strings.Join(conds, " AND "), orderBy, argIdx)
+
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -582,13 +687,44 @@ func (s *Store) CreateUser(ctx context.Context, p CreateUserParams) (User, error
 // GetUserByEmail returns a user by email.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	var u User
-	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at FROM users WHERE email = $1`, email)
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin FROM users WHERE email = $1`, email)
 	var lastLoginAt sql.NullTime
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt)
+	var totpSecret, totpBackupCodes sql.NullString
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin)
 	if lastLoginAt.Valid {
 		u.LastLoginAt = &lastLoginAt.Time
 	}
+	if totpSecret.Valid {
+		u.TOTPSecret = &totpSecret.String
+	}
+	if totpBackupCodes.Valid {
+		u.TOTPBackupCodes = &totpBackupCodes.String
+	}
 	return u, err
+}
+
+// SetTOTPSecret stores an unconfirmed TOTP secret for a user (not yet enabled).
+func (s *Store) SetTOTPSecret(ctx context.Context, userID, secret string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET totp_secret = $2 WHERE id = $1`, userID, secret)
+	return err
+}
+
+// EnableTOTP marks TOTP as enabled and stores the hashed backup codes.
+func (s *Store) EnableTOTP(ctx context.Context, userID, backupCodesJSON string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET totp_enabled = TRUE, totp_backup_codes = $2 WHERE id = $1`, userID, backupCodesJSON)
+	return err
+}
+
+// DisableTOTP clears all TOTP data for a user.
+func (s *Store) DisableTOTP(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET totp_enabled = FALSE, totp_secret = NULL, totp_backup_codes = NULL WHERE id = $1`, userID)
+	return err
+}
+
+// UpdateTOTPBackupCodes replaces the stored backup codes (after one is consumed).
+func (s *Store) UpdateTOTPBackupCodes(ctx context.Context, userID, backupCodesJSON string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET totp_backup_codes = $2 WHERE id = $1`, userID, backupCodesJSON)
+	return err
 }
 
 // UpdateLastLogin updates the last login time for a user.
@@ -847,11 +983,11 @@ func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 // GetAlbumByID returns an album by ID.
 func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	var alb Album
-	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, album_type, release_date, release_group_mbid, enriched_at, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count FROM albums WHERE id = $1`, id)
-	var artistID, label, coverArtKey, mbid, albumType, releaseDate, releaseGroupMbid sql.NullString
+	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, album_type, release_date, release_group_mbid, enriched_at, album_group_id, edition, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count FROM albums WHERE id = $1`, id)
+	var artistID, label, coverArtKey, mbid, albumType, releaseDate, releaseGroupMbid, albumGroupID, edition sql.NullString
 	var releaseYear sql.NullInt64
 	var enrichedAt sql.NullTime
-	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &albumType, &releaseDate, &releaseGroupMbid, &enrichedAt, &alb.CreatedAt, &alb.TrackCount)
+	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &albumType, &releaseDate, &releaseGroupMbid, &enrichedAt, &albumGroupID, &edition, &alb.CreatedAt, &alb.TrackCount)
 	if artistID.Valid {
 		alb.ArtistID = &artistID.String
 	}
@@ -880,7 +1016,46 @@ func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	if enrichedAt.Valid {
 		alb.EnrichedAt = &enrichedAt.Time
 	}
+	if albumGroupID.Valid {
+		alb.AlbumGroupID = &albumGroupID.String
+	}
+	if edition.Valid {
+		alb.Edition = &edition.String
+	}
 	return alb, err
+}
+
+// ListAlbumVariants returns all albums sharing the same album_group_id, ordered by creation date.
+func (s *Store) ListAlbumVariants(ctx context.Context, groupID string) ([]Album, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT al.id, al.title, al.edition, al.cover_art_key, al.created_at,
+		        COUNT(t.id) AS track_count
+		 FROM albums al
+		 LEFT JOIN tracks t ON t.album_id = al.id
+		 WHERE al.album_group_id = $1
+		 GROUP BY al.id, al.title, al.edition, al.cover_art_key, al.created_at
+		 ORDER BY al.created_at ASC`,
+		groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Album
+	for rows.Next() {
+		var alb Album
+		var edition, coverArtKey sql.NullString
+		if err := rows.Scan(&alb.ID, &alb.Title, &edition, &coverArtKey, &alb.CreatedAt, &alb.TrackCount); err != nil {
+			return nil, err
+		}
+		if edition.Valid {
+			alb.Edition = &edition.String
+		}
+		if coverArtKey.Valid {
+			alb.CoverArtKey = &coverArtKey.String
+		}
+		out = append(out, alb)
+	}
+	return out, rows.Err()
 }
 
 // --- scan helpers ---
@@ -1748,4 +1923,537 @@ func scanTracksWithScore(rows pgx.Rows) ([]TrackWithScore, error) {
 		out = append(out, tw)
 	}
 	return out, rows.Err()
+}
+
+// GetUserStreamingPrefs returns the streaming preferences for a user.
+// If no prefs exist, returns a zero-value struct (all limits nil).
+func (s *Store) GetUserStreamingPrefs(ctx context.Context, userID string) (UserStreamingPrefs, error) {
+	var p UserStreamingPrefs
+	p.UserID = userID
+	row := s.pool.QueryRow(ctx,
+		`SELECT max_bitrate_kbps, max_sample_rate, max_bit_depth,
+		        wifi_max_bitrate_kbps, wifi_max_sample_rate, wifi_max_bit_depth,
+		        mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth,
+		        updated_at
+		   FROM user_streaming_prefs WHERE user_id = $1`, userID)
+	var (
+		maxBitrate, maxSR, maxBD                   sql.NullInt64
+		wifiMaxBitrate, wifiMaxSR, wifiMaxBD       sql.NullInt64
+		mobileMaxBitrate, mobileMaxSR, mobileMaxBD sql.NullInt64
+		updatedAt                                  time.Time
+	)
+	err := row.Scan(
+		&maxBitrate, &maxSR, &maxBD,
+		&wifiMaxBitrate, &wifiMaxSR, &wifiMaxBD,
+		&mobileMaxBitrate, &mobileMaxSR, &mobileMaxBD,
+		&updatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return p, nil // return empty prefs (no limits)
+		}
+		return p, err
+	}
+	nullIntToPtr := func(n sql.NullInt64) *int {
+		if !n.Valid {
+			return nil
+		}
+		v := int(n.Int64)
+		return &v
+	}
+	p.MaxBitrateKbps = nullIntToPtr(maxBitrate)
+	p.MaxSampleRate = nullIntToPtr(maxSR)
+	p.MaxBitDepth = nullIntToPtr(maxBD)
+	p.WifiMaxBitrateKbps = nullIntToPtr(wifiMaxBitrate)
+	p.WifiMaxSampleRate = nullIntToPtr(wifiMaxSR)
+	p.WifiMaxBitDepth = nullIntToPtr(wifiMaxBD)
+	p.MobileMaxBitrateKbps = nullIntToPtr(mobileMaxBitrate)
+	p.MobileMaxSampleRate = nullIntToPtr(mobileMaxSR)
+	p.MobileMaxBitDepth = nullIntToPtr(mobileMaxBD)
+	p.UpdatedAt = updatedAt
+	return p, nil
+}
+
+// UpsertUserStreamingPrefs inserts or updates streaming preferences for a user.
+func (s *Store) UpsertUserStreamingPrefs(ctx context.Context, p UpsertUserStreamingPrefsParams) (UserStreamingPrefs, error) {
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO user_streaming_prefs
+		     (user_id, max_bitrate_kbps, max_sample_rate, max_bit_depth,
+		      wifi_max_bitrate_kbps, wifi_max_sample_rate, wifi_max_bit_depth,
+		      mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+		 ON CONFLICT (user_id) DO UPDATE SET
+		     max_bitrate_kbps        = EXCLUDED.max_bitrate_kbps,
+		     max_sample_rate         = EXCLUDED.max_sample_rate,
+		     max_bit_depth           = EXCLUDED.max_bit_depth,
+		     wifi_max_bitrate_kbps   = EXCLUDED.wifi_max_bitrate_kbps,
+		     wifi_max_sample_rate    = EXCLUDED.wifi_max_sample_rate,
+		     wifi_max_bit_depth      = EXCLUDED.wifi_max_bit_depth,
+		     mobile_max_bitrate_kbps = EXCLUDED.mobile_max_bitrate_kbps,
+		     mobile_max_sample_rate  = EXCLUDED.mobile_max_sample_rate,
+		     mobile_max_bit_depth    = EXCLUDED.mobile_max_bit_depth,
+		     updated_at              = now()
+		 RETURNING max_bitrate_kbps, max_sample_rate, max_bit_depth,
+		           wifi_max_bitrate_kbps, wifi_max_sample_rate, wifi_max_bit_depth,
+		           mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth,
+		           updated_at`,
+		p.UserID, p.MaxBitrateKbps, p.MaxSampleRate, p.MaxBitDepth,
+		p.WifiMaxBitrateKbps, p.WifiMaxSampleRate, p.WifiMaxBitDepth,
+		p.MobileMaxBitrateKbps, p.MobileMaxSampleRate, p.MobileMaxBitDepth)
+	var (
+		maxBitrate, maxSR, maxBD                   sql.NullInt64
+		wifiMaxBitrate, wifiMaxSR, wifiMaxBD       sql.NullInt64
+		mobileMaxBitrate, mobileMaxSR, mobileMaxBD sql.NullInt64
+		updatedAt                                  time.Time
+	)
+	if err := row.Scan(
+		&maxBitrate, &maxSR, &maxBD,
+		&wifiMaxBitrate, &wifiMaxSR, &wifiMaxBD,
+		&mobileMaxBitrate, &mobileMaxSR, &mobileMaxBD,
+		&updatedAt,
+	); err != nil {
+		return UserStreamingPrefs{}, err
+	}
+	nullIntToPtr := func(n sql.NullInt64) *int {
+		if !n.Valid {
+			return nil
+		}
+		v := int(n.Int64)
+		return &v
+	}
+	out := UserStreamingPrefs{UserID: p.UserID, UpdatedAt: updatedAt}
+	out.MaxBitrateKbps = nullIntToPtr(maxBitrate)
+	out.MaxSampleRate = nullIntToPtr(maxSR)
+	out.MaxBitDepth = nullIntToPtr(maxBD)
+	out.WifiMaxBitrateKbps = nullIntToPtr(wifiMaxBitrate)
+	out.WifiMaxSampleRate = nullIntToPtr(wifiMaxSR)
+	out.WifiMaxBitDepth = nullIntToPtr(wifiMaxBD)
+	out.MobileMaxBitrateKbps = nullIntToPtr(mobileMaxBitrate)
+	out.MobileMaxSampleRate = nullIntToPtr(mobileMaxSR)
+	out.MobileMaxBitDepth = nullIntToPtr(mobileMaxBD)
+	return out, nil
+}
+
+// ──────────────────────────────────────────────────────────────
+// EQ Profiles
+// ──────────────────────────────────────────────────────────────
+
+// scanEQProfile scans a row into an EQProfile; bandsJSON must already be scanned.
+func scanEQProfile(id, userID, name string, bandsJSON []byte, isDefault bool, createdAt, updatedAt time.Time) (EQProfile, error) {
+	p := EQProfile{
+		ID:        id,
+		UserID:    userID,
+		Name:      name,
+		IsDefault: isDefault,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	}
+	if len(bandsJSON) > 0 {
+		if err := json.Unmarshal(bandsJSON, &p.Bands); err != nil {
+			return p, fmt.Errorf("unmarshal eq bands: %w", err)
+		}
+	}
+	if p.Bands == nil {
+		p.Bands = []EQBand{}
+	}
+	return p, nil
+}
+
+// ListEQProfiles returns all EQ profiles owned by userID.
+func (s *Store) ListEQProfiles(ctx context.Context, userID string) ([]EQProfile, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, name, bands, is_default, created_at, updated_at
+		   FROM eq_profiles WHERE user_id = $1 ORDER BY created_at ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EQProfile
+	for rows.Next() {
+		var (
+			id, uid, name        string
+			bandsJSON            []byte
+			isDefault            bool
+			createdAt, updatedAt time.Time
+		)
+		if err := rows.Scan(&id, &uid, &name, &bandsJSON, &isDefault, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		p, err := scanEQProfile(id, uid, name, bandsJSON, isDefault, createdAt, updatedAt)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	if out == nil {
+		out = []EQProfile{}
+	}
+	return out, rows.Err()
+}
+
+// GetEQProfile returns a single EQ profile by id, scoped to userID.
+func (s *Store) GetEQProfile(ctx context.Context, id, userID string) (EQProfile, error) {
+	var (
+		rid, uid, name       string
+		bandsJSON            []byte
+		isDefault            bool
+		createdAt, updatedAt time.Time
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, user_id, name, bands, is_default, created_at, updated_at
+		   FROM eq_profiles WHERE id = $1 AND user_id = $2`, id, userID).
+		Scan(&rid, &uid, &name, &bandsJSON, &isDefault, &createdAt, &updatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return EQProfile{}, fmt.Errorf("eq profile not found")
+		}
+		return EQProfile{}, err
+	}
+	return scanEQProfile(rid, uid, name, bandsJSON, isDefault, createdAt, updatedAt)
+}
+
+// CreateEQProfile inserts a new EQ profile.
+// If IsDefault is true, all other profiles for the user are unset as default first.
+func (s *Store) CreateEQProfile(ctx context.Context, p CreateEQProfileParams) (EQProfile, error) {
+	bandsJSON, err := json.Marshal(p.Bands)
+	if err != nil {
+		return EQProfile{}, err
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return EQProfile{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if p.IsDefault {
+		if _, err := tx.Exec(ctx,
+			`UPDATE eq_profiles SET is_default = FALSE WHERE user_id = $1`, p.UserID); err != nil {
+			return EQProfile{}, err
+		}
+	}
+
+	var (
+		id, uid, name        string
+		retBands             []byte
+		isDefault            bool
+		createdAt, updatedAt time.Time
+	)
+	err = tx.QueryRow(ctx,
+		`INSERT INTO eq_profiles (id, user_id, name, bands, is_default)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, user_id, name, bands, is_default, created_at, updated_at`,
+		p.ID, p.UserID, p.Name, bandsJSON, p.IsDefault).
+		Scan(&id, &uid, &name, &retBands, &isDefault, &createdAt, &updatedAt)
+	if err != nil {
+		return EQProfile{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return EQProfile{}, err
+	}
+	return scanEQProfile(id, uid, name, retBands, isDefault, createdAt, updatedAt)
+}
+
+// UpdateEQProfile updates the name and bands of an existing EQ profile.
+func (s *Store) UpdateEQProfile(ctx context.Context, p UpdateEQProfileParams) (EQProfile, error) {
+	bandsJSON, err := json.Marshal(p.Bands)
+	if err != nil {
+		return EQProfile{}, err
+	}
+	var (
+		id, uid, name        string
+		retBands             []byte
+		isDefault            bool
+		createdAt, updatedAt time.Time
+	)
+	err = s.pool.QueryRow(ctx,
+		`UPDATE eq_profiles SET name = $3, bands = $4, updated_at = now()
+		 WHERE id = $1 AND user_id = $2
+		 RETURNING id, user_id, name, bands, is_default, created_at, updated_at`,
+		p.ID, p.UserID, p.Name, bandsJSON).
+		Scan(&id, &uid, &name, &retBands, &isDefault, &createdAt, &updatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return EQProfile{}, fmt.Errorf("eq profile not found")
+		}
+		return EQProfile{}, err
+	}
+	return scanEQProfile(id, uid, name, retBands, isDefault, createdAt, updatedAt)
+}
+
+// DeleteEQProfile removes an EQ profile and any genre mappings that reference it.
+func (s *Store) DeleteEQProfile(ctx context.Context, id, userID string) error {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM eq_profiles WHERE id = $1 AND user_id = $2`, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("eq profile not found")
+	}
+	return nil
+}
+
+// SetDefaultEQProfile marks a profile as the user's default,
+// clearing the is_default flag on all other profiles for that user.
+func (s *Store) SetDefaultEQProfile(ctx context.Context, id, userID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE eq_profiles SET is_default = FALSE WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE eq_profiles SET is_default = TRUE WHERE id = $1 AND user_id = $2`, id, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("eq profile not found")
+	}
+	return tx.Commit(ctx)
+}
+
+// ClearDefaultEQProfile removes the default flag from all profiles for a user.
+func (s *Store) ClearDefaultEQProfile(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE eq_profiles SET is_default = FALSE WHERE user_id = $1`, userID)
+	return err
+}
+
+// GetDefaultEQProfile returns the user's default EQ profile, or nil if none is set.
+func (s *Store) GetDefaultEQProfile(ctx context.Context, userID string) (*EQProfile, error) {
+	var (
+		id, uid, name        string
+		bandsJSON            []byte
+		isDefault            bool
+		createdAt, updatedAt time.Time
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, user_id, name, bands, is_default, created_at, updated_at
+		   FROM eq_profiles WHERE user_id = $1 AND is_default = TRUE LIMIT 1`, userID).
+		Scan(&id, &uid, &name, &bandsJSON, &isDefault, &createdAt, &updatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	p, err := scanEQProfile(id, uid, name, bandsJSON, isDefault, createdAt, updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// ──────────────────────────────────────────────────────────────
+// Genre → EQ Profile mappings
+// ──────────────────────────────────────────────────────────────
+
+// ListGenreEQMappings returns all genre→profile mappings for a user.
+func (s *Store) ListGenreEQMappings(ctx context.Context, userID string) ([]GenreEQMapping, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT uge.user_id, uge.genre_id, g.name, uge.profile_id
+		   FROM user_genre_eq uge
+		   JOIN genres g ON g.id = uge.genre_id
+		  WHERE uge.user_id = $1
+		  ORDER BY g.name ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GenreEQMapping
+	for rows.Next() {
+		var m GenreEQMapping
+		if err := rows.Scan(&m.UserID, &m.GenreID, &m.GenreName, &m.ProfileID); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	if out == nil {
+		out = []GenreEQMapping{}
+	}
+	return out, rows.Err()
+}
+
+// SetGenreEQMapping upserts a genre→profile mapping for a user.
+func (s *Store) SetGenreEQMapping(ctx context.Context, userID, genreID, profileID string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_genre_eq (user_id, genre_id, profile_id) VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id, genre_id) DO UPDATE SET profile_id = EXCLUDED.profile_id`,
+		userID, genreID, profileID)
+	return err
+}
+
+// DeleteGenreEQMapping removes a genre→profile mapping for a user.
+func (s *Store) DeleteGenreEQMapping(ctx context.Context, userID, genreID string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM user_genre_eq WHERE user_id = $1 AND genre_id = $2`, userID, genreID)
+	return err
+}
+
+// GetGenreEQProfile returns the EQ profile mapped to a genre for a user, or nil.
+func (s *Store) GetGenreEQProfile(ctx context.Context, userID, genreID string) (*EQProfile, error) {
+	var profileID string
+	err := s.pool.QueryRow(ctx,
+		`SELECT profile_id FROM user_genre_eq WHERE user_id = $1 AND genre_id = $2`,
+		userID, genreID).Scan(&profileID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	p, err := s.GetEQProfile(ctx, profileID, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// ---- Admin analytics ----
+
+// GetAdminSummary returns aggregate server statistics.
+func (s *Store) GetAdminSummary(ctx context.Context) (AdminSummary, error) {
+	var sum AdminSummary
+	err := s.pool.QueryRow(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM users)   AS total_users,
+			(SELECT COUNT(*) FROM tracks)  AS total_tracks,
+			(SELECT COUNT(*) FROM albums)  AS total_albums,
+			(SELECT COUNT(*) FROM artists) AS total_artists,
+			(SELECT COUNT(*) FROM play_history) AS total_plays,
+			(SELECT COALESCE(SUM(duration_played_ms),0) FROM play_history) AS total_played_ms
+	`).Scan(&sum.TotalUsers, &sum.TotalTracks, &sum.TotalAlbums,
+		&sum.TotalArtists, &sum.TotalPlays, &sum.TotalPlayedMs)
+	return sum, err
+}
+
+// ListUsersWithStats returns all users ordered by play count descending.
+func (s *Store) ListUsersWithStats(ctx context.Context) ([]UserPlayStat, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			u.id, u.username, u.email, u.is_admin,
+			COUNT(ph.id) AS play_count,
+			u.created_at
+		FROM users u
+		LEFT JOIN play_history ph ON ph.user_id = u.id
+		GROUP BY u.id
+		ORDER BY play_count DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []UserPlayStat
+	for rows.Next() {
+		var s UserPlayStat
+		if err := rows.Scan(&s.UserID, &s.Username, &s.Email, &s.IsAdmin,
+			&s.PlayCount, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		results = append(results, s)
+	}
+	return results, rows.Err()
+}
+
+// GetTopTracks returns the most-played tracks.
+func (s *Store) GetTopTracks(ctx context.Context, limit int) ([]TrackPlayCount, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			t.id, t.title,
+			a.name  AS artist_name,
+			al.title AS album_title,
+			COUNT(ph.id) AS plays
+		FROM tracks t
+		LEFT JOIN play_history ph ON ph.track_id = t.id
+		LEFT JOIN artists a  ON a.id  = t.artist_id
+		LEFT JOIN albums  al ON al.id = t.album_id
+		GROUP BY t.id, a.name, al.title
+		ORDER BY plays DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []TrackPlayCount
+	for rows.Next() {
+		var r TrackPlayCount
+		if err := rows.Scan(&r.TrackID, &r.Title, &r.ArtistName, &r.AlbumTitle, &r.Plays); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// GetTopArtists returns artists ordered by total play count.
+func (s *Store) GetTopArtists(ctx context.Context, limit int) ([]ArtistPlayCount, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			ar.id, ar.name,
+			COUNT(ph.id) AS plays
+		FROM artists ar
+		JOIN tracks t   ON t.artist_id = ar.id
+		LEFT JOIN play_history ph ON ph.track_id = t.id
+		GROUP BY ar.id, ar.name
+		ORDER BY plays DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []ArtistPlayCount
+	for rows.Next() {
+		var r ArtistPlayCount
+		if err := rows.Scan(&r.ArtistID, &r.Name, &r.Plays); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// GetPlaysByDay returns daily play counts for the last n days.
+func (s *Store) GetPlaysByDay(ctx context.Context, days int) ([]DailyPlayCount, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			to_char(d::date, 'YYYY-MM-DD') AS date,
+			COUNT(ph.id)                   AS plays
+		FROM generate_series(
+			(CURRENT_DATE - ($1 - 1) * INTERVAL '1 day'),
+			CURRENT_DATE,
+			INTERVAL '1 day'
+		) AS d
+		LEFT JOIN play_history ph
+			ON ph.played_at::date = d::date
+		GROUP BY d
+		ORDER BY d
+	`, days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []DailyPlayCount
+	for rows.Next() {
+		var r DailyPlayCount
+		if err := rows.Scan(&r.Date, &r.Plays); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+// SetUserAdmin sets the is_admin flag for a user.
+func (s *Store) SetUserAdmin(ctx context.Context, userID string, isAdmin bool) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET is_admin = $1 WHERE id = $2`, isAdmin, userID)
+	return err
 }

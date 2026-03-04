@@ -1,4 +1,4 @@
--- db/schema.sql — Atlas source of truth
+-- db/schema.sql
 
 CREATE TABLE users (
     id            TEXT        PRIMARY KEY,
@@ -36,6 +36,8 @@ CREATE TABLE albums (
     release_date        TEXT,                    -- full ISO date (YYYY-MM-DD) when available
     release_group_mbid  TEXT,
     enriched_at         TIMESTAMPTZ,
+    album_group_id      TEXT,                    -- links variants of the same album (artist+title hash)
+    edition             TEXT,                    -- human-readable variant label, e.g. "[WEB FLAC 24-88.2]"
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -202,6 +204,23 @@ CREATE TABLE track_featured_artists (
 
 CREATE INDEX track_featured_artists_track_idx ON track_featured_artists(track_id);
 
+-- Per-user streaming quality preferences.
+-- The max_* columns are the "any network" defaults; wifi_max_* and mobile_max_* override them
+-- when the client passes ?net=wifi or ?net=mobile on stream requests.
+CREATE TABLE user_streaming_prefs (
+    user_id               TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    max_bitrate_kbps      INT,
+    max_sample_rate       INT,
+    max_bit_depth         INT,
+    wifi_max_bitrate_kbps INT,
+    wifi_max_sample_rate  INT,
+    wifi_max_bit_depth    INT,
+    mobile_max_bitrate_kbps INT,
+    mobile_max_sample_rate  INT,
+    mobile_max_bit_depth    INT,
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Ingest state: tracks which files have been processed so re-runs skip unchanged files.
 -- Keyed by absolute path; mtime_unix + file_size serve as a cheap change-detection
 -- fingerprint so the ingest tool only hashes and re-processes files that have actually
@@ -213,3 +232,27 @@ CREATE TABLE ingest_state (
     track_id    TEXT        NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Equalizer profiles.
+-- bands is a JSONB array of {frequency, gain, type} objects.
+CREATE TABLE eq_profiles (
+    id         TEXT        PRIMARY KEY,
+    user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT        NOT NULL,
+    bands      JSONB       NOT NULL DEFAULT '[]',
+    is_default BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX eq_profiles_user_idx ON eq_profiles(user_id);
+
+-- Per-genre EQ profile mapping.
+CREATE TABLE user_genre_eq (
+    user_id    TEXT NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    genre_id   TEXT NOT NULL REFERENCES genres(id)      ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, genre_id)
+);
+
+CREATE INDEX user_genre_eq_user_idx ON user_genre_eq(user_id);

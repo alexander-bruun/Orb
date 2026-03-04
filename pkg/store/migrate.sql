@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at TIMESTAMPTZ
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret       TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled      BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT;
+
 CREATE TABLE IF NOT EXISTS artists (
     id            TEXT        PRIMARY KEY,
     name          TEXT        NOT NULL,
@@ -215,3 +219,52 @@ CREATE TABLE IF NOT EXISTS track_featured_artists (
 );
 
 CREATE INDEX IF NOT EXISTS track_featured_artists_track_idx ON track_featured_artists(track_id);
+
+-- Album variants: group editions of the same album and store edition label.
+ALTER TABLE albums ADD COLUMN IF NOT EXISTS album_group_id TEXT;
+ALTER TABLE albums ADD COLUMN IF NOT EXISTS edition        TEXT;
+CREATE INDEX IF NOT EXISTS albums_group_id_idx ON albums(album_group_id);
+
+-- Per-user streaming quality preferences.
+CREATE TABLE IF NOT EXISTS user_streaming_prefs (
+    user_id          TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    max_bitrate_kbps INT,          -- NULL = no limit; enforced as byte-rate throttle (any network)
+    max_sample_rate  INT,          -- NULL = no limit; informational / client advisory (any network)
+    max_bit_depth    INT,          -- NULL = no limit; informational / client advisory (any network)
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Network-specific quality overrides (override the any-network defaults above).
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_bitrate_kbps   INT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_sample_rate    INT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_bit_depth      INT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_bitrate_kbps INT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_sample_rate  INT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_bit_depth    INT;
+
+-- Equalizer profiles.
+-- bands is a JSONB array of {frequency: number, gain: number, type: string}.
+CREATE TABLE IF NOT EXISTS eq_profiles (
+    id         TEXT        PRIMARY KEY,
+    user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT        NOT NULL,
+    bands      JSONB       NOT NULL DEFAULT '[]',
+    is_default BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS eq_profiles_user_idx ON eq_profiles(user_id);
+
+-- Per-genre EQ profile mapping: when a track's album/artist genre matches,
+-- activate the corresponding profile automatically.
+CREATE TABLE IF NOT EXISTS user_genre_eq (
+    user_id    TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    genre_id   TEXT NOT NULL REFERENCES genres(id)   ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, genre_id)
+);
+
+CREATE INDEX IF NOT EXISTS user_genre_eq_user_idx ON user_genre_eq(user_id);
+
+-- Admin flag: grant a user elevated access to analytics and admin endpoints.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
