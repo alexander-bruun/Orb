@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/rand"
 	"net/http"
 	"regexp"
 	"sort"
@@ -53,11 +55,13 @@ type PlaybackState struct {
 
 // Session is the data persisted in Redis for a listen-along session.
 type Session struct {
-	ID        string        `json:"id"`
-	HostID    string        `json:"host_id"`
-	HostName  string        `json:"host_name"`
-	CreatedAt time.Time     `json:"created_at"`
-	State     PlaybackState `json:"state"`
+	ID          string        `json:"id"`
+	HostID      string        `json:"host_id"`
+	HostName    string        `json:"host_name"`
+	CreatedAt   time.Time     `json:"created_at"`
+	State       PlaybackState `json:"state"`
+	CodeEnabled bool          `json:"code_enabled"`
+	AccessCode  string        `json:"access_code,omitempty"`
 }
 
 // Participant represents a guest connected to a session.
@@ -84,6 +88,7 @@ type TrackInfo struct {
 type inMsg struct {
 	Type          string         `json:"type"`
 	Nickname      string         `json:"nickname,omitempty"`
+	Code          string         `json:"code,omitempty"`
 	State         *PlaybackState `json:"state,omitempty"`
 	ParticipantID string         `json:"participant_id,omitempty"`
 }
@@ -100,6 +105,8 @@ type outMsg struct {
 	Participants  []Participant  `json:"participants,omitempty"`
 	Participant   *Participant   `json:"participant,omitempty"`
 	Message       string         `json:"message,omitempty"`
+	CodeEnabled   bool           `json:"code_enabled,omitempty"`
+	AccessCode    string         `json:"access_code,omitempty"`
 }
 
 // --- Hub ---
@@ -306,6 +313,8 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/", s.createSession)       // requires JWT (validated internally)
 	r.Get("/{id}", s.getSession)       // public
 	r.Delete("/{id}", s.endSession)    // requires JWT (validated internally)
+	r.Post("/{id}/code", s.enableCode)  // requires JWT (host); enables/regenerates access code
+	r.Delete("/{id}/code", s.disableCode) // requires JWT (host); disables access code
 	r.Get("/{id}/ws", s.ws)            // host=JWT guest=open
 	r.Get("/{id}/stream/{track_id}", s.guestStream) // guest token
 	r.Get("/{id}/cover/{album_id}", s.guestCover)   // guest token
@@ -361,6 +370,7 @@ func (s *Service) getSession(w http.ResponseWriter, r *http.Request) {
 		"host_name":         sess.HostName,
 		"participant_count": participantCount,
 		"created_at":        sess.CreatedAt,
+		"code_enabled":      sess.CodeEnabled,
 	})
 }
 
@@ -381,6 +391,57 @@ func (s *Service) endSession(w http.ResponseWriter, r *http.Request) {
 	}
 	s.kv.Del(r.Context(), kvkeys.ListenSession(sessionID))
 	removeHub(sessionID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) enableCode(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	sessionID := chi.URLParam(r, "id")
+	sess, err := s.loadSession(r.Context(), sessionID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if sess.HostID != userID {
+		writeErr(w, http.StatusForbidden, "not the session host")
+		return
+	}
+	code := fmt.Sprintf("%04d", rand.Intn(10000))
+	sess.CodeEnabled = true
+	sess.AccessCode = code
+	b, _ := json.Marshal(sess)
+	if err := s.kv.Set(r.Context(), kvkeys.ListenSession(sessionID), b, sessionTTL).Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not update session")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"code": code})
+}
+
+func (s *Service) disableCode(w http.ResponseWriter, r *http.Request) {
+	userID, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	sessionID := chi.URLParam(r, "id")
+	sess, err := s.loadSession(r.Context(), sessionID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if sess.HostID != userID {
+		writeErr(w, http.StatusForbidden, "not the session host")
+		return
+	}
+	sess.CodeEnabled = false
+	sess.AccessCode = ""
+	b, _ := json.Marshal(sess)
+	if err := s.kv.Set(r.Context(), kvkeys.ListenSession(sessionID), b, sessionTTL).Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "could not update session")
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -433,9 +494,11 @@ func (s *Service) runHost(conn *websocket.Conn, h *hub, sess *Session) {
 
 	// Confirm to host.
 	joined := mustMarshal(outMsg{
-		Type:      "joined",
-		Role:      "host",
-		SessionID: sess.ID,
+		Type:        "joined",
+		Role:        "host",
+		SessionID:   sess.ID,
+		CodeEnabled: sess.CodeEnabled,
+		AccessCode:  sess.AccessCode,
 	})
 	c.send <- joined
 
@@ -467,6 +530,15 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseProtocolError, "invalid nickname"))
 		conn.Close()
 		return
+	}
+
+	// If the session requires an access code, validate it before proceeding.
+	if sess.CodeEnabled && sess.AccessCode != "" {
+		if strings.TrimSpace(msg.Code) != sess.AccessCode {
+			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid access code"))
+			conn.Close()
+			return
+		}
 	}
 
 	participantID := uuid.New().String()
