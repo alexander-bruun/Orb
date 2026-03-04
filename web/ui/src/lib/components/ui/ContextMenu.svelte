@@ -76,7 +76,7 @@
     audioEngine.prime(t.sample_rate);
     closeContextMenu();
     try {
-      const similar = await recommend.similar(t.id, 30);
+      const similar = await recommend.similar(t.id, 30, t.album_id);
       const tracks = similar ?? [];
       await playTrack(t, [t, ...tracks]);
     } catch {
