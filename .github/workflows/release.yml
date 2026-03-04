@@ -89,8 +89,129 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
 
+  build-android:
+    name: Android APK
+    needs: create-release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2'
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cd src-tauri
+          if command -v jq &> /dev/null; then
+            jq --arg v "$VERSION" '.version = $v' tauri.conf.json > tmp.json && mv tmp.json tauri.conf.json
+          else
+            python3 -c "
+          import json, sys
+          with open('tauri.conf.json', 'r') as f: cfg = json.load(f)
+          cfg['version'] = sys.argv[1]
+          with open('tauri.conf.json', 'w') as f: json.dump(cfg, f, indent=2)
+          " "$VERSION"
+          fi
+
+      - name: Tauri Android init
+        run: cargo tauri android init || true
+
+      - name: Build Android (release)
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: cargo tauri android build --apk --split-per-abi
+
+      - name: Upload APKs to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: web/ui/src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+
+  # ── iOS ──────────────────────────────────────────────────────────────────────
+  build-ios:
+    name: iOS IPA
+    needs: create-release
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: web/ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version '^2'
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          cd src-tauri
+          if command -v jq &> /dev/null; then
+            jq --arg v "$VERSION" '.version = $v' tauri.conf.json > tmp.json && mv tmp.json tauri.conf.json
+          else
+            python3 -c "
+          import json, sys
+          with open('tauri.conf.json', 'r') as f: cfg = json.load(f)
+          cfg['version'] = sys.argv[1]
+          with open('tauri.conf.json', 'w') as f: json.dump(cfg, f, indent=2)
+          " "$VERSION"
+          fi
+
+      - name: Tauri iOS init
+        run: cargo tauri ios init || true
+
+      - name: Build iOS (release, simulator)
+        run: cargo tauri ios build --simulator
+
+      - name: Upload iOS artifacts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: web/ui/src-tauri/gen/apple/build/arm64/**/*.app
+
   publish-release:
-    needs: [create-release, build-tauri]
+    needs: [create-release, build-tauri, build-android, build-ios]
     runs-on: ubuntu-latest
     steps:
       - name: Publish release
