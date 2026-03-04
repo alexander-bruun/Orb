@@ -204,3 +204,14 @@ CREATE TABLE IF NOT EXISTS track_similarity (
 
 CREATE INDEX IF NOT EXISTS track_similarity_a_idx ON track_similarity(track_a, score DESC);
 CREATE INDEX IF NOT EXISTS track_similarity_b_idx ON track_similarity(track_b, score DESC);
+
+-- Track featured artists: artists that appear as "feat." in the track title.
+-- The title stored in the tracks table is the clean version (feat. part stripped).
+CREATE TABLE IF NOT EXISTS track_featured_artists (
+    track_id  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    position  INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (track_id, artist_id)
+);
+
+CREATE INDEX IF NOT EXISTS track_featured_artists_track_idx ON track_featured_artists(track_id);

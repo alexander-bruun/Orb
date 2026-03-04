@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -34,19 +35,145 @@ import (
 
 var ErrSkipped = errors.New("skipped")
 
+// featuredArtistRe matches featured-artist annotations embedded in track titles.
+// It captures the raw "feat" section (artist list) from patterns like:
+//
+//	Song Title (feat. A, B & C)
+//	Song Title (ft. A)
+//	Song Title [feat. A]
+//	Song Title feat. A, B
+var featuredArtistRe = regexp.MustCompile(
+	`(?i)[\[\(]?\s*(?:feat\.?|ft\.?|featuring)\s+([^\]\)]+)[\]\)]?\s*$`)
+
+// featSplitRe splits a raw artists-list string like "A, B & C and D"
+// into individual artist name strings.
+var featSplitRe = regexp.MustCompile(`(?i)\s*[,&]\s*|\s+and\s+`)
+
+// splitArtistList splits a freeform list of artist names and returns trimmed,
+// non-empty entries.
+func splitArtistList(s string) []string {
+	var out []string
+	for _, name := range featSplitRe.Split(s, -1) {
+		name = strings.Trim(strings.TrimSpace(name), "()[]")
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// parseFeaturedArtists extracts any featured-artist annotation from title,
+// returning the clean title and a slice of featured artist names.
+func parseFeaturedArtists(title string) (cleanTitle string, featuredNames []string) {
+	m := featuredArtistRe.FindStringSubmatchIndex(title)
+	if m == nil {
+		return title, nil
+	}
+	// m[2]:m[3] is the captured artist list
+	raw := strings.TrimSpace(title[m[2]:m[3]])
+	// Clean title: cut from the start of the feat. match
+	cleanTitle = strings.TrimRight(strings.TrimSpace(title[:m[0]]), " -–")
+	return cleanTitle, splitArtistList(raw)
+}
+
+// rawTagString returns the first matching key from a raw tag map as a string,
+// checking each candidate key in order (case-insensitive lookup already
+// normalised by parsers — Vorbis lowercases, ID3v2 uses uppercase frame IDs).
+func rawTagString(raw map[string]interface{}, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := raw[k]; ok {
+			switch s := v.(type) {
+			case string:
+				if s != "" {
+					return s
+				}
+			case []string:
+				if len(s) > 0 {
+					return strings.Join(s, ", ")
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// extractFeaturedArtists resolves featured artist names from a track's tag
+// metadata using two strategies (in priority order):
+//
+//  1. Dedicated featured-artist tag fields written by common tag editors
+//     (MusicBrainz Picard, beets, foobar2000, etc.).
+//     Vorbis/FLAC: FEAT, FEATURED_ARTIST, FEATURED ARTIST, FEATUREDARTIST
+//     ID3v2:       TXXX:FEAT, TXXX:Featured Artist, TXXX:ARTISTS
+//     iTunes/MP4:  ----:com.apple.iTunes:FEAT (and similar)
+//
+//  2. Featured-artist annotation embedded in the title string, e.g.
+//     "Song Title (feat. A, B)" → strips to "Song Title", returns ["A", "B"].
+//
+// In either case the returned cleanTitle has any feat. annotation removed.
+func extractFeaturedArtists(m interface {
+	Title() string
+	Raw() map[string]interface{}
+}, fallbackPath string) (cleanTitle string, featuredNames []string) {
+	title := coalesce(m.Title(), filepath.Base(fallbackPath))
+	raw := m.Raw()
+
+	// --- Strategy 1: dedicated tag fields ---
+	//
+	// Vorbis comment keys (stored lowercase by dhowden/tag)
+	featRaw := rawTagString(raw,
+		// Vorbis/FLAC (Picard/beets/foobar write these)
+		"feat", "featured_artist", "featured artist", "featuredartist",
+		// ID3v2 TXXX user-text frames (dhowden/tag stores as "TXXX:description")
+		"TXXX:FEAT", "TXXX:Featured Artist", "TXXX:featured artist",
+		"TXXX:FEATUREDARTIST", "TXXX:ARTISTS",
+		// iTunes/MP4 freeform atoms stored as the atom name
+		"----:com.apple.iTunes:FEAT",
+		"----:com.apple.iTunes:FEATURED ARTIST",
+		"----:com.apple.iTunes:ARTISTS",
+	)
+	if featRaw != "" {
+		// We have a dedicated tag — strip any feat. annotation from the title
+		// for cleanliness (some taggers write both).
+		cleanTitle, _ = parseFeaturedArtists(title)
+		return cleanTitle, splitArtistList(featRaw)
+	}
+
+	// --- Strategy 2: look for a multi-value ARTISTS field that contains more
+	// artists than the primary ARTIST field (used by Picard's ARTISTS tag). ---
+	artistsRaw := rawTagString(raw, "artists", "ARTISTS")
+	primaryArtist := rawTagString(raw, "artist", "TPE1")
+	if artistsRaw != "" && artistsRaw != primaryArtist {
+		all := splitArtistList(artistsRaw)
+		primary := strings.ToLower(strings.TrimSpace(primaryArtist))
+		var feat []string
+		for _, a := range all {
+			if strings.ToLower(strings.TrimSpace(a)) != primary {
+				feat = append(feat, a)
+			}
+		}
+		if len(feat) > 0 {
+			cleanTitle, _ = parseFeaturedArtists(title)
+			return cleanTitle, feat
+		}
+	}
+
+	// --- Strategy 3: parse feat. annotation from the title string ---
+	return parseFeaturedArtists(title)
+}
+
 // ---------------------------------------------------------------------------
 // CLI flags
 // ---------------------------------------------------------------------------
 
 var (
-	flagDirs      []string
-	flagDB        string
-	flagStoreRoot string
-	flagUserID    string
-	flagRecursive bool
-	flagDryRun    bool
-	flagWatch     bool
-	flagWorkers          int
+	flagDirs              []string
+	flagDB                string
+	flagStoreRoot         string
+	flagUserID            string
+	flagRecursive         bool
+	flagDryRun            bool
+	flagWatch             bool
+	flagWorkers           int
 	flagComputeSimilarity bool
 )
 
@@ -74,7 +201,6 @@ func main() {
 		os.Exit(1)
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // ingester: holds all runtime state for an ingest session
@@ -523,11 +649,13 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 
 	seekTableJSON, _ := json.Marshal([]int{})
 
+	cleanTitle, featuredNames := extractFeaturedArtists(m, path)
+
 	track, err := g.db.UpsertTrack(ctx, store.UpsertTrackParams{
 		ID:          trackID,
 		AlbumID:     &albumID,
 		ArtistID:    &trackArtistID,
-		Title:       coalesce(m.Title(), filepath.Base(path)),
+		Title:       cleanTitle,
 		TrackNumber: trackNumPtr,
 		DiscNumber:  discNum,
 		DurationMs:  int(durationMs),
@@ -542,6 +670,28 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	})
 	if err != nil {
 		return "", fmt.Errorf("upsert track: %w", err)
+	}
+
+	// Persist featured artists (upsert each artist; replace associations).
+	if len(featuredNames) > 0 {
+		featuredIDs := make([]string, 0, len(featuredNames))
+		for _, name := range featuredNames {
+			fid := deterministicID("artist:" + strings.ToLower(name))
+			if _, err := g.db.UpsertArtist(ctx, store.UpsertArtistParams{
+				ID:       fid,
+				Name:     name,
+				SortName: sortName(name),
+			}); err != nil {
+				slog.Warn("upsert featured artist failed", "name", name, "err", err)
+				continue
+			}
+			featuredIDs = append(featuredIDs, fid)
+		}
+		if len(featuredIDs) > 0 {
+			if err := g.db.SetTrackFeaturedArtists(ctx, trackID, featuredIDs); err != nil {
+				slog.Warn("set featured artists failed", "track_id", trackID, "err", err)
+			}
+		}
 	}
 
 	// Copy audio blob only if not already present (idempotent re-runs).

@@ -2,6 +2,7 @@
 package library
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -16,6 +17,30 @@ import (
 	"github.com/alexander-bruun/orb/services/api/internal/lyricfetch"
 	"github.com/go-chi/chi/v5"
 )
+
+// trackWithArtists wraps a store.Track with its featured artists for API responses.
+type trackWithArtists struct {
+	store.Track
+	FeaturedArtists []store.Artist `json:"featured_artists,omitempty"`
+}
+
+// enrichTracks fetches featured artists for a slice of tracks in a single query
+// and returns a parallel slice of trackWithArtists ready for serialisation.
+func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trackWithArtists {
+	ids := make([]string, len(tracks))
+	for i, t := range tracks {
+		ids[i] = t.ID
+	}
+	featMap, err := s.db.ListFeaturedArtistsByTracks(ctx, ids)
+	if err != nil {
+		featMap = map[string][]store.Artist{}
+	}
+	out := make([]trackWithArtists, len(tracks))
+	for i, t := range tracks {
+		out[i] = trackWithArtists{Track: t, FeaturedArtists: featMap[t.ID]}
+	}
+	return out
+}
 
 // Service handles library HTTP routes.
 type Service struct {
@@ -67,7 +92,7 @@ func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, tracks)
+	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
 }
 
 func (s *Service) listAlbums(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +146,7 @@ func (s *Service) albumDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := map[string]any{"album": album, "tracks": tracks}
+	resp := map[string]any{"album": album, "tracks": s.enrichTracks(r.Context(), tracks)}
 	if album.ArtistID != nil {
 		if artist, err := s.db.GetArtistByID(r.Context(), *album.ArtistID); err == nil {
 			resp["artist"] = artist
@@ -162,7 +187,7 @@ func (s *Service) trackDetail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "track not found")
 		return
 	}
-	resp := map[string]any{"track": track}
+	resp := map[string]any{"track": s.enrichTracks(r.Context(), []store.Track{track})[0]}
 	if genres, err := s.db.ListGenresByTrack(r.Context(), id); err == nil {
 		resp["genres"] = genres
 	}
@@ -211,7 +236,7 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		Limit:     20,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tracks":  tracks,
+		"tracks":  s.enrichTracks(r.Context(), tracks),
 		"albums":  albums,
 		"artists": artists,
 	})
@@ -233,7 +258,7 @@ func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, rows)
+	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), rows))
 }
 
 func (s *Service) mostPlayed(w http.ResponseWriter, r *http.Request) {
@@ -252,7 +277,7 @@ func (s *Service) mostPlayed(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, rows)
+	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), rows))
 }
 
 func (s *Service) recentlyPlayedAlbums(w http.ResponseWriter, r *http.Request) {
@@ -306,7 +331,7 @@ func (s *Service) listFavorites(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, tracks)
+	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
 }
 
 func (s *Service) listFavoriteIDs(w http.ResponseWriter, r *http.Request) {

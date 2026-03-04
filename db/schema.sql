@@ -191,6 +191,17 @@ CREATE TABLE track_similarity (
 CREATE INDEX track_similarity_a_idx ON track_similarity(track_a, score DESC);
 CREATE INDEX track_similarity_b_idx ON track_similarity(track_b, score DESC);
 
+-- Track featured artists: artists that appear as "feat." in the track title.
+-- The title stored in the tracks table is the clean version (feat. part stripped).
+CREATE TABLE track_featured_artists (
+    track_id  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+    position  INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (track_id, artist_id)
+);
+
+CREATE INDEX track_featured_artists_track_idx ON track_featured_artists(track_id);
+
 -- Ingest state: tracks which files have been processed so re-runs skip unchanged files.
 -- Keyed by absolute path; mtime_unix + file_size serve as a cheap change-detection
 -- fingerprint so the ingest tool only hashes and re-processes files that have actually

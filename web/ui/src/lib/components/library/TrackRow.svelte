@@ -14,22 +14,30 @@
 
   $: isPlaying = $currentTrack?.id === track.id && $playbackState === 'playing';
 
-  let artistName: string = '';
-  let featuredNames: string[] = [];
+  interface ArtistRef { id?: string; name: string; }
+
+  let mainArtist: ArtistRef | null = null;
+  let featuredArtists: ArtistRef[] = [];
 
   onMount(async () => {
-    if (track.artist_name) {
-      artistName = track.artist_name;
+    // Resolve main artist
+    if (track.artist) {
+      mainArtist = { id: track.artist.id, name: track.artist.name };
+    } else if (track.artist_name) {
+      mainArtist = { id: track.artist_id, name: track.artist_name };
     } else if (track.artist_id) {
-      artistName = await getArtistName(track.artist_id);
+      const name = await getArtistName(track.artist_id);
+      mainArtist = { id: track.artist_id, name };
     }
 
+    // Resolve featured artists — use full objects when available, fall back to IDs
     if (track.featured_artists && track.featured_artists.length) {
-      featuredNames = track.featured_artists.map((a) => a.name);
+      featuredArtists = track.featured_artists.map((a) => ({ id: a.id, name: a.name }));
     } else if (track.featured_artist_ids && track.featured_artist_ids.length) {
-      // preload then resolve names
       preloadArtists(track.featured_artist_ids);
-      featuredNames = await Promise.all(track.featured_artist_ids.map((id) => getArtistName(id)));
+      featuredArtists = await Promise.all(
+        track.featured_artist_ids.map(async (id) => ({ id, name: await getArtistName(id) }))
+      );
     }
   });
 
@@ -70,12 +78,25 @@
   {/if}
   <div class="track-info">
     <span class="title">{track.title}</span>
-    {#if artistName || featuredNames.length}
+    {#if mainArtist || featuredArtists.length}
       <span class="meta">
-        {#if artistName}{artistName}{/if}
-        {#if featuredNames.length}
-          {#if artistName} — {/if}
-          feat. {featuredNames.join(', ')}
+        {#if mainArtist}
+          {#if mainArtist.id}
+            <a class="artist-link" href="/artists/{mainArtist.id}" on:click|stopPropagation>{mainArtist.name}</a>
+          {:else}
+            <span>{mainArtist.name}</span>
+          {/if}
+        {/if}
+        {#if featuredArtists.length}
+          <span class="feat-sep">{mainArtist ? ' feat. ' : 'feat. '}</span>
+          {#each featuredArtists as fa, i}
+            {#if i > 0}<span class="comma">, </span>{/if}
+            {#if fa.id}
+              <a class="artist-link" href="/artists/{fa.id}" on:click|stopPropagation>{fa.name}</a>
+            {:else}
+              <span>{fa.name}</span>
+            {/if}
+          {/each}
         {/if}
       </span>
     {/if}
@@ -112,5 +133,14 @@
   .track-info { flex: 1; overflow: hidden; }
   .title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; font-size: 0.9rem; }
   .meta { display: block; font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .artist-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .artist-link:hover {
+    text-decoration: underline;
+    color: var(--text-primary, currentColor);
+  }
+  .feat-sep, .comma { color: var(--text-muted); }
   .duration { font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
 </style>

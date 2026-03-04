@@ -1145,6 +1145,76 @@ func (s *Store) SetAlbumGenres(ctx context.Context, albumID string, genreIDs []s
 	return tx.Commit(ctx)
 }
 
+// SetTrackFeaturedArtists replaces all featured-artist associations for a track.
+// artistIDs are stored in order (position = index).
+func (s *Store) SetTrackFeaturedArtists(ctx context.Context, trackID string, artistIDs []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM track_featured_artists WHERE track_id = $1`, trackID); err != nil {
+		return err
+	}
+	for i, aid := range artistIDs {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO track_featured_artists (track_id, artist_id, position) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+			trackID, aid, i); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ListFeaturedArtistsByTrack returns featured artists for a single track.
+func (s *Store) ListFeaturedArtistsByTrack(ctx context.Context, trackID string) ([]Artist, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT a.id, a.name, a.sort_name, a.mbid, a.created_at
+		 FROM artists a
+		 JOIN track_featured_artists tfa ON tfa.artist_id = a.id
+		 WHERE tfa.track_id = $1
+		 ORDER BY tfa.position ASC`,
+		trackID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanArtists(rows)
+}
+
+// ListFeaturedArtistsByTracks returns featured artists for a batch of tracks,
+// keyed by track ID. A single query is issued for the whole batch.
+func (s *Store) ListFeaturedArtistsByTracks(ctx context.Context, trackIDs []string) (map[string][]Artist, error) {
+	if len(trackIDs) == 0 {
+		return map[string][]Artist{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT tfa.track_id, a.id, a.name, a.sort_name, a.mbid, a.created_at
+		 FROM track_featured_artists tfa
+		 JOIN artists a ON a.id = tfa.artist_id
+		 WHERE tfa.track_id = ANY($1)
+		 ORDER BY tfa.track_id, tfa.position ASC`,
+		trackIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string][]Artist)
+	for rows.Next() {
+		var trackID string
+		var a Artist
+		var mbid sql.NullString
+		if err := rows.Scan(&trackID, &a.ID, &a.Name, &a.SortName, &mbid, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		if mbid.Valid {
+			a.Mbid = &mbid.String
+		}
+		result[trackID] = append(result[trackID], a)
+	}
+	return result, rows.Err()
+}
+
 // SetTrackGenres replaces all genre associations for a track.
 func (s *Store) SetTrackGenres(ctx context.Context, trackID string, genreIDs []string) error {
 	tx, err := s.pool.Begin(ctx)
