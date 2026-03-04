@@ -97,12 +97,30 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/favorites/ids", s.listFavoriteIDs)
 	r.Post("/favorites/{track_id}", s.addFavorite)
 	r.Delete("/favorites/{track_id}", s.removeFavorite)
+	r.Get("/tracks/batch", s.tracksBatch)
 	r.Get("/tracks/{id}/lyrics", s.getTrackLyrics)
 	r.Put("/tracks/{id}/lyrics", s.setTrackLyrics)
 	r.Get("/genres", s.listGenres)
 	r.Get("/genres/{id}", s.genreDetail)
 	r.Get("/genres/{id}/artists", s.genreArtists)
 	r.Get("/genres/{id}/albums", s.genreAlbums)
+}
+
+// tracksBatch handles GET /library/tracks/batch?ids=id1,id2,...
+// It returns enriched tracks for the given comma-separated IDs in one query.
+func (s *Service) tracksBatch(w http.ResponseWriter, r *http.Request) {
+	idsParam := r.URL.Query().Get("ids")
+	if idsParam == "" {
+		writeJSON(w, http.StatusOK, []trackWithArtists{})
+		return
+	}
+	ids := strings.Split(idsParam, ",")
+	tracks, err := s.db.GetTracksByIDs(r.Context(), ids)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
 }
 
 func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {

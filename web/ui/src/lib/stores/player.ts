@@ -540,14 +540,9 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 			// New format: full track objects stored directly — no API calls needed.
 			queue.set(st.queue as Track[]);
 		} else if (Array.isArray(st.queueIds) && st.queueIds.length) {
-			// Legacy format: only IDs were saved, fetch tracks individually.
-			const qTracks = (
-				await Promise.all(
-					st.queueIds.map((id: string) =>
-						libraryApi.track(id).then((r) => r.track).catch(() => null)
-					)
-				)
-			).filter(Boolean) as Track[];
+			// Legacy format: only IDs were saved — batch-fetch in one request.
+			const res = await libraryApi.tracksBatch(st.queueIds).catch(() => null);
+			const qTracks = (Array.isArray(res) ? res : []) as Track[];
 			if (qTracks.length) queue.set(qTracks);
 		}
 

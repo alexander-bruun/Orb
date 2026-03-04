@@ -465,6 +465,25 @@ func (s *Store) GetTrackByID(ctx context.Context, id string) (Track, error) {
 	return t, err
 }
 
+// GetTracksByIDs returns tracks for the given IDs in a single batch query.
+// Tracks are returned in insertion order; missing IDs are silently omitted.
+func (s *Store) GetTracksByIDs(ctx context.Context, ids []string) ([]Track, error) {
+	if len(ids) == 0 {
+		return []Track{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
+		FROM tracks t
+		LEFT JOIN track_features tf ON tf.track_id = t.id
+		WHERE t.id = ANY($1)`,
+		ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}
+
 func (s *Store) GetMaxPlaylistPosition(ctx context.Context, playlistID string) (int, error) {
 	var pos int
 	err := s.pool.QueryRow(ctx, `SELECT COALESCE(MAX(position), 0)::int FROM playlist_tracks WHERE playlist_id = $1`, playlistID).Scan(&pos)
