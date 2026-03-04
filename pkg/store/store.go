@@ -1983,6 +1983,53 @@ func (s *Store) BatchUpsertSimilarity(ctx context.Context, rows []TrackSimilarit
 	return tx.Commit(ctx)
 }
 
+// HasSimilarityData reports whether the track_similarity table contains any rows.
+// Used to decide between a full recompute (empty table) and an incremental update.
+func (s *Store) HasSimilarityData(ctx context.Context) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM track_similarity LIMIT 1)`).Scan(&exists)
+	return exists, err
+}
+
+// UpsertSimilarityIncremental inserts or updates similarity rows without clearing
+// the whole table first. Used for incremental updates when only a subset of
+// tracks has changed. Existing pairs that are not in `rows` are left untouched.
+func (s *Store) UpsertSimilarityIncremental(ctx context.Context, rows []TrackSimilarityRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	const batchSize = 500
+	for i := 0; i < len(rows); i += batchSize {
+		end := i + batchSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		batch := rows[i:end]
+		query := `INSERT INTO track_similarity (track_a, track_b, score) VALUES `
+		args := make([]any, 0, len(batch)*3)
+		for j, r := range batch {
+			if j > 0 {
+				query += ", "
+			}
+			n := j * 3
+			query += fmt.Sprintf("($%d, $%d, $%d)", n+1, n+2, n+3)
+			args = append(args, r.TrackA, r.TrackB, r.Score)
+		}
+		query += ` ON CONFLICT (track_a, track_b) DO UPDATE SET score = EXCLUDED.score`
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
 // ListSimilarTracks returns tracks similar to the given track, ordered by score.
 // If excludeAlbumID is non-empty, tracks belonging to that album are excluded.
 func (s *Store) ListSimilarTracks(ctx context.Context, trackID string, limit int, excludeAlbumID string) ([]TrackWithScore, error) {

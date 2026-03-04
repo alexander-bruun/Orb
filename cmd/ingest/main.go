@@ -361,35 +361,35 @@ func (g *ingester) markDone(ctx context.Context, path string, fi os.FileInfo, tr
 
 // process handles one audio file. It is safe to call concurrently.
 // Returns ErrSkipped when the file is already up-to-date.
-func (g *ingester) process(ctx context.Context, path string) error {
+func (g *ingester) process(ctx context.Context, path string) (trackID string, err error) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Fast path: stat only — no file read, no hash, no DB query.
 	if g.upToDate(path, fi) {
-		return ErrSkipped
+		return "", ErrSkipped
 	}
 
 	if g.dryRun {
 		slog.Info("would ingest", "path", path)
-		return nil
+		return "", nil
 	}
 
-	trackID, err := g.ingestFile(ctx, path, fi)
+	trackID, err = g.ingestFile(ctx, path, fi)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	g.markDone(ctx, path, fi, trackID)
 	slog.Info("ingested", "path", path, "track_id", trackID)
-	return nil
+	return trackID, nil
 }
 
 // scan walks all configured directories, calling process on each audio file, and returns counts.
 // Files are processed concurrently using up to flagWorkers goroutines.
-func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
+func (g *ingester) scan(ctx context.Context) (newTrackIDs []string, skipped, errs int) {
 	// Collect all paths first (pure directory walk — no file I/O beyond stat).
 	var paths []string
 	for _, dir := range flagDirs {
@@ -418,7 +418,9 @@ func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
 	}
 
 	// Fan out to a bounded worker pool.
-	var nIngested, nSkipped, nErrs int64
+	var nSkipped, nErrs int64
+	var mu sync.Mutex
+	var ids []string
 
 	workers := flagWorkers
 	if workers < 1 {
@@ -431,14 +433,19 @@ func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
 		go func() {
 			defer wg.Done()
 			for p := range pathCh {
-				switch err := g.process(ctx, p); {
+				id, err := g.process(ctx, p)
+				switch {
 				case errors.Is(err, ErrSkipped):
 					atomic.AddInt64(&nSkipped, 1)
 				case err != nil:
 					slog.Error("ingest failed", "path", p, "err", err)
 					atomic.AddInt64(&nErrs, 1)
 				default:
-					atomic.AddInt64(&nIngested, 1)
+					if id != "" {
+						mu.Lock()
+						ids = append(ids, id)
+						mu.Unlock()
+					}
 				}
 			}
 		}()
@@ -449,7 +456,7 @@ func (g *ingester) scan(ctx context.Context) (ingested, skipped, errs int) {
 	close(pathCh)
 	wg.Wait()
 
-	return int(nIngested), int(nSkipped), int(nErrs)
+	return ids, int(nSkipped), int(nErrs)
 }
 
 // cachedFolderImage returns the best folder image for dir, memoising the result
@@ -514,28 +521,22 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 
 	if !flagWatch {
-		ingested, skipped, errs := g.scan(ctx)
-		slog.Info("ingest complete", "ingested", ingested, "skipped", skipped, "errors", errs)
+		newIDs, skipped, errs := g.scan(ctx)
+		slog.Info("ingest complete", "ingested", len(newIDs), "skipped", skipped, "errors", errs)
 		if flagComputeSimilarity {
-			slog.Info("computing track similarity matrix")
-			if err := similarity.ComputeAll(ctx, db); err != nil {
+			if err := runSimilarity(ctx, db, newIDs); err != nil {
 				slog.Error("similarity computation failed", "err", err)
-			} else {
-				slog.Info("similarity computation complete")
 			}
 		}
 		return nil
 	}
 
 	// Watch mode: initial full scan, then listen for filesystem events.
-	ingested, skipped, errs := g.scan(ctx)
-	slog.Info("initial scan complete", "ingested", ingested, "skipped", skipped, "errors", errs)
+	newIDs, skipped, errs := g.scan(ctx)
+	slog.Info("initial scan complete", "ingested", len(newIDs), "skipped", skipped, "errors", errs)
 	if flagComputeSimilarity {
-		slog.Info("computing track similarity matrix after initial scan")
-		if err := similarity.ComputeAll(ctx, db); err != nil {
+		if err := runSimilarity(ctx, db, newIDs); err != nil {
 			slog.Error("similarity computation failed", "err", err)
-		} else {
-			slog.Info("similarity computation complete")
 		}
 	}
 
@@ -601,7 +602,7 @@ func run(cmd *cobra.Command, _ []string) error {
 							return nil
 						}
 						if isAudioFile(path) {
-							if err := g.process(ctx, path); err != nil && !errors.Is(err, ErrSkipped) {
+							if _, err := g.process(ctx, path); err != nil && !errors.Is(err, ErrSkipped) {
 								slog.Error("ingest failed", "path", path, "err", err)
 							}
 						}
@@ -614,7 +615,7 @@ func run(cmd *cobra.Command, _ []string) error {
 				continue
 			}
 			go func(p string) {
-				if err := g.process(ctx, p); err != nil && !errors.Is(err, ErrSkipped) {
+				if _, err := g.process(ctx, p); err != nil && !errors.Is(err, ErrSkipped) {
 					slog.Error("ingest failed", "path", p, "err", err)
 				}
 			}(ev.Name)
@@ -631,6 +632,42 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 }
 
+// runSimilarity decides whether to skip, do a full recompute, or only update
+// pairs involving the newly-ingested tracks:
+//
+//   - No new tracks + existing similarity data → skip (data is still valid).
+//   - No existing similarity data (first run or wiped) → full recompute.
+//   - New tracks + existing similarity data → incremental (O(k×n) not O(n²)).
+func runSimilarity(ctx context.Context, db *store.Store, newTrackIDs []string) error {
+	hasData, err := db.HasSimilarityData(ctx)
+	if err != nil {
+		slog.Warn("could not query similarity table, falling back to full recompute", "err", err)
+		hasData = false
+	}
+
+	if len(newTrackIDs) == 0 && hasData {
+		slog.Info("no new tracks ingested — skipping similarity recompute (persisted data is current)")
+		return nil
+	}
+
+	if !hasData {
+		slog.Info("similarity table is empty — running full recompute")
+		if err := similarity.ComputeAll(ctx, db); err != nil {
+			return err
+		}
+		slog.Info("similarity computation complete")
+		return nil
+	}
+
+	// Incremental: only compute pairs that involve the new tracks.
+	slog.Info("running incremental similarity update", "new_tracks", len(newTrackIDs))
+	if err := similarity.ComputeForTracks(ctx, db, newTrackIDs); err != nil {
+		return err
+	}
+	slog.Info("incremental similarity update complete")
+	return nil
+}
+
 // watchWithPolling is the fallback used when inotify is unavailable. It
 // repeatedly runs a full directory scan at flagPollInterval, logging only
 // when new files are found or errors occur.
@@ -645,10 +682,15 @@ func (g *ingester) watchWithPolling(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			ingested, skipped, errs := g.scan(ctx)
-			if ingested > 0 || errs > 0 {
+			newIDs, skipped, errs := g.scan(ctx)
+			if len(newIDs) > 0 || errs > 0 {
 				slog.Info("poll scan complete",
-					"ingested", ingested, "skipped", skipped, "errors", errs)
+					"ingested", len(newIDs), "skipped", skipped, "errors", errs)
+				if flagComputeSimilarity && len(newIDs) > 0 {
+					if err := runSimilarity(ctx, g.db, newIDs); err != nil {
+						slog.Error("similarity computation failed", "err", err)
+					}
+				}
 			}
 		}
 	}
