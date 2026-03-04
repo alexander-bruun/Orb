@@ -8,6 +8,11 @@
   let error = '';
   let loading = false;
 
+  // TOTP step state
+  let totpRequired = false;
+  let tempToken = '';
+  let totpCode = '';
+
   const showChangeServer = isTauri();
 
   async function handleLogin(e: Event) {
@@ -15,41 +20,101 @@
     error = '';
     loading = true;
     try {
-      await authStore.login(email, password);
-      goto('/');
+      const result = await authStore.login(email, password);
+      if (result.totpRequired && result.tempToken) {
+        tempToken = result.tempToken;
+        totpRequired = true;
+      } else {
+        goto('/');
+      }
     } catch (err: any) {
       error = err.message ?? 'Login failed';
     } finally {
       loading = false;
     }
   }
+
+  async function handleTOTP(e: Event) {
+    e.preventDefault();
+    error = '';
+    loading = true;
+    try {
+      await authStore.verifyTOTP(tempToken, totpCode, email);
+      goto('/');
+    } catch (err: any) {
+      error = err.message ?? 'Invalid code';
+      totpCode = '';
+    } finally {
+      loading = false;
+    }
+  }
+
+  function backToLogin() {
+    totpRequired = false;
+    tempToken = '';
+    totpCode = '';
+    error = '';
+    password = '';
+  }
 </script>
 
 <div class="login-page">
   <div class="login-card">
     <h1 class="logo">orb</h1>
-    <p class="subtitle">Sign in to your music library</p>
 
-    {#if error}
-      <p class="error">{error}</p>
-    {/if}
+    {#if !totpRequired}
+      <p class="subtitle">Sign in to your music library</p>
 
-    <form onsubmit={handleLogin}>
-      <label>
-        Email
-        <input type="email" bind:value={email} required autocomplete="email" />
-      </label>
-      <label>
-        Password
-        <input type="password" bind:value={password} required autocomplete="current-password" />
-      </label>
-      <button type="submit" disabled={loading} class="btn-primary">
-        {loading ? 'Signing in…' : 'Sign in'}
-      </button>
-    </form>
+      {#if error}
+        <p class="error">{error}</p>
+      {/if}
 
-    {#if showChangeServer}
-      <button class="link-btn" onclick={() => goto('/connect')}>Change server</button>
+      <form onsubmit={handleLogin}>
+        <label>
+          Email
+          <input type="email" bind:value={email} required autocomplete="email" />
+        </label>
+        <label>
+          Password
+          <input type="password" bind:value={password} required autocomplete="current-password" />
+        </label>
+        <button type="submit" disabled={loading} class="btn-primary">
+          {loading ? 'Signing in…' : 'Sign in'}
+        </button>
+      </form>
+
+      {#if showChangeServer}
+        <button class="link-btn" onclick={() => goto('/connect')}>Change server</button>
+      {/if}
+    {:else}
+      <p class="subtitle">Two-factor authentication</p>
+      <p class="totp-hint">Enter the 6-digit code from your authenticator app, or a backup code.</p>
+
+      {#if error}
+        <p class="error">{error}</p>
+      {/if}
+
+      <form onsubmit={handleTOTP}>
+        <label>
+          Authentication code
+          <input
+            type="text"
+            inputmode="numeric"
+            pattern="[0-9a-fA-F]*"
+            maxlength="10"
+            placeholder="••••••"
+            bind:value={totpCode}
+            required
+            autocomplete="one-time-code"
+            class="totp-input"
+          />
+        </label>
+        <button type="submit" disabled={loading} class="btn-primary">
+          {loading ? 'Verifying…' : 'Verify'}
+        </button>
+      </form>
+
+      <button class="link-btn" onclick={backToLogin}>← Back to login</button>
     {/if}
   </div>
 </div>
@@ -115,4 +180,6 @@
     padding: 0;
   }
   .link-btn:hover { color: var(--accent); }
+  .totp-hint { color: var(--text-muted); font-size: 0.8125rem; margin: -12px 0 16px; line-height: 1.5; }
+  .totp-input { letter-spacing: 0.15em; font-size: 1.25rem; text-align: center; font-family: monospace; }
 </style>

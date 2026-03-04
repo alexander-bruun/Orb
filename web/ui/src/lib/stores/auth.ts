@@ -46,10 +46,35 @@ function createAuthStore() {
 
 	return {
 		subscribe,
-		async login(email: string, password: string) {
-			const res = await apiFetch<{ access_token: string; refresh_token: string; user_id: string; username: string }>(
+		// Returns { totpRequired: false } on success, or { totpRequired: true, tempToken } when 2FA is needed.
+		async login(email: string, password: string): Promise<{ totpRequired: boolean; tempToken?: string }> {
+			const res = await apiFetch<{
+				access_token?: string;
+				refresh_token?: string;
+				user_id?: string;
+				username?: string;
+				totp_required: boolean;
+				temp_token?: string;
+			}>(
 				'/auth/login',
 				{ method: 'POST', body: JSON.stringify({ email, password }) }
+			);
+			if (res.totp_required) {
+				return { totpRequired: true, tempToken: res.temp_token };
+			}
+			const state: AuthState = {
+				token: res.access_token!,
+				refreshToken: res.refresh_token!,
+				user: { id: res.user_id!, username: res.username ?? '', email }
+			};
+			set(state);
+			saveToStorage(state);
+			return { totpRequired: false };
+		},
+		async verifyTOTP(tempToken: string, code: string, email: string) {
+			const res = await apiFetch<{ access_token: string; refresh_token: string; user_id: string; username: string }>(
+				'/auth/totp/verify',
+				{ method: 'POST', body: JSON.stringify({ temp_token: tempToken, code }) }
 			);
 			const state: AuthState = {
 				token: res.access_token,
