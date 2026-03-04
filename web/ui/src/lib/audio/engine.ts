@@ -85,6 +85,42 @@ class AudioEngine {
 		this.onBufferReadyCb = cb;
 	}
 
+	/**
+	 * Prime the audio pipeline synchronously within a user gesture so that
+	 * AudioContext creation/resume and the <audio> element unlock happen in the
+	 * correct gesture window — before any async awaits that would break the
+	 * browser's user-activation tracking.
+	 *
+	 * Call this as the very first synchronous step inside any async click handler
+	 * that precedes a network fetch before playback (e.g. Start Radio).
+	 */
+	prime(sampleRate = 44100): void {
+		// Web Audio path: create the context now so it exists within the gesture.
+		if (!this.ctx || this.ctx.sampleRate !== sampleRate) {
+			try {
+				if (this.ctx) this.ctx.close().catch(() => {});
+				this.ctx = new AudioContext({ sampleRate });
+				this.gainNode = this.ctx.createGain();
+				this.analyserNode = this.ctx.createAnalyser();
+				this.analyserNode.fftSize = 2048;
+				this.analyserNode.smoothingTimeConstant = 0.8;
+				this.eqNodes = this._buildEQChain(this.ctx, this.gainNode, this.analyserNode, this.currentEQBands);
+				this.analyserNode.connect(this.ctx.destination);
+			} catch {
+				/* ignore — will retry in getCtx() */
+			}
+		}
+		if (this.ctx?.state === 'suspended') {
+			this.ctx.resume().catch(() => {});
+		}
+		// Native <audio> path: unlock the element within the gesture by
+		// instantiating the player (which creates the <audio> element) now so the
+		// subsequent async el.play() call after the network fetch is allowed.
+		if (!this.nativePlayer) {
+			this.nativePlayer = new NativePlayer();
+		}
+	}
+
 	/** Set the full decoded buffer, update buffered% and notify listeners. */
 	private _setFullBuffer(buf: AudioBuffer): void {
 		this.wasmFullBuffer = buf;

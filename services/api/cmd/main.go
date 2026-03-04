@@ -24,6 +24,7 @@ import (
 	"github.com/alexander-bruun/orb/services/api/internal/playlist"
 	"github.com/alexander-bruun/orb/services/api/internal/queue"
 	"github.com/alexander-bruun/orb/services/api/internal/recommend"
+	"github.com/alexander-bruun/orb/services/api/internal/share"
 	"github.com/alexander-bruun/orb/services/api/internal/stream"
 	"github.com/alexander-bruun/orb/services/api/internal/user"
 	"github.com/go-chi/chi/v5"
@@ -146,6 +147,10 @@ func run(ctx context.Context) error {
 	// Listen party routes (auth validated per-handler internally)
 	lpSvc := listenparty.New(db, kv, streamSvc, jwtSecret)
 	r.Route("/listen", lpSvc.Routes)
+
+	// Share routes: public redeem + JWT-gated creation (auth handled internally)
+	shareSvc := share.New(db, kv, obj, jwtMW)
+	r.Route("/share", shareSvc.Routes)
 
 	// --- mDNS discovery ---
 	if config.Env("MDNS_ENABLED", "true") == "true" {

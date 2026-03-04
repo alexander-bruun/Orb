@@ -66,7 +66,7 @@
     const path = $page.url.pathname;
 
     // Public pages — skip all auth / setup guards.
-    if (path.startsWith('/listen/') || path === '/connect') return;
+    if (path.startsWith('/listen/') || path === '/connect' || path.startsWith('/share/')) return;
 
     // Tauri without a configured server URL — send to /connect first.
     if (isTauri() && !getServerUrl()) {
@@ -127,7 +127,7 @@
   <title>Orb</title>
 </svelte:head>
 
-{#if $page.url.pathname.startsWith('/listen/') || $page.url.pathname === '/connect'}
+{#if $page.url.pathname.startsWith('/listen/') || $page.url.pathname === '/connect' || $page.url.pathname.startsWith('/share/')}
   <!-- Public page: render without shell or auth guards -->
   {@render children()}
 {:else if $setupRequired === null}

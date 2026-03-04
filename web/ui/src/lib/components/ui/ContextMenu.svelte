@@ -1,8 +1,10 @@
 <script lang="ts">
   import { contextMenu, closeContextMenu } from '$lib/stores/contextMenu';
   import { playTrack, playNext, addToQueue } from '$lib/stores/player';
+  import { audioEngine } from '$lib/audio/engine';
   import { playlists as playlistsApi } from '$lib/api/playlists';
   import { recommend } from '$lib/api/recommend';
+  import { share as shareApi } from '$lib/api/share';
   import { favorites } from '$lib/stores/favorites';
   import type { Playlist } from '$lib/types';
 
@@ -10,11 +12,15 @@
   let playlists: Playlist[] = [];
   let loadingPlaylists = false;
   let addedId: string | null = null;
+  let sharingTrack = false;
+  let sharingAlbum = false;
 
   $: if (!$contextMenu.visible) {
     showPlaylists = false;
     playlists = [];
     addedId = null;
+    sharingTrack = false;
+    sharingAlbum = false;
   }
 
   $: isFav = $contextMenu.track ? $favorites.has($contextMenu.track.id) : false;
@@ -64,18 +70,47 @@
   async function handleStartRadio() {
     const t = $contextMenu.track;
     if (!t) return;
+    // Prime the AudioContext synchronously while still inside the user gesture.
+    // Without this, the async network fetch below breaks the browser's gesture
+    // activation window and audio is silently blocked.
+    audioEngine.prime(t.sample_rate);
     closeContextMenu();
     try {
       const similar = await recommend.similar(t.id, 30);
-      playTrack(t, [t, ...similar]);
+      const tracks = similar ?? [];
+      await playTrack(t, [t, ...tracks]);
     } catch {
-      playTrack(t, [t]);
+      await playTrack(t, [t]);
     }
   }
 
-  function handleShare() {
+  async function handleShare() {
     const t = $contextMenu.track;
-    if (t) navigator.clipboard?.writeText(`${location.origin}/tracks/${t.id}`);
+    if (!t) return;
+    sharingTrack = true;
+    try {
+      const resp = await shareApi.create('track', t.id);
+      await navigator.clipboard?.writeText(`${location.origin}/share/${resp.token}`);
+    } catch {
+      // fallback: nothing (error silently)
+    } finally {
+      sharingTrack = false;
+    }
+    closeContextMenu();
+  }
+
+  async function handleShareAlbum() {
+    const t = $contextMenu.track;
+    if (!t?.album_id) return;
+    sharingAlbum = true;
+    try {
+      const resp = await shareApi.create('album', t.album_id);
+      await navigator.clipboard?.writeText(`${location.origin}/share/${resp.token}`);
+    } catch {
+      // fallback: nothing
+    } finally {
+      sharingAlbum = false;
+    }
     closeContextMenu();
   }
 
@@ -92,7 +127,7 @@
   // Clamp position so the menu stays within the viewport
   $: style = (() => {
     const menuW = 172;
-    const menuH = showPlaylists ? 280 : 234;
+    const menuH = showPlaylists ? 280 : 260;
     const vw = typeof window !== 'undefined' ? window.innerWidth : 1920;
     const vh = typeof window !== 'undefined' ? window.innerHeight : 1080;
     const left = Math.min($contextMenu.x, vw - menuW - 8);
@@ -170,7 +205,7 @@
           Favorite
         {/if}
       </button>
-      <button class="item" on:click={handleShare} role="menuitem">
+      <button class="item" on:click={handleShare} disabled={sharingTrack} role="menuitem">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <circle cx="18" cy="5" r="3"/>
           <circle cx="6" cy="12" r="3"/>
@@ -178,8 +213,20 @@
           <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
           <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
         </svg>
-        Share
+        {sharingTrack ? 'Copying…' : 'Share Track'}
       </button>
+      {#if $contextMenu.track?.album_id}
+        <button class="item" on:click={handleShareAlbum} disabled={sharingAlbum} role="menuitem">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="18" cy="5" r="3"/>
+            <circle cx="6" cy="12" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          {sharingAlbum ? 'Copying…' : 'Share Album'}
+        </button>
+      {/if}
     {:else}
       <button class="item dim" on:click={() => (showPlaylists = false)} role="menuitem">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">

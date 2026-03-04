@@ -12,3 +12,5 @@ func ListenSession(id string) string          { return "listen_session:" + id }
 func ListenGuestToken(token string) string    { return "listen_guest:" + token }
 func TOTPPending(token string) string         { return "totp_pending:" + token }
 func UserStreamingPrefs(userID string) string { return "user:stream_prefs:" + userID }
+func ShareToken(token string) string          { return "share:" + token }
+func ShareStreamSession(token string) string  { return "share_stream:" + token }
