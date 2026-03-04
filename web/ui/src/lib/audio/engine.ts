@@ -10,13 +10,33 @@ import { NativePlayer } from './native';
 import { get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 import { positionMs, durationMs, bufferedPct, next as playerNext } from '$lib/stores/player';
+import type { EQBand } from '$lib/types';
 
 import { getApiBase } from '$lib/api/base';
 
 class AudioEngine {
 	private ctx: AudioContext | null = null;
 	private gainNode: GainNode | null = null;
+	/** Sits between gainNode and destination; shared by both WASM and native paths. */
+	private analyserNode: AnalyserNode | null = null;
+	/**
+	 * Separate AudioContext used exclusively for analysing native-path audio
+	 * (<audio> element). Kept separate so that native-path playback is never
+	 * broken by context suspension / sample-rate switches on the WASM side.
+	 */
+	private nativeCtx: AudioContext | null = null;
+	private nativeAnalyser: AnalyserNode | null = null;
+	private nativeGain: GainNode | null = null;
+	private nativeMediaSource: MediaElementSourceNode | null = null;
 	private nativePlayer: NativePlayer | null = null;
+	/** BiquadFilterNode chain for the WASM/Web Audio path. */
+	private eqNodes: BiquadFilterNode[] = [];
+	/** BiquadFilterNode chain for the native <audio> path. */
+	private nativeEqNodes: BiquadFilterNode[] = [];
+	/** The bands last applied via setEQ(); used to rebuild the chain after context recreation. */
+	private currentEQBands: EQBand[] = [];
+	/** Single-slot callback; fires whenever the full decoded AudioBuffer is ready. */
+	private onBufferReadyCb: ((buf: AudioBuffer) => void) | null = null;
 	private wasmActive = false;
 	private loaded = false;
 	// Primary source node (first segment during quick-start, or full buffer).
@@ -35,6 +55,44 @@ class AudioEngine {
 	}
 
 	/**
+	 * Return the active AnalyserNode (for WASM / Web Audio path) or the native
+	 * AnalyserNode (for the <audio> element path), or null if unavailable.
+	 */
+	getAnalyser(): AnalyserNode | null {
+		return this.wasmActive ? this.analyserNode : this.nativeAnalyser;
+	}
+
+	/** Expose the underlying AudioContext (WASM path) so visualizers can read timing. */
+	getAudioContext(): AudioContext | null {
+		return this.ctx;
+	}
+
+	/**
+	 * Return the fully-decoded AudioBuffer for the current track (WASM path only).
+	 * Returns null on the native path or before decoding completes.
+	 */
+	getDecodedBuffer(): AudioBuffer | null {
+		return this.wasmFullBuffer;
+	}
+
+	/**
+	 * Register a one-shot callback that fires when the full decoded buffer is
+	 * ready (WASM path). Replaces any previously registered callback.
+	 * For the native path the callback never fires; use getDecodedBuffer() after
+	 * the waveform store's fallback fetch-and-decode path.
+	 */
+	onBufferReady(cb: (buf: AudioBuffer) => void): void {
+		this.onBufferReadyCb = cb;
+	}
+
+	/** Set the full decoded buffer, update buffered% and notify listeners. */
+	private _setFullBuffer(buf: AudioBuffer): void {
+		this.wasmFullBuffer = buf;
+		bufferedPct.set(100);
+		this.onBufferReadyCb?.(buf);
+	}
+
+	/**
 	 * Return (or create) the AudioContext at exactly the requested sample rate.
 	 * For 24-bit hi-res content the context MUST match the source rate so that
 	 * decodeAudioData never resamples the audio. If the rate has changed the
@@ -46,11 +104,16 @@ class AudioEngine {
 			this.ctx.close().catch(() => {});
 			this.ctx = null;
 			this.gainNode = null;
+			this.analyserNode = null; // released with the context
 		}
 		if (!this.ctx) {
 			this.ctx = new AudioContext({ sampleRate });
 			this.gainNode = this.ctx.createGain();
-			this.gainNode.connect(this.ctx.destination);
+			this.analyserNode = this.ctx.createAnalyser();
+			this.analyserNode.fftSize = 2048;
+			this.analyserNode.smoothingTimeConstant = 0.8;
+			this.eqNodes = this._buildEQChain(this.ctx, this.gainNode, this.analyserNode, this.currentEQBands);
+			this.analyserNode.connect(this.ctx.destination);
 		}
 		// Tauri's WebView (and some browsers) create AudioContexts in a
 		// "suspended" state. Explicitly resume so playback actually produces
@@ -133,8 +196,7 @@ class AudioEngine {
 				await this.playWasmFull(trackId, token, 0, ctx);
 				return;
 			}
-			this.wasmFullBuffer = buf;
-			bufferedPct.set(100);
+			this._setFullBuffer(buf);
 			this.startWasmPlayback(ctx, buf, 0);
 			this.startPositionTracking();
 			return;
@@ -164,8 +226,7 @@ class AudioEngine {
 				if (!fullBuf || !this.wasmActive) return;
 
 				durationMs.set(fullBuf.duration * 1000);
-				this.wasmFullBuffer = fullBuf;
-				bufferedPct.set(100);
+				this._setFullBuffer(fullBuf);
 
 				// Suppress playerNext from the first-segment source — the
 				// continuation source will fire it when the track truly ends.
@@ -246,8 +307,7 @@ class AudioEngine {
 		const buf = await ctx.decodeAudioData(
 			(data.buffer as ArrayBuffer).slice(data.byteOffset, data.byteOffset + data.byteLength)
 		);
-		this.wasmFullBuffer = buf;
-		bufferedPct.set(100);
+		this._setFullBuffer(buf);
 		this.startWasmPlayback(ctx, buf, startSeconds);
 		this.startPositionTracking();
 	}
@@ -271,6 +331,31 @@ class AudioEngine {
 			playerNext().catch(() => {});
 		});
 		this.wasmActive = false;
+
+		// Wire up the native analyser the first time (one-shot — createMediaElementSource
+		// can only be called once per HTMLMediaElement).
+		if (!this.nativeMediaSource) {
+			try {
+				const el = this.nativePlayer.getElement();
+				this.nativeCtx = new AudioContext();
+				this.nativeGain = this.nativeCtx.createGain();
+				this.nativeAnalyser = this.nativeCtx.createAnalyser();
+				this.nativeAnalyser.fftSize = 2048;
+				this.nativeAnalyser.smoothingTimeConstant = 0.8;
+				this.nativeEqNodes = this._buildEQChain(this.nativeCtx, this.nativeGain, this.nativeAnalyser, this.currentEQBands);
+				this.nativeAnalyser.connect(this.nativeCtx.destination);
+				this.nativeMediaSource = this.nativeCtx.createMediaElementSource(el);
+				this.nativeMediaSource.connect(this.nativeGain);
+				// Sync initial volume
+				const currentGain = this.gainNode ? this.gainNode.gain.value : 1;
+				this.nativeGain.gain.value = currentGain;
+			} catch {
+				/* analyser unavailable for native path — visualizer will show flat signal */
+			}
+		}
+		if (this.nativeCtx?.state === 'suspended') {
+			this.nativeCtx.resume().catch(() => {});
+		}
 	}
 
 	// ---------------------------------------------------------------------------
@@ -337,12 +422,79 @@ class AudioEngine {
 		}
 	}
 
+	/**
+	 * Apply an EQ band configuration to both audio paths.
+	 * Rebuilds the BiquadFilterNode chains between the gain node and analyser node.
+	 * Safe to call at any time, including during playback.
+	 */
+	setEQ(bands: EQBand[]): void {
+		this.currentEQBands = bands;
+
+		// Rebuild WASM path chain
+		if (this.ctx && this.gainNode && this.analyserNode) {
+			for (const node of this.eqNodes) {
+				try { node.disconnect(); } catch { /* ignore */ }
+			}
+			this.eqNodes = this._buildEQChain(this.ctx, this.gainNode, this.analyserNode, bands);
+		}
+
+		// Rebuild native path chain
+		if (this.nativeCtx && this.nativeGain && this.nativeAnalyser) {
+			for (const node of this.nativeEqNodes) {
+				try { node.disconnect(); } catch { /* ignore */ }
+			}
+			this.nativeEqNodes = this._buildEQChain(this.nativeCtx, this.nativeGain, this.nativeAnalyser, bands);
+		}
+	}
+
+	/**
+	 * Build a BiquadFilterNode chain between source and dest.
+	 * Disconnects any previous direct source → dest connection and wires
+	 * source → eq[0] → ... → eq[n-1] → dest.
+	 * Returns the array of filter nodes (empty = flat, direct connection).
+	 */
+	private _buildEQChain(
+		ctx: AudioContext,
+		source: AudioNode,
+		dest: AudioNode,
+		bands: EQBand[]
+	): BiquadFilterNode[] {
+		// Remove the old direct connection (throws if not connected — that's fine).
+		try { source.disconnect(dest); } catch { /* not directly connected */ }
+
+		if (bands.length === 0) {
+			source.connect(dest);
+			return [];
+		}
+
+		const nodes = bands.map((band) => {
+			const filter = ctx.createBiquadFilter();
+			filter.type = band.type as BiquadFilterType;
+			filter.frequency.value = band.frequency;
+			filter.gain.value = band.gain;
+			filter.Q.value = band.type === 'peaking' ? 1.4 : 0.7;
+			return filter;
+		});
+
+		source.connect(nodes[0]);
+		for (let i = 0; i < nodes.length - 1; i++) {
+			nodes[i].connect(nodes[i + 1]);
+		}
+		nodes[nodes.length - 1].connect(dest);
+		return nodes;
+	}
+
 	setVolume(gain: number) {
 		const clamped = Math.max(0, Math.min(1, gain));
 		if (this.gainNode) {
 			this.gainNode.gain.value = clamped;
 		}
 		this.nativePlayer?.setVolume(clamped);
+		// Keep native-path analyser gain in sync so volume changes are reflected
+		// in any active visualizer.
+		if (this.nativeGain) {
+			this.nativeGain.gain.value = clamped;
+		}
 	}
 
 	stop() {

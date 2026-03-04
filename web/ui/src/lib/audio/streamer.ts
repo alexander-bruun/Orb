@@ -8,6 +8,21 @@ export interface Chunk {
 }
 
 /**
+ * Returns the current network type as accepted by the stream API's `?net=` param.
+ * Uses the Network Information API (available in Chromium-based browsers).
+ * Returns "" when the connection type is unknown or the API is unsupported.
+ */
+function getNetworkType(): string {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const conn = (navigator as any).connection ?? (navigator as any).mozConnection ?? (navigator as any).webkitConnection;
+	if (!conn) return '';
+	const t: string = conn.type ?? '';
+	if (t === 'cellular') return 'mobile';
+	if (t === 'wifi' || t === 'ethernet') return 'wifi';
+	return '';
+}
+
+/**
  * Streamer manages HTTP range request fetching and a ring buffer of raw chunks.
  * Callers call `read(offset, length)` and get back Uint8Array data.
  */
@@ -22,9 +37,15 @@ export class Streamer {
 		this.trackId = trackId;
 	}
 
+	/** Build the stream path including the ?net= quality hint when detectable. */
+	private streamPath(): string {
+		const net = getNetworkType();
+		return net ? `/stream/${this.trackId}?net=${net}` : `/stream/${this.trackId}`;
+	}
+
 	async init(): Promise<number> {
 		// Head request to get file size.
-		const res = await apiStream(`/stream/${this.trackId}`, 0, CHUNK_SIZE - 1);
+		const res = await apiStream(this.streamPath(), 0, CHUNK_SIZE - 1);
 		const cr = res.headers.get('Content-Range');
 		if (cr) {
 			const m = cr.match(/bytes \d+-\d+\/(\d+)/);
@@ -58,7 +79,7 @@ export class Streamer {
 		this.inflight.add(offset);
 		try {
 			const end = Math.min(offset + CHUNK_SIZE - 1, this.fileSize - 1);
-			const res = await apiStream(`/stream/${this.trackId}`, offset, end);
+			const res = await apiStream(this.streamPath(), offset, end);
 			const data = new Uint8Array(await res.arrayBuffer());
 			this.cache.set(offset, data);
 			// Evict old chunks to keep memory bounded (~8MB = 32 chunks max).

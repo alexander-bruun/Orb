@@ -32,6 +32,8 @@
     createAndConnect,
   } from '$lib/stores/listenParty';
   import { lyricsOpen, lyricsLines, lyricsLoading } from '$lib/stores/lyrics';
+  import { visualizerStore } from '$lib/stores/visualizer';
+  import Visualizer from '$lib/components/ui/Visualizer.svelte';
 
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
   import { getApiBase } from '$lib/api/base';
@@ -255,9 +257,30 @@
           </svg>
         </button>
       {/if}
+
+      <!-- Sound visualizer toggle -->
+      <button
+        class="ctrl-btn icon-btn viz-toggle-btn"
+        class:active={$visualizerStore.visible}
+        on:click={() => visualizerStore.toggle()}
+        aria-label="{$visualizerStore.visible ? 'Hide' : 'Show'} sound visualizer"
+        title="Sound visualizer"
+        aria-pressed={$visualizerStore.visible}
+      >
+        <!-- Simple spectrum-bar icon -->
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="2"  y="14" width="4" height="8"  rx="1" fill="currentColor"/>
+          <rect x="8"  y="8"  width="4" height="14" rx="1" fill="currentColor"/>
+          <rect x="14" y="4"  width="4" height="18" rx="1" fill="currentColor"/>
+          <rect x="20" y="10" width="2" height="12" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
     </div>
   </div>
 </footer>
+
+<!-- Visualizer widget lives outside the footer so it can float freely -->
+<Visualizer />
 
 <style>
   .bottom-bar {

@@ -93,6 +93,11 @@ export class NativePlayer {
 		this.onBufferedCb = cb;
 	}
 
+	/** Expose the underlying HTMLAudioElement (e.g. for createMediaElementSource). */
+	getElement(): HTMLAudioElement {
+		return this.el;
+	}
+
 	destroy() {
 		this.el.pause();
 		this.el.src = '';
