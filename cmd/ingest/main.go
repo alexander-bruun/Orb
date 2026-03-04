@@ -49,6 +49,10 @@ var featuredArtistRe = regexp.MustCompile(
 // into individual artist name strings.
 var featSplitRe = regexp.MustCompile(`(?i)\s*[,&]\s*|\s+and\s+`)
 
+// editionBracketsRe captures content inside [...] or {...} in directory names,
+// used to build a human-readable edition label (e.g. "[WEB FLAC 24-88.2] {cat#}").
+var editionBracketsRe = regexp.MustCompile(`\{[^}]+\}|\[[^\]]+\]`)
+
 // splitArtistList splits a freeform list of artist names and returns trimmed,
 // non-empty entries.
 func splitArtistList(s string) []string {
@@ -74,6 +78,18 @@ func parseFeaturedArtists(title string) (cleanTitle string, featuredNames []stri
 	// Clean title: cut from the start of the feat. match
 	cleanTitle = strings.TrimRight(strings.TrimSpace(title[:m[0]]), " -–")
 	return cleanTitle, splitArtistList(raw)
+}
+
+// albumEditionFromDir extracts a human-readable edition label from an album
+// directory name by collecting all [...] and {...} bracketed segments.
+// e.g. "Artist - Title (2026) {cat#} [WEB FLAC 24-88.2]" →
+//      "{cat#} [WEB FLAC 24-88.2]"
+func albumEditionFromDir(dirName string) string {
+	matches := editionBracketsRe.FindAllString(dirName, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	return strings.Join(matches, " ")
 }
 
 // rawTagString returns the first matching key from a raw tag map as a string,
@@ -175,7 +191,19 @@ var (
 	flagWatch             bool
 	flagWorkers           int
 	flagComputeSimilarity bool
+	flagPollInterval      time.Duration
 )
+
+// defaultPollInterval reads the INGEST_POLL_INTERVAL env var (e.g. "60s",
+// "5m") and falls back to 30 s when unset or unparseable.
+func defaultPollInterval() time.Duration {
+	if v := config.Env("INGEST_POLL_INTERVAL", ""); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "orb-ingest",
@@ -194,6 +222,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Watch directory for new files and ingest continuously")
 	rootCmd.Flags().IntVar(&flagWorkers, "workers", runtime.NumCPU(), "Number of parallel ingest workers")
 	rootCmd.Flags().BoolVar(&flagComputeSimilarity, "compute-similarity", false, "Recompute track similarity matrix after scan")
+	rootCmd.Flags().DurationVar(&flagPollInterval, "poll-interval", defaultPollInterval(), "Polling interval used when inotify is unavailable (env: INGEST_POLL_INTERVAL)")
 }
 
 func main() {
@@ -449,13 +478,33 @@ func run(cmd *cobra.Command, _ []string) error {
 	ingested, skipped, errs := g.scan(ctx)
 	slog.Info("initial scan complete", "ingested", ingested, "skipped", skipped, "errors", errs)
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("create watcher: %w", err)
+	// Detect inotify availability by creating a watcher and verifying that at
+	// least one directory can actually be watched. Any failure triggers the
+	// polling fallback so the process keeps working without inotify support.
+	watcher, watchErr := fsnotify.NewWatcher()
+	if watchErr == nil {
+		// Verify watches can be added (exhausted inotify limits show up here).
+		for _, dir := range flagDirs {
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				continue
+			}
+			if addErr := watcher.Add(dir); addErr != nil {
+				_ = watcher.Close()
+				watchErr = addErr
+				break
+			}
+		}
+	}
+	if watchErr != nil {
+		slog.Warn("inotify unavailable, falling back to polling",
+			"interval", flagPollInterval, "err", watchErr)
+		return g.watchWithPolling(ctx)
 	}
 	defer watcher.Close()
 
-	// Register watchers for all existing directories under each music dir.
+	// Register watchers for all remaining directories under each music dir
+	// (the root dirs were already added during the availability check above).
 	for _, dir := range flagDirs {
 		dir = strings.TrimSpace(dir)
 		if dir == "" {
@@ -521,6 +570,29 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 }
 
+// watchWithPolling is the fallback used when inotify is unavailable. It
+// repeatedly runs a full directory scan at flagPollInterval, logging only
+// when new files are found or errors occur.
+func (g *ingester) watchWithPolling(ctx context.Context) error {
+	slog.Warn("polling fallback active — inotify unavailable",
+		"interval", flagPollInterval,
+		"dirs", flagDirs)
+	ticker := time.NewTicker(flagPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			ingested, skipped, errs := g.scan(ctx)
+			if ingested > 0 || errs > 0 {
+				slog.Info("poll scan complete",
+					"ingested", ingested, "skipped", skipped, "errors", errs)
+			}
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ingestFile: hash, tag, upsert, copy — only called for new/changed files
 // ---------------------------------------------------------------------------
@@ -554,7 +626,32 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 
 	// AlbumArtist is the canonical grouping key; fall back to track Artist.
 	albumArtistName := coalesce(m.AlbumArtist(), m.Artist(), "Unknown Artist")
+	// Normalise: some taggers write comma-separated collaborators into the
+	// ALBUMARTIST field — keep only the first segment as the grouping key.
+	if parts := splitArtistList(albumArtistName); len(parts) > 0 {
+		albumArtistName = parts[0]
+	}
+
 	trackArtistName := coalesce(m.Artist(), albumArtistName)
+	// Normalise the raw ARTIST tag: split collaborators and extract any
+	// embedded "feat." annotation so they land in the featured-artist list
+	// rather than becoming part of the primary artist name.
+	// e.g. "Five Finger Death Punch,BABYMETAL feat. BABYMETAL"
+	//   → primary: "Five Finger Death Punch"
+	//   → extras:  ["BABYMETAL"]
+	var artistTagExtras []string
+	if parts := splitArtistList(trackArtistName); len(parts) > 1 {
+		trackArtistName = parts[0]
+		for _, p := range parts[1:] {
+			cleanP, featFromP := parseFeaturedArtists(p)
+			if cleanP != "" {
+				artistTagExtras = append(artistTagExtras, cleanP)
+			}
+			artistTagExtras = append(artistTagExtras, featFromP...)
+		}
+	} else if len(parts) == 1 {
+		trackArtistName = parts[0]
+	}
 
 	albumArtistID := deterministicID("artist:" + strings.ToLower(albumArtistName))
 	if _, err = g.db.UpsertArtist(ctx, store.UpsertArtistParams{
@@ -578,7 +675,16 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	}
 
 	albumTitle := coalesce(m.Album(), "Unknown Album")
-	albumID := deterministicID("album:" + strings.ToLower(albumArtistName) + ":" + strings.ToLower(albumTitle))
+	// albumGroupID links all directories that share the same artist+title.
+	// albumID is per-directory so each folder gets its own record.
+	albumBase := strings.ToLower(albumArtistName) + ":" + strings.ToLower(albumTitle)
+	albumGroupID := deterministicID("album:" + albumBase)
+	albumDir := filepath.Dir(path)
+	albumID := deterministicID("album:" + albumBase + ":" + albumDir)
+	var albumEditionStr string
+	if ed := albumEditionFromDir(filepath.Base(albumDir)); ed != "" {
+		albumEditionStr = ed
+	}
 
 	// Cover art: only process once per album per session.
 	coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
@@ -610,12 +716,19 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		releaseYearPtr = &y
 	}
 
+	var albumEditionPtr *string
+	if albumEditionStr != "" {
+		albumEditionPtr = &albumEditionStr
+	}
+
 	if _, err = g.db.UpsertAlbum(ctx, store.UpsertAlbumParams{
-		ID:          albumID,
-		ArtistID:    &albumArtistID,
-		Title:       albumTitle,
-		ReleaseYear: releaseYearPtr,
-		CoverArtKey: coverArtKeyPtr,
+		ID:           albumID,
+		ArtistID:     &albumArtistID,
+		Title:        albumTitle,
+		ReleaseYear:  releaseYearPtr,
+		CoverArtKey:  coverArtKeyPtr,
+		AlbumGroupID: &albumGroupID,
+		Edition:      albumEditionPtr,
 	}); err != nil {
 		return "", fmt.Errorf("upsert album: %w", err)
 	}
@@ -650,6 +763,20 @@ func (g *ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	seekTableJSON, _ := json.Marshal([]int{})
 
 	cleanTitle, featuredNames := extractFeaturedArtists(m, path)
+	// Merge any collaborators extracted from the raw ARTIST tag into the
+	// featured list, deduplicating case-insensitively.
+	if len(artistTagExtras) > 0 {
+		seen := make(map[string]bool, len(featuredNames))
+		for _, n := range featuredNames {
+			seen[strings.ToLower(n)] = true
+		}
+		for _, n := range artistTagExtras {
+			if n != "" && !seen[strings.ToLower(n)] {
+				featuredNames = append(featuredNames, n)
+				seen[strings.ToLower(n)] = true
+			}
+		}
+	}
 
 	track, err := g.db.UpsertTrack(ctx, store.UpsertTrackParams{
 		ID:          trackID,
