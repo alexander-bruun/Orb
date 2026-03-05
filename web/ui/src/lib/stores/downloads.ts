@@ -1,0 +1,380 @@
+import { writable, get } from 'svelte/store';
+import { authStore } from '$lib/stores/auth';
+import { getApiBase } from '$lib/api/base';
+import type { Track } from '$lib/types';
+
+export type DownloadStatus = 'downloading' | 'done' | 'error';
+
+export interface DownloadEntry {
+  trackId:       string;
+  title:         string;
+  artistName:    string;
+  albumName:     string;
+  status:        DownloadStatus;
+  progress:      number;   // 0–100
+  sizeBytes:     number;
+  downloadedAt?: number;
+  error?:        string;
+}
+
+const AUDIO_CACHE = 'orb-offline-audio';
+const META_KEY    = 'orb-downloads-v1';
+const IDB_NAME    = 'orb-offline-audio';
+const IDB_STORE   = 'blobs';
+const IDB_VERSION = 1;
+
+export const downloads = writable<Map<string, DownloadEntry>>(new Map());
+
+/** True when the Cache API is available (secure context only). */
+const cacheAvailable = typeof caches !== 'undefined';
+
+// ── IndexedDB helpers (works on ALL origins, secure or insecure) ─────────────
+
+function openIDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function idbPut(trackId: string, blob: Blob): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(blob, trackId);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function idbGet(trackId: string): Promise<Blob | undefined> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(trackId);
+    req.onsuccess = () => { db.close(); resolve(req.result ?? undefined); };
+    req.onerror   = () => { db.close(); reject(req.error); };
+  });
+}
+
+async function idbDelete(trackId: string): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(trackId);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function idbClear(): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = () => { db.close(); reject(tx.error); };
+  });
+}
+
+// ── Persistence (metadata only — lightweight localStorage) ───────────────────
+
+function persist(map: Map<string, DownloadEntry>): void {
+  try {
+    localStorage.setItem(META_KEY, JSON.stringify([...map]));
+  } catch { /* storage full — ignore */ }
+}
+
+export function restoreDownloads(): void {
+  try {
+    const raw = localStorage.getItem(META_KEY);
+    if (raw) downloads.set(new Map(JSON.parse(raw)));
+  } catch { /* corrupt data — start fresh */ }
+}
+
+// ── Storage estimate ─────────────────────────────────────────────────────────
+
+export async function getStorageEstimate(): Promise<StorageEstimate | null> {
+  return navigator.storage?.estimate?.() ?? null;
+}
+
+// ── Download a single track ──────────────────────────────────────────────────
+
+export async function downloadTrack(track: Track): Promise<void> {
+  // Request durable storage — critical on iOS where caches are evicted
+  // after ~7 days of inactivity without this permission.
+  if (navigator.storage?.persist) {
+    await navigator.storage.persist().catch(() => {});
+  }
+
+  downloads.update(m => {
+    m.set(track.id, {
+      trackId:    track.id,
+      title:      track.title,
+      artistName: track.artist_name ?? '',
+      albumName:  track.album_name ?? '',
+      status:     'downloading',
+      progress:   0,
+      sizeBytes:  0,
+    });
+    persist(m);
+    return m;
+  });
+
+  try {
+    const auth = get(authStore);
+    const url  = `${getApiBase()}/stream/${track.id}`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: auth.token ? `Bearer ${auth.token}` : '' },
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+
+    let blob: Blob;
+
+    if (res.body) {
+      // Stream with progress tracking
+      const contentLength = Number(res.headers.get('Content-Length') ?? 0);
+      const contentType   = res.headers.get('Content-Type') ?? 'audio/flac';
+      const reader        = res.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.byteLength;
+        const progress = contentLength ? Math.round((received / contentLength) * 100) : 0;
+        downloads.update(m => {
+          const entry = m.get(track.id);
+          if (entry) {
+            m.set(track.id, { ...entry, progress, sizeBytes: received });
+          }
+          return m;
+        });
+      }
+
+      blob = new Blob(chunks, { type: contentType });
+    } else {
+      // Fallback for browsers without ReadableStream body (some mobile WebViews)
+      blob = await res.blob();
+    }
+
+    // Primary storage: IndexedDB (works on ALL origins, secure or insecure)
+    await idbPut(track.id, blob);
+
+    // Secondary storage: Cache API (when available — enables SW offline serving)
+    if (cacheAvailable) {
+      try {
+        const cacheResp = new Response(blob.slice(), {
+          headers: {
+            'Content-Type':   blob.type || 'audio/flac',
+            'Content-Length':  String(blob.size),
+            'Accept-Ranges':  'bytes',
+          },
+        });
+        const cache = await caches.open(AUDIO_CACHE);
+        await cache.put(new URL(url, location.href).pathname, cacheResp);
+      } catch { /* Cache API unavailable — IDB is the source of truth */ }
+    }
+
+    downloads.update(m => {
+      m.set(track.id, {
+        trackId:      track.id,
+        title:        track.title,
+        artistName:   track.artist_name ?? '',
+        albumName:    track.album_name ?? '',
+        status:       'done',
+        progress:     100,
+        sizeBytes:    blob.size,
+        downloadedAt: Date.now(),
+      });
+      persist(m);
+      return m;
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    downloads.update(m => {
+      const existing = m.get(track.id);
+      m.set(track.id, {
+        trackId:    track.id,
+        title:      track.title,
+        artistName: track.artist_name ?? '',
+        albumName:  track.album_name ?? '',
+        status:     'error',
+        progress:   0,
+        sizeBytes:  0,
+        error:      msg,
+        ...(existing?.downloadedAt ? { downloadedAt: existing.downloadedAt } : {}),
+      });
+      persist(m);
+      return m;
+    });
+  }
+}
+
+// ── Batch download (sequential to avoid hammering the server) ─────────────────
+
+export async function downloadAlbum(tracks: Track[]): Promise<void> {
+  for (const track of tracks) {
+    const entry = get(downloads).get(track.id);
+    if (entry?.status === 'done') continue;
+    await downloadTrack(track);
+  }
+}
+
+/** Download all tracks in a playlist. */
+export const downloadPlaylist = downloadAlbum;
+
+/** Download all favorites. */
+export const downloadFavorites = downloadAlbum;
+
+// ── Get offline blob for playback (used by AudioEngine on insecure origins) ──
+
+/**
+ * Returns a blob URL for an offline-downloaded track, or null if not available.
+ * The caller MUST call URL.revokeObjectURL() when done.
+ */
+export async function getOfflineBlobUrl(trackId: string): Promise<string | null> {
+  try {
+    const blob = await idbGet(trackId);
+    if (blob) return URL.createObjectURL(blob);
+  } catch { /* IDB unavailable */ }
+  return null;
+}
+
+/**
+ * Returns the raw Blob for an offline-downloaded track, or null.
+ */
+export async function getOfflineBlob(trackId: string): Promise<Blob | null> {
+  try {
+    return (await idbGet(trackId)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Background Fetch download (Android Phase 2) ──────────────────────────────
+
+export async function downloadTrackBackground(track: Track, coverUrl: string): Promise<void> {
+  if (!('serviceWorker' in navigator)) return downloadTrack(track);
+
+  const swReg = await navigator.serviceWorker.ready;
+  if (!('backgroundFetch' in swReg)) return downloadTrack(track);
+
+  const bgFetch = (swReg as any).backgroundFetch;
+  await bgFetch.fetch(
+    `orb-dl-${track.id}`,
+    [`${getApiBase()}/stream/${track.id}`],
+    {
+      title:         `Downloading ${track.title}`,
+      downloadTotal: track.file_size ?? 0,
+      icons:         coverUrl ? [{ src: coverUrl, sizes: '128x128', type: 'image/jpeg' }] : [],
+    }
+  );
+
+  downloads.update(m => {
+    m.set(track.id, {
+      trackId:    track.id,
+      title:      track.title,
+      artistName: track.artist_name ?? '',
+      albumName:  track.album_name ?? '',
+      status:     'downloading',
+      progress:   0,
+      sizeBytes:  0,
+    });
+    persist(m);
+    return m;
+  });
+}
+
+// Register a listener for DOWNLOAD_COMPLETE messages from the SW
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type !== 'DOWNLOAD_COMPLETE') return;
+    const trackId = event.data.trackId as string;
+    downloads.update(m => {
+      const entry = m.get(trackId);
+      if (entry) {
+        m.set(trackId, {
+          ...entry,
+          status:       'done',
+          progress:     100,
+          downloadedAt: Date.now(),
+        });
+        persist(m);
+      }
+      return m;
+    });
+  });
+}
+
+// ── Delete a downloaded track ────────────────────────────────────────────────
+
+export async function deleteDownload(trackId: string): Promise<void> {
+  // Remove from IDB (primary)
+  try { await idbDelete(trackId); } catch { /* ignore */ }
+
+  // Remove from Cache API (secondary)
+  if (cacheAvailable) {
+    try {
+      const cache = await caches.open(AUDIO_CACHE);
+      await cache.delete(`/api/stream/${trackId}`);
+    } catch { /* ignore */ }
+  }
+
+  downloads.update(m => {
+    m.delete(trackId);
+    persist(m);
+    return m;
+  });
+}
+
+// ── Delete ALL downloaded tracks ─────────────────────────────────────────────
+
+export async function deleteAllDownloads(): Promise<void> {
+  const map = get(downloads);
+
+  // Clear IDB
+  try { await idbClear(); } catch { /* ignore */ }
+
+  // Clear Cache API entries
+  if (cacheAvailable) {
+    try {
+      const cache = await caches.open(AUDIO_CACHE);
+      for (const [id] of map) {
+        await cache.delete(`/api/stream/${id}`).catch(() => {});
+      }
+    } catch { /* ignore */ }
+  }
+
+  downloads.set(new Map());
+  persist(new Map());
+}
+
+// ── Check if a track is available offline ────────────────────────────────────
+
+export async function isDownloaded(trackId: string): Promise<boolean> {
+  // Check IDB first (works everywhere)
+  try {
+    const blob = await idbGet(trackId);
+    if (blob) return true;
+  } catch { /* fall through */ }
+
+  // Fall back to Cache API (secure contexts)
+  if (cacheAvailable) {
+    try {
+      const cache = await caches.open(AUDIO_CACHE);
+      return !!(await cache.match(`/api/stream/${trackId}`));
+    } catch { /* ignore */ }
+  }
+
+  return false;
+}

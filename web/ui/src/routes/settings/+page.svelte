@@ -9,6 +9,21 @@
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled } from '$lib/stores/player';
+  import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/deviceSession';
+  import { devices as devicesApi } from '$lib/api/devices';
+  import { downloads, deleteDownload, deleteAllDownloads, getStorageEstimate } from '$lib/stores/downloads';
+  import {
+    audioOutputDevices,
+    selectedAudioOutputId,
+    sinkIdSupported,
+    refreshAudioOutputDevices,
+    setAudioOutput,
+    castState,
+    castDeviceName,
+    initCastSdk,
+    startCast,
+    stopCast,
+  } from '$lib/stores/casting';
 
   // ── Avatar ────────────────────────────────────────────────
   let fileInput: HTMLInputElement;
@@ -410,9 +425,117 @@
     }
   }
 
+  // ── Exclusive Device Mode ──────────────────────────────
+  let emSaving = false;
+  let emError = '';
+
+  async function toggleExclusiveMode() {
+    emError = '';
+    emSaving = true;
+    try {
+      const next = !$exclusiveMode;
+      await devicesApi.patchPlaybackSettings({ exclusive_mode: next });
+      exclusiveMode.set(next);
+    } catch (err: any) {
+      emError = err?.message ?? 'Failed to update setting.';
+    } finally {
+      emSaving = false;
+    }
+  }
+
+  async function activateDevice(id: string) {
+    try {
+      await devicesApi.activate(id);
+      await refreshDevices();
+    } catch { /* ignore */ }
+  }
+
+  // ── Audio Output ───────────────────────────────────────
+  let audioOutputError = '';
+
+  async function handleAudioOutputChange(e: Event) {
+    audioOutputError = '';
+    const select = e.target as HTMLSelectElement;
+    try {
+      await setAudioOutput(select.value);
+    } catch (err: any) {
+      audioOutputError = err?.message ?? 'Failed to change audio output.';
+    }
+  }
+
+  // Initialise the Cast SDK so it's ready when the page loads.
+  initCastSdk();
+
+  let castError = '';
+
+  async function handleCastClick() {
+    castError = '';
+    if ($castState === 'connected') {
+      stopCast();
+    } else {
+      try {
+        await startCast();
+      } catch (err: any) {
+        if (err?.code !== 'cancel') {
+          castError = 'Could not connect to Cast device. Make sure you are on the same network.';
+        }
+      }
+    }
+  }
+
+  // Refresh device list in the background while the page is open.
+  let deviceRefreshTimer: ReturnType<typeof setInterval>;
+  import { onDestroy } from 'svelte';
+  deviceRefreshTimer = setInterval(refreshDevices, 15_000);
+  onDestroy(() => clearInterval(deviceRefreshTimer));
+
   // ── Genres (for EQ per-genre mapping) ─────────────────────
   let allGenres: Genre[] = [];
   library.genres().then(g => { allGenres = g; }).catch(() => {});
+
+  // ── Downloads ─────────────────────────────────────────────
+  let storageEst: StorageEstimate | null = null;
+  getStorageEstimate().then(e => { storageEst = e; }).catch(() => {});
+
+  let dlSearch = '';
+  let expandedAlbums = new Set<string>();
+
+  function toggleAlbumGroup(albumName: string) {
+    if (expandedAlbums.has(albumName)) expandedAlbums.delete(albumName);
+    else expandedAlbums.add(albumName);
+    expandedAlbums = expandedAlbums; // trigger reactivity
+  }
+
+  $: doneEntries = [...$downloads.values()].filter(d => d.status === 'done');
+  $: activeEntries = [...$downloads.values()].filter(d => d.status === 'downloading');
+  $: errorEntries = [...$downloads.values()].filter(d => d.status === 'error');
+  $: doneCount = doneEntries.length;
+  $: totalSizeBytes = doneEntries.reduce((s, e) => s + e.sizeBytes, 0);
+
+  $: filteredDone = dlSearch.trim()
+    ? doneEntries.filter(e => {
+        const q = dlSearch.toLowerCase();
+        return e.title.toLowerCase().includes(q) || e.artistName.toLowerCase().includes(q) || e.albumName?.toLowerCase().includes(q);
+      })
+    : doneEntries;
+
+  // Group by album
+  $: albumGroups = (() => {
+    const map = new Map<string, typeof doneEntries>();
+    for (const entry of filteredDone) {
+      const key = entry.albumName || '';
+      const arr = map.get(key);
+      if (arr) arr.push(entry);
+      else map.set(key, [entry]);
+    }
+    // Sort album groups alphabetically
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  })();
+
+  async function handleDeleteAll() {
+    await deleteAllDownloads();
+    storageEst = await getStorageEstimate().catch(() => null);
+  }
 </script>
 
 <div class="page">
@@ -1053,6 +1176,155 @@
     {/if}
   </section>
 
+  <!-- ── Devices ────────────────────────────────────────── -->
+  <section class="card">
+    <h2 class="section-title">Devices</h2>
+
+    <!-- Exclusive mode toggle -->
+    <div class="setting-row" style="border-top:none;padding-top:0">
+      <div class="setting-info">
+        <span class="setting-name">Exclusive Device Mode</span>
+        <span class="setting-desc">
+          When enabled, only one device can play at a time. Switching devices pauses all others. Disable to stream different tracks from multiple devices simultaneously.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$exclusiveMode}
+        role="switch"
+        aria-checked={$exclusiveMode}
+        on:click={toggleExclusiveMode}
+        disabled={emSaving}
+        title={$exclusiveMode ? 'Disable exclusive mode' : 'Enable exclusive mode'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+    {#if emError}<p class="msg msg--error">{emError}</p>{/if}
+
+    <!-- Audio Output selection -->
+    {#if sinkIdSupported}
+      <div class="setting-row setting-row--col" style="margin-top:4px">
+        <div class="setting-info">
+          <span class="setting-name">Audio output</span>
+          <span class="setting-desc">
+            Route music to a different audio output — Bluetooth speakers, HDMI, USB DAC, etc.
+            Only outputs paired to this computer appear here.
+          </span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <select
+            class="form-input"
+            style="width:auto;min-width:200px;max-width:360px"
+            value={$selectedAudioOutputId}
+            on:change={handleAudioOutputChange}
+            on:focus={refreshAudioOutputDevices}
+          >
+            {#if $audioOutputDevices.length === 0}
+              <option value="default">System Default</option>
+            {:else}
+              {#each $audioOutputDevices as dev (dev.deviceId)}
+                <option value={dev.deviceId}>{dev.label}</option>
+              {/each}
+            {/if}
+          </select>
+          <button
+            class="btn-ghost"
+            style="font-size:11px;padding:5px 10px"
+            on:click={refreshAudioOutputDevices}
+            title="Refresh audio output list"
+          >Refresh</button>
+        </div>
+        {#if audioOutputError}<p class="msg msg--error">{audioOutputError}</p>{/if}
+      </div>
+    {/if}
+
+    <!-- Chromecast -->
+    {#if $castState !== 'unavailable'}
+      <div class="setting-row" style="margin-top:4px">
+        <div class="setting-info">
+          <span class="setting-name">Cast to device</span>
+          <span class="setting-desc">
+            {#if $castState === 'connected'}
+              Casting to <strong>{$castDeviceName}</strong>. Music plays on the remote device; stop casting to return to local playback.
+            {:else}
+              Stream music to a Chromecast, smart TV, or any Cast-enabled speaker on your network.
+            {/if}
+          </span>
+        </div>
+        <button
+          class="btn-{$castState === 'connected' ? 'danger' : 'primary'}"
+          style="white-space:nowrap;min-width:120px"
+          on:click={handleCastClick}
+          disabled={$castState === 'connecting'}
+        >
+          {#if $castState === 'connecting'}
+            Connecting…
+          {:else if $castState === 'connected'}
+            Stop casting
+          {:else}
+            Cast audio
+          {/if}
+        </button>
+      </div>
+      {#if castError}<p class="msg msg--error">{castError}</p>{/if}
+    {/if}
+
+    <!-- Active device list -->
+    <div class="setting-row setting-row--col" style="margin-top:4px">
+      <div class="setting-info">
+        <span class="setting-name">Active sessions</span>
+        <span class="setting-desc">All devices currently registered under your account. Sessions expire after 90 s of inactivity.</span>
+      </div>
+
+      {#if $activeDevices.length === 0}
+        <p style="font-size:12px;color:var(--text-2);margin-top:8px">No active sessions found.</p>
+      {:else}
+        <div class="device-list">
+          {#each $activeDevices as dev (dev.id)}
+            <div class="device-card" class:device-card--active={dev.is_active}>
+              <div class="device-card-icon">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path d="M8 21h8m-4-4v4"/>
+                </svg>
+              </div>
+              <div class="device-card-info">
+                <span class="device-card-name">
+                  {dev.name}
+                  {#if dev.id === deviceId}<span class="device-card-badge">This device</span>{/if}
+                  {#if dev.is_active}<span class="device-card-badge device-card-badge--active">Active</span>{/if}
+                </span>
+                {#if dev.state?.track_title}
+                  <span class="device-card-track">
+                    {#if dev.state.playing}
+                      <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24" style="color:var(--accent)"><path d="M8 5v14l11-7z"/></svg>
+                    {:else}
+                      <svg width="10" height="10" fill="currentColor" viewBox="0 0 24 24" style="color:var(--text-2)"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    {/if}
+                    {dev.state.track_title}
+                  </span>
+                {:else}
+                  <span class="device-card-track" style="color:var(--text-2)">Idle</span>
+                {/if}
+              </div>
+              {#if $exclusiveMode && dev.id !== deviceId}
+                <button
+                  class="btn-ghost"
+                  style="font-size:11px;padding:5px 10px;white-space:nowrap"
+                  on:click={() => activateDevice(dev.id)}
+                  title="Transfer playback to this device"
+                >
+                  Transfer here
+                </button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </section>
+
   <!-- ── Appearance ─────────────────────────────────────── -->
   <section class="card">
     <h2 class="section-title">Appearance</h2>
@@ -1119,6 +1391,97 @@
         {/each}
       </div>
     </div>
+  </section>
+
+  <!-- ── Downloads ─────────────────────────────────────── -->
+  <section class="card">
+    <h2 class="section-title">Downloads</h2>
+    <p class="sq-hint">Tracks saved for offline playback.</p>
+
+    <!-- Summary stats -->
+    <div class="dl-summary">
+      <span class="dl-stat">{doneCount} track{doneCount !== 1 ? 's' : ''} · {(totalSizeBytes / 1e6).toFixed(0)} MB</span>
+      {#if storageEst}
+        <span class="dl-stat dl-stat--muted">
+          {((storageEst.usage ?? 0) / 1e6).toFixed(0)} MB used{#if storageEst.quota} of {(storageEst.quota / 1e6).toFixed(0)} MB{/if}
+        </span>
+      {/if}
+    </div>
+
+    <!-- Active downloads -->
+    {#if activeEntries.length > 0}
+      <div class="dl-active">
+        <h3 class="dl-subhead">Downloading ({activeEntries.length})</h3>
+        {#each activeEntries as entry (entry.trackId)}
+          <div class="dl-active-item">
+            <div class="dl-active-info">
+              <span class="dl-active-title">{entry.title}</span>
+              <span class="dl-active-meta">{entry.artistName} · {entry.progress}%</span>
+            </div>
+            <div class="dl-progress-bar">
+              <div class="dl-progress-fill" style="width:{entry.progress}%"></div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Errored downloads -->
+    {#if errorEntries.length > 0}
+      <div class="dl-errors">
+        <h3 class="dl-subhead dl-subhead--warn">Failed ({errorEntries.length})</h3>
+        {#each errorEntries as entry (entry.trackId)}
+          <div class="dl-error-item">
+            <span class="dl-error-title">{entry.title}</span>
+            <span class="dl-error-msg">{entry.error || 'Unknown error'}</span>
+            <button class="btn-ghost" style="font-size:11px;padding:2px 8px" on:click={() => deleteDownload(entry.trackId)}>Dismiss</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if doneCount > 0}
+      <!-- Search filter (shown only when useful) -->
+      {#if doneCount > 10}
+        <input class="dl-search" type="text" placeholder="Search downloads…" bind:value={dlSearch} />
+      {/if}
+
+      <!-- Grouped by album -->
+      {#each albumGroups as [albumName, tracks] (albumName)}
+        <div class="dl-album-group">
+          <button class="dl-album-header" on:click={() => toggleAlbumGroup(albumName)}>
+            <svg class="dl-chevron" class:expanded={expandedAlbums.has(albumName)} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            <span class="dl-album-name">{albumName || 'Unknown Album'}</span>
+            <span class="dl-album-count">{tracks.length} · {(tracks.reduce((s, e) => s + e.sizeBytes, 0) / 1e6).toFixed(1)} MB</span>
+          </button>
+          {#if expandedAlbums.has(albumName)}
+            <ul class="dl-track-list">
+              {#each tracks as entry (entry.trackId)}
+                <li class="dl-track-item">
+                  <div class="dl-track-info">
+                    <span class="dl-track-title">{entry.title}</span>
+                    <span class="dl-track-meta">{entry.artistName} · {(entry.sizeBytes / 1e6).toFixed(1)} MB</span>
+                  </div>
+                  <button class="dl-remove-btn" on:click={() => deleteDownload(entry.trackId)} title="Remove download">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/each}
+
+      {#if filteredDone.length === 0 && dlSearch.trim()}
+        <p class="msg" style="color:var(--text-2)">No downloads match "{dlSearch}"</p>
+      {/if}
+
+      <div style="padding-top:8px">
+        <button class="btn-danger" on:click={handleDeleteAll}>Delete all downloads</button>
+      </div>
+    {:else if activeEntries.length === 0 && errorEntries.length === 0}
+      <p class="msg" style="color:var(--text-2)">No tracks downloaded yet. Right-click any track and choose "Download offline".</p>
+    {/if}
   </section>
 </div>
 
@@ -1704,5 +2067,287 @@
     .setting-row {
       flex-wrap: wrap;
     }
+  }
+
+  /* ── Device list ────────────────────────────────────────── */
+  .device-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .device-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .device-card--active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .device-card-icon {
+    color: var(--text-2);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+  .device-card--active .device-card-icon { color: var(--accent); }
+
+  .device-card-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .device-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .device-card-badge {
+    font-size: 9.5px;
+    font-weight: 700;
+    font-family: 'Syne', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--surface-2);
+    color: var(--text-2);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 20px;
+  }
+  .device-card-badge--active {
+    background: var(--accent);
+    color: white;
+    border-color: transparent;
+  }
+
+  .device-card-track {
+    font-size: 11px;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Downloads ── */
+  .dl-summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .dl-stat {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .dl-stat--muted {
+    color: var(--text-2);
+    font-weight: 400;
+  }
+  .dl-subhead {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 0 0 6px;
+  }
+  .dl-subhead--warn { color: var(--error, #ef4444); }
+
+  .dl-active {
+    margin-bottom: 12px;
+  }
+  .dl-active-item {
+    padding: 6px 0;
+  }
+  .dl-active-info {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .dl-active-title {
+    font-size: 13px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dl-active-meta {
+    font-size: 11px;
+    color: var(--text-2);
+    flex-shrink: 0;
+  }
+  .dl-progress-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .dl-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.2s ease;
+  }
+
+  .dl-errors {
+    margin-bottom: 12px;
+  }
+  .dl-error-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+  .dl-error-title {
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dl-error-msg {
+    color: var(--error, #ef4444);
+    font-size: 11px;
+    flex-shrink: 0;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dl-search {
+    width: 100%;
+    padding: 7px 10px;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-2, var(--bg));
+    color: var(--text);
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .dl-search:focus {
+    border-color: var(--accent);
+  }
+  .dl-search::placeholder {
+    color: var(--text-2);
+  }
+
+  .dl-album-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 4px;
+    overflow: hidden;
+  }
+  .dl-album-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: left;
+  }
+  .dl-album-header:hover {
+    background: var(--bg-2, rgba(255,255,255,0.04));
+  }
+  .dl-chevron {
+    flex-shrink: 0;
+    color: var(--text-2);
+    transition: transform 0.15s ease;
+  }
+  .dl-chevron.expanded {
+    transform: rotate(90deg);
+  }
+  .dl-album-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dl-album-count {
+    font-size: 11px;
+    color: var(--text-2);
+    font-weight: 400;
+    flex-shrink: 0;
+  }
+
+  .dl-track-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .dl-track-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px 5px 32px;
+    border-top: 1px solid var(--border);
+  }
+  .dl-track-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .dl-track-title {
+    font-size: 12px;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dl-track-meta {
+    font-size: 11px;
+    color: var(--text-2);
+  }
+  .dl-remove-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .dl-remove-btn:hover {
+    background: var(--bg-2, rgba(255,255,255,0.08));
+    color: var(--error, #ef4444);
   }
 </style>

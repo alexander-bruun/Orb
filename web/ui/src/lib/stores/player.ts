@@ -7,6 +7,9 @@ import { library as libraryApi } from '$lib/api/library';
 import { recommend } from '$lib/api/recommend';
 import { addToast } from '$lib/stores/toast';
 import { isTauri } from '$lib/utils/platform';
+import { exclusiveMode, deviceId, activeDeviceId, activeDevices, setPlayerRef, sendHeartbeat, refreshDevices as refreshDevicesFromSession } from '$lib/stores/deviceSession';
+import { devices as devicesApi } from '$lib/api/devices';
+import { selectedAudioOutputId, sinkIdSupported } from '$lib/stores/casting';
 
 export const currentTrack = writable<Track | null>(null);
 export const playbackState = writable<PlaybackState>('idle');
@@ -73,6 +76,24 @@ function formatTime(ms: number): string {
 }
 
 export async function playTrack(track: Track, trackList?: Track[], startSeconds = 0) {
+	// Control-device mode: delegate playback to the active device.
+	// The queue is embedded directly in the play command (atomic queue + play)
+	// so there is no race condition with a separate queue write.
+	const activeDev = get(activeDeviceId);
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+		try {
+			const tracksToSend = trackList ?? get(queue);
+			await devicesApi.playCommand(
+				activeDev,
+				track.id,
+				Math.round(startSeconds * 1000),
+				tracksToSend && tracksToSend.length > 0 ? tracksToSend : undefined
+			);
+		} catch (err) {
+			console.error('playTrack delegation error', err);
+		}
+		return;
+	}
 	if (trackList) {
 		queue.set(trackList);
 		const idx = trackList.findIndex((t) => t.id === track.id);
@@ -85,15 +106,40 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 			queueIndex.set(actualIdx);
 		}
 	}
+	// Stop any in-progress shadow tick so it doesn't compete with real audio.
+	stopShadowTick();
 	currentTrack.set(track);
 	playbackState.set('loading');
+	// Immediately reset the seek bar so it doesn't linger at the previous
+	// track's position while the new track loads.
+	positionMs.set(startSeconds * 1000);
+	durationMs.set(track.duration_ms);
 	try {
 		// Apply replay gain before starting playback so the engine applies it
 		// from the very first decoded sample.
 		const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
 		audioEngine.setReplayGainDb(rgDb);
+
+		// Apply the selected audio output device (Bluetooth, HDMI, etc.) before
+		// starting playback so the engine routes to the right sink from the start.
+		if (sinkIdSupported) {
+			const sinkId = get(selectedAudioOutputId);
+			if (sinkId && sinkId !== 'default') {
+				audioEngine.setAudioOutput(sinkId).catch(() => {});
+			}
+		}
+
 		await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
+		_isRemoteMirror = false;
 		playbackState.set('playing');
+		// In exclusive mode, claim this device and tell peers to pause.
+		if (get(exclusiveMode) && deviceId) {
+			devicesApi.activate(deviceId).catch(() => {});
+		}
+		// In non-exclusive mode we still send a heartbeat but never activate.
+		// Immediately push current playback state so other devices update without
+		// waiting for the next 30-second heartbeat cycle.
+		sendHeartbeat().catch(() => {});
 		// Record the play fire-and-forget; ignore errors so playback is never blocked.
 		libraryApi.recordPlay(track.id, 0).catch(() => {});
 	} catch (err) {
@@ -102,11 +148,35 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	}
 }
 
+/**
+ * Pause local audio without delegating to remote devices.
+ * Used by the device session `pause_others` handler to stop this device
+ * before the active-device pointer has been updated, preventing the
+ * toggle from being misdirected to the newly-active remote device.
+ */
+export function pauseLocal() {
+	_isRemoteMirror = false;
+	if (audioEngine.isLoaded) {
+		audioEngine.stop();
+	}
+	const state = get(playbackState);
+	if (state === 'playing' || state === 'loading') {
+		playbackState.set('paused');
+	}
+}
+
 export function togglePlayPause() {
+	// Control-device mode: delegate to active device (only in exclusive mode).
+	const activeDev = get(activeDeviceId);
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+		devicesApi.controlCommand(activeDev, 'toggle').catch(() => {});
+		return;
+	}
 	const state = get(playbackState);
 	if (state === 'playing') {
 		audioEngine.pause();
 		playbackState.set('paused');
+		sendHeartbeat().catch(() => {});
 	} else if (state === 'paused') {
 		if (!audioEngine.isLoaded) {
 			// Restore scenario: nothing is loaded in the engine yet (e.g. after page
@@ -116,23 +186,44 @@ export function togglePlayPause() {
 				playTrack(track, undefined, get(positionMs) / 1000);
 			}
 		} else {
+			_isRemoteMirror = false;
 			audioEngine.resume();
 			playbackState.set('playing');
+			sendHeartbeat().catch(() => {});
 		}
 	}
 }
 
 export function seek(posSeconds: number) {
+	// Control-device mode: delegate seek to the active device (only in exclusive mode).
+	const activeDev = get(activeDeviceId);
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+		const posMs = Math.round(posSeconds * 1000);
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: posMs }).catch(() => {});
+		// Optimistically update local state so the seek bar reflects the new
+		// position immediately, rather than snapping back until the next heartbeat.
+		positionMs.set(posMs);
+		_shadowEpochMs = Date.now() - posMs;
+		return;
+	}
 	const dur = get(durationMs) || 0;
 	const maxSec = Math.max(0, dur / 1000);
 	const clamped = Math.max(0, Math.min(posSeconds, Math.max(0, maxSec - 0.01)));
 	audioEngine.seek(clamped);
 	positionMs.set(clamped * 1000);
+	sendHeartbeat().catch(() => {});
 }
 
 export function setVolume(gain: number) {
+	// Control-device mode: delegate volume to the active device (only in exclusive mode).
+	const activeDev = get(activeDeviceId);
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+		devicesApi.controlCommand(activeDev, 'volume', { volume: gain }).catch(() => {});
+		return;
+	}
 	volume.set(gain);
 	audioEngine.setVolume(gain);
+	sendHeartbeat().catch(() => {});
 }
 
 /** Insert a track at the front of the user queue (plays after current track). */
@@ -151,6 +242,12 @@ export function removeFromUserQueue(index: number) {
 }
 
 export async function next() {
+	// Control-device mode: delegate to active device (only in exclusive mode).
+	const activeDev = get(activeDeviceId);
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+		devicesApi.controlCommand(activeDev, 'next').catch(() => {});
+		return;
+	}
 	// User-queued tracks take priority over the playback context.
 	const uq = get(userQueue);
 	if (uq.length > 0) {
@@ -214,6 +311,12 @@ export async function next() {
 }
 
 export async function previous() {
+	// Control-device mode: delegate to active device (only in exclusive mode).
+	const activeDev = get(activeDeviceId);
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+		devicesApi.controlCommand(activeDev, 'previous').catch(() => {});
+		return;
+	}
 	const idx = get(queueIndex);
 	if (get(positionMs) > 3000) {
 		seek(0);
@@ -254,6 +357,199 @@ export async function loadQueue() {
 	try {
 		const tracks = await queueApi.get();
 		queue.set(tracks);
+	} catch {
+		// ignore
+	}
+}
+
+/**
+ * Transfer playback from this device to another (or pull from remote to self).
+ * Shared by BottomBar and MobilePlayer to avoid duplicated transfer logic.
+ */
+export async function transferPlayback(targetId: string) {
+	if (targetId === deviceId) {
+		// Pull playback to this device from whoever is currently active.
+		const devices = get(activeDevices);
+		const active = devices.find((d) => d.is_active && d.id !== deviceId);
+
+		// Claim this device as active both locally AND on the server BEFORE
+		// starting playback.  receivePlayCommand → playTrack → sendHeartbeat
+		// triggers refreshDevices(); if the server still reports the old device
+		// as active, refreshDevices would reset activeDeviceId and all future
+		// play commands would delegate back to the old device.
+		activeDeviceId.set(deviceId);
+		await devicesApi.activate(deviceId).catch(() => {});
+
+		if (active?.state?.track_id) {
+			await receivePlayCommand(active.state.track_id, active.state.position_ms ?? 0);
+		}
+		return;
+	}
+
+	// Snapshot state BEFORE any async work — prevents races with SSE updates.
+	const track = get(currentTrack);
+	const pos   = Math.round(get(positionMs));
+	const q     = get(queue);
+	const wasPlaying = get(playbackState) === 'playing';
+
+	// Stop local audio immediately — bypass togglePlayPause() which would
+	// delegate to the (now-changing) active device and cause a race.
+	if (wasPlaying && audioEngine.isLoaded) {
+		audioEngine.pause();
+		playbackState.set('paused');
+	}
+
+	// Send an atomic play command with the full queue embedded.
+	// The backend writes the queue to Redis AND sets the active device pointer
+	// atomically, so no separate queueApi.replace() or activate() is needed.
+	if (track) {
+		await devicesApi.playCommand(
+			targetId,
+			track.id,
+			pos,
+			q.length > 0 ? q : undefined
+		).catch((err) => console.error('transferPlayback error', err));
+	}
+}
+
+/**
+ * Receive a play_command from another device.
+ * Uses the embedded queue from the SSE payload when available;
+ * falls back to loading from the server otherwise.
+ */
+export async function receivePlayCommand(trackId: string, posMs: number, embeddedQueue?: Track[]) {
+	let trackList: Track[];
+	if (embeddedQueue && embeddedQueue.length > 0) {
+		trackList = embeddedQueue;
+	} else {
+		await loadQueue();
+		trackList = get(queue);
+	}
+	// Find the track in the embedded queue to avoid a separate API call.
+	let track = trackList.find((t) => t.id === trackId);
+	if (!track) {
+		const res = await libraryApi.track(trackId).catch(() => null);
+		if (!res?.track) return;
+		track = res.track;
+	}
+	await playTrack(track, trackList.length > 0 ? trackList : undefined, posMs / 1000);
+}
+
+// ── Shadow tick ──────────────────────────────────────────────────────────────
+// When this device is not the active player, we mirror the active device's
+// progress locally. The server only sends state snapshots every ~30 s (via
+// heartbeat), so we advance positionMs locally at 250 ms intervals between
+// those snapshots.
+
+const SHADOW_TICK_MS = 250;
+let shadowTickTimer: ReturnType<typeof setInterval> | null = null;
+// Unix-ms timestamp at which the remote track's position was 0.
+// Set whenever syncVisibleState is called; used by the shadow tick to compute
+// the exact current position as Date.now() - _shadowEpochMs (no timer drift).
+let _shadowEpochMs = 0;
+
+/**
+ * True when the current playbackState='playing' was set by syncVisibleState
+ * (mirroring a remote device) rather than by actual local audio playback.
+ * Used by the visibilitychange handler to avoid auto-resuming a stale
+ * AudioContext when returning to the tab.
+ */
+let _isRemoteMirror = false;
+
+export function stopShadowTick() {
+	if (shadowTickTimer) {
+		clearInterval(shadowTickTimer);
+		shadowTickTimer = null;
+	}
+}
+
+function startShadowTick() {
+	stopShadowTick();
+	shadowTickTimer = setInterval(() => {
+		// Bail if this device has taken over real playback (audio engine loaded
+		// locally). On control-only devices playbackState can be 'playing' to
+		// mirror the remote device — the shadow tick must keep running.
+		if (get(playbackState) === 'playing' && audioEngine.isLoaded) {
+			stopShadowTick();
+			return;
+		}
+		// Self-terminate when playback is no longer 'playing' (e.g. pauseLocal
+		// was called because the remote active device disappeared).
+		if (get(playbackState) !== 'playing') {
+			stopShadowTick();
+			return;
+		}
+		const dur = get(durationMs);
+		// Compute position from epoch so the bar advances without any drift,
+		// regardless of how often the active device sends heartbeats.
+		const computed = _shadowEpochMs > 0
+			? Date.now() - _shadowEpochMs
+			: get(positionMs) + SHADOW_TICK_MS;
+		positionMs.set(dur > 0 && computed >= dur ? dur : computed);
+	}, SHADOW_TICK_MS);
+}
+
+/**
+ * Mirror the active device's visible track / position / volume on this device
+ * without starting audio. Called every time a 'state' SSE event arrives from
+ * the active device. When playing=true, a local ticker advances positionMs
+ * between server snapshots so the progress bar updates smoothly.
+ */
+export async function syncVisibleState(
+	trackId: string,
+	posMs: number,
+	playing = true,
+	/** Server-computed epoch (unix ms). When provided, the shadow tick derives
+	 *  position as Date.now()-epochMs instead of incrementing, eliminating drift.
+	 *  The client re-anchors locally anyway to cancel server/client clock skew. */
+	epochMs?: number,
+	/** Remote device's current volume level (0.0–1.0). */
+	remoteVolume?: number
+) {
+	// Never interrupt a device that is actively streaming audio locally.
+	// On control-only devices the audio engine is not loaded, so this guard
+	// passes through even when playbackState is 'playing' (mirroring remote).
+	if (get(playbackState) === 'playing' && audioEngine.isLoaded) return;
+
+	// Mirror the active device's volume so the slider reflects the remote level.
+	if (remoteVolume !== undefined) {
+		volume.set(remoteVolume);
+	}
+
+	// Re-anchor epoch locally — always use client clock to cancel server↔client
+	// clock skew. Any epoch the server provided is only used for documentation;
+	// the client derives it the same way for perfect per-tick accuracy.
+	if (playing) {
+		_shadowEpochMs = Date.now() - posMs;
+	}
+
+	const existing = get(currentTrack);
+	if (existing?.id === trackId) {
+		// Same track — re-anchor position from server snapshot, then tick.
+		positionMs.set(posMs);
+		_isRemoteMirror = playing;
+		playbackState.set(playing ? 'playing' : 'paused');
+		if (playing) {
+			startShadowTick();
+		} else {
+			stopShadowTick();
+		}
+		return;
+	}
+
+	try {
+		const res = await libraryApi.track(trackId);
+		if (!res?.track) return;
+		currentTrack.set(res.track);
+		durationMs.set(res.track.duration_ms);
+		positionMs.set(posMs);
+		_isRemoteMirror = playing;
+		playbackState.set(playing ? 'playing' : 'paused');
+		if (playing) {
+			startShadowTick();
+		} else {
+			stopShadowTick();
+		}
 	} catch {
 		// ignore
 	}
@@ -393,9 +689,11 @@ function syncMediaMetadata(track: Track | null) {
 
 function syncMediaSessionPlaybackState(state: PlaybackState) {
 	if (!mediaSessionSupported()) return;
-	navigator.mediaSession.playbackState =
-		state === 'playing' ? 'playing' :
-		state === 'paused' || state === 'idle' ? 'paused' : 'none';
+	// During loading, leave the previous playbackState unchanged — resetting
+	// it to 'none' causes Chrome to tear down the media notification and
+	// rebuild it, which makes the notification flicker or disappear entirely.
+	if (state === 'loading') return;
+	navigator.mediaSession.playbackState = state === 'playing' ? 'playing' : 'paused';
 }
 
 function syncPositionState(posMs: number, durMs: number) {
@@ -434,6 +732,37 @@ if (mediaSessionSupported()) {
 
 currentTrack.subscribe(syncMediaMetadata);
 playbackState.subscribe(syncMediaSessionPlaybackState);
+
+// When the user returns to Chrome from another app, Android may have
+// auto-suspended AudioContexts (including the one capturing the native
+// <audio> element via createMediaElementSource), silencing playback and
+// removing the media notification. Resuming on visibility restores both.
+// IMPORTANT: Only resume when the player is supposed to be playing AND has
+// local audio loaded. The WASM path pauses by suspending its AudioContext,
+// so resuming unconditionally would un-pause audio while the UI still shows
+// "paused" — causing an audio/UI desync.
+if (typeof document !== 'undefined') {
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState !== 'visible') return;
+
+		// Eagerly refresh the device list to catch any events we missed while
+		// backgrounded (e.g. pause_others, device un-registration).
+		refreshDevicesFromSession().catch(() => {});
+
+		// Only resume audio contexts if this device was actually playing
+		// locally — NOT when we're just mirroring a remote device's state.
+		// Without this guard, returning to a tab that was shadow-mirroring a
+		// remote device could resume a stale AudioContext, causing phantom
+		// audio with the UI stuck on "paused".
+		if (
+			get(playbackState) === 'playing' &&
+			audioEngine.isLoaded &&
+			!_isRemoteMirror
+		) {
+			audioEngine.resumeAllContexts();
+		}
+	});
+}
 
 // ─── Discord Rich Presence ───────────────────────────────────────────────────
 // Only active in the Tauri desktop shell. Updates presence when the track
@@ -567,3 +896,25 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		saveEnabled = true;
 	}
 })();
+
+// ─── Device Session wiring ────────────────────────────────────────────────────
+// Inject player references into the device session so it can react to
+// cross-device events (e.g. pause this device when another takes over).
+if (typeof document !== 'undefined') {
+	setPlayerRef({
+		playbackState,
+		currentTrack,
+		positionMs,
+		volume,
+		togglePlayPause,
+		pauseLocal,
+		next,
+		previous,
+		seek,
+		setVolume,
+		playTrack,
+		receivePlayCommand,
+		syncVisibleState,
+		stopShadowTick,
+	});
+}

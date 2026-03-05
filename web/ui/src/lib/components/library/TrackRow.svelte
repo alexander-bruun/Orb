@@ -2,6 +2,7 @@
   import type { Track } from '$lib/types';
   import { playTrack, currentTrack, playbackState } from '$lib/stores/player';
   import { openContextMenu } from '$lib/stores/contextMenu';
+  import { downloads } from '$lib/stores/downloads';
   import { onMount } from 'svelte';
   import { getArtistName, preloadArtists } from '$lib/stores/artists';
 
@@ -14,6 +15,7 @@
   import { getApiBase } from '$lib/api/base';
 
   $: isPlaying = $currentTrack?.id === track.id && $playbackState === 'playing';
+  $: dlStatus = $downloads.get(track.id)?.status;
 
   interface ArtistRef { id?: string; name: string; }
 
@@ -102,6 +104,15 @@
       </span>
     {/if}
   </div>
+  {#if dlStatus === 'done'}
+    <span class="dl-icon" title="Downloaded">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
+    </span>
+  {:else if dlStatus === 'downloading'}
+    <span class="dl-icon dl-progress" title="Downloading">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
+    </span>
+  {/if}
   <span class="duration">{formatDuration(track.duration_ms)}</span>
 </div>
 
@@ -144,4 +155,7 @@
   }
   .feat-sep, .comma { color: var(--text-muted); }
   .duration { font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
+  .dl-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--accent); opacity: 0.8; }
+  .dl-progress { opacity: 0.45; animation: dl-pulse 1.5s ease-in-out infinite; }
+  @keyframes dl-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
 </style>

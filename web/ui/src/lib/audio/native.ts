@@ -81,6 +81,22 @@ export class NativePlayer {
 		this.el.volume = Math.max(0, Math.min(1, gain));
 	}
 
+	/**
+	 * Route audio output to a specific device (e.g. a Bluetooth speaker).
+	 * Uses HTMLMediaElement.setSinkId() — only available in Chrome/Edge.
+	 * Silently ignored on unsupported browsers.
+	 */
+	async setSinkId(sinkId: string): Promise<void> {
+		const el = this.el as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+		if (typeof el.setSinkId === 'function') {
+			try {
+				await el.setSinkId(sinkId);
+			} catch (err) {
+				console.warn('[NativePlayer] setSinkId failed:', err);
+			}
+		}
+	}
+
 	onEnded(cb: () => void) {
 		this.onEndedCb = cb;
 	}
@@ -97,9 +113,41 @@ export class NativePlayer {
 		this.onBufferedCb = cb;
 	}
 
+	/**
+	 * Play from a blob: URL (offline downloads). Skips HLS and token logic.
+	 */
+	async playBlob(blobUrl: string, startSeconds = 0): Promise<void> {
+		this.el.src = blobUrl;
+		this.el.load();
+		await this.el.play();
+		if (startSeconds > 0) {
+			this.el.currentTime = startSeconds;
+		}
+	}
+
 	/** Expose the underlying HTMLAudioElement (e.g. for createMediaElementSource). */
 	getElement(): HTMLAudioElement {
 		return this.el;
+	}
+
+	/**
+	 * True when the browser supports the Remote Playback API on this element.
+	 * Available on mobile Chrome/Edge — allows casting to Chromecast, AirPlay, etc.
+	 */
+	get remotePlaybackSupported(): boolean {
+		return 'remote' in this.el;
+	}
+
+	/**
+	 * Prompt the user to select a remote playback device (Chromecast, AirPlay, etc.)
+	 * using the browser's native Remote Playback API.
+	 * Throws if the API is unavailable or the user cancels.
+	 */
+	async promptRemotePlayback(): Promise<void> {
+		const el = this.el as HTMLAudioElement & { remote?: RemotePlayback };
+		if (!el.remote) throw new Error('Remote Playback API not available');
+		// Disable remote playback watchAvailability monitoring first, then prompt.
+		await el.remote.prompt();
 	}
 
 	destroy() {

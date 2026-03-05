@@ -7,6 +7,7 @@ Orb is a self-hosted, lossless music streaming platform - a personal Spotify bac
 <table align="center"><tr>
   <td><img src="mobile.png" alt="Orb Mobile UI" width="300"></td>
   <td><img src="mobile-lyrics.png" alt="Orb Mobile + Lyrics UI" width="300"></td>
+  <td><img src="mobile-offline.png" alt="Orb Mobile Offline" width="300"></td>
 </tr></table>
 
 ## ✨ Features

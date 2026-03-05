@@ -6,6 +6,7 @@
   import { recommend } from '$lib/api/recommend';
   import { share as shareApi } from '$lib/api/share';
   import { favorites } from '$lib/stores/favorites';
+  import { downloads, downloadTrack, deleteDownload } from '$lib/stores/downloads';
   import type { Playlist } from '$lib/types';
 
   let showPlaylists = false;
@@ -24,6 +25,7 @@
   }
 
   $: isFav = $contextMenu.track ? $favorites.has($contextMenu.track.id) : false;
+  $: dlEntry = $contextMenu.track ? $downloads.get($contextMenu.track.id) : undefined;
 
   async function handleFavorite() {
     const t = $contextMenu.track;
@@ -166,6 +168,35 @@
         </svg>
         Add to Queue
       </button>
+
+      {#if dlEntry?.status === 'done'}
+        <button class="item" role="menuitem"
+          on:click={() => { if ($contextMenu.track) { deleteDownload($contextMenu.track.id); closeContextMenu(); } }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="3,6 5,6 21,6"/>
+            <path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6"/>
+            <path d="M10,11v6m4-6v6"/>
+          </svg>
+          Remove download
+        </button>
+      {:else if dlEntry?.status === 'downloading'}
+        <button class="item" role="menuitem" disabled>
+          <svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+          Downloading {dlEntry.progress}%…
+        </button>
+      {:else}
+        <button class="item" role="menuitem"
+          on:click={() => { if ($contextMenu.track) { downloadTrack($contextMenu.track); closeContextMenu(); } }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7,10 12,15 17,10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download offline
+        </button>
+      {/if}
 
       <button class="item" on:click={handleStartRadio} role="menuitem">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -310,4 +341,7 @@
 
   .sep { height: 1px; background: var(--border); margin: 3px 6px; }
   .hint { padding: 6px 10px; font-size: 0.78rem; color: var(--text-2); }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
 </style>

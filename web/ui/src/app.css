@@ -48,6 +48,16 @@
   --text-muted:  var(--text-2);
 }
 
+/* ── Scrollbar (follows theme) ─────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
 html, body {
   height: 100%;
   background: var(--bg);

@@ -26,6 +26,9 @@
   import { loadEQProfiles, getProfileForGenre, applyEQProfile, eqProfiles, genreEQMappings } from '$lib/stores/eq';
   import { library as libraryApi } from '$lib/api/library';
   import { get } from 'svelte/store';
+  import { restoreDownloads, downloads } from '$lib/stores/downloads';
+  import { isOffline, startConnectivityMonitor, checkConnectivity } from '$lib/stores/offline';
+  import { lpPanelOpen, lpRole } from '$lib/stores/listenParty';
 
   function onKeydown(e: KeyboardEvent) {
     // Ignore when focus is inside a text field.
@@ -43,6 +46,8 @@
 
   onMount(async () => {
     themeStore.init();
+    restoreDownloads();
+    startConnectivityMonitor();
 
     // Tauri first-launch: redirect to /connect to configure server URL.
     if (isTauri() && !getServerUrl()) {
@@ -53,6 +58,7 @@
     try {
       const data = await apiFetch<{ setup_required: boolean }>('/auth/setup');
       setupRequired.set(data.setup_required);
+      isOffline.set(false);
     } catch {
       // In Tauri with no configured server URL, the API call hit the local
       // static frontend and returned HTML instead of JSON. Redirect to the
@@ -61,6 +67,19 @@
         goto('/connect');
         return;
       }
+
+      // Check if the backend is actually unreachable.
+      const offline = await checkConnectivity();
+      if (offline) {
+        // Backend down — check if there are downloaded tracks to show.
+        const dlMap = get(downloads);
+        const hasDownloads = [...dlMap.values()].some(e => e.status === 'done');
+        if (hasDownloads) {
+          goto('/offline');
+          return;
+        }
+      }
+
       // If the check fails, assume setup is done and fall through to login guard.
       setupRequired.set(false);
     }
@@ -72,7 +91,7 @@
     const path = $page.url.pathname;
 
     // Public pages — skip all auth / setup guards.
-    if (path.startsWith('/listen/') || path === '/connect' || path.startsWith('/share/')) return;
+    if (path.startsWith('/listen/') || path === '/connect' || path.startsWith('/share/') || path === '/offline') return;
 
     // Tauri without a configured server URL — send to /connect first.
     if (isTauri() && !getServerUrl()) {
@@ -87,8 +106,8 @@
       // Setup done — /setup is no longer accessible.
       if (path === '/setup') {
         goto($isAuthenticated ? '/' : '/login');
-      } else if (path !== '/login' && !$isAuthenticated) {
-        // Token expired or logged out — send to login.
+      } else if (path !== '/login' && path !== '/offline' && !$isAuthenticated) {
+        // Token expired or logged out — send to login (unless offline page).
         dataLoaded = false;
         goto('/login');
       } else if ($isAuthenticated) {
@@ -99,6 +118,44 @@
         }
       }
     }
+  });
+
+  // ── Auto-navigate away from /offline when connectivity is restored ────────
+  $effect(() => {
+    const offline = $isOffline;
+    const path = $page.url.pathname;
+    if (!offline && path === '/offline') {
+      goto('/');
+    }
+  });
+
+  // ── Auto-navigate TO /offline when backend becomes unreachable ────────────
+  // Uses a confirmation check to avoid reacting to transient glitches.
+  let offlineConfirmTimeout: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const offline = $isOffline;
+    const path = $page.url.pathname;
+    // Already on a public/offline page — nothing to do.
+    if (path === '/offline' || path === '/login' || path === '/setup' || path === '/connect' || path.startsWith('/listen/') || path.startsWith('/share/')) {
+      if (offlineConfirmTimeout) { clearTimeout(offlineConfirmTimeout); offlineConfirmTimeout = null; }
+      return;
+    }
+    if (!offline) {
+      if (offlineConfirmTimeout) { clearTimeout(offlineConfirmTimeout); offlineConfirmTimeout = null; }
+      return;
+    }
+    // Offline detected — wait 2 s then re-verify before actually redirecting.
+    if (offlineConfirmTimeout) return; // already waiting
+    offlineConfirmTimeout = setTimeout(async () => {
+      offlineConfirmTimeout = null;
+      const stillOffline = await checkConnectivity();
+      if (!stillOffline) return; // was just a transient glitch
+      const dlMap = get(downloads);
+      const hasDownloads = [...dlMap.values()].some(e => e.status === 'done');
+      if (hasDownloads) {
+        goto('/offline');
+      }
+    }, 2000);
   });
 
   // ── Per-genre EQ auto-switch ────────────────────────────
@@ -141,7 +198,7 @@
   <div class="window-frame" aria-hidden="true"></div>
 {/if}
 
-{#if $page.url.pathname.startsWith('/listen/') || $page.url.pathname === '/connect' || $page.url.pathname.startsWith('/share/')}
+{#if $page.url.pathname.startsWith('/listen/') || $page.url.pathname === '/connect' || $page.url.pathname.startsWith('/share/') || $page.url.pathname === '/offline'}
   <!-- Public page: render without shell or auth guards -->
   {@render children()}
 {:else if $setupRequired === null}
@@ -151,7 +208,7 @@
 {:else if !$setupRequired && $page.url.pathname === '/login'}
   {@render children()}
 {:else if !$setupRequired && $isAuthenticated}
-  <div class="shell" class:tauri={isTauri()}>
+  <div class="shell" class:tauri={isTauri()} class:party-open={$lpPanelOpen && $lpRole === 'host'}>
     {#if isTauri()}<TitleBar />{/if}
     <TopBar />
     <Sidebar />
@@ -159,13 +216,13 @@
       {@render children()}
     </main>
     <BottomBar />
+    <ListenPartyPanel />
   </div>
   <MobilePlayer />
   <MobileNav />
   <MobileAvatar />
   <ContextMenu />
   <QueueModal />
-  <ListenPartyPanel />
   <LyricsModal />
   <ToastContainer />
 {/if}
@@ -202,6 +259,26 @@
   :global(header.topbar)    { grid-area: top; }
   :global(aside.sidebar)    { grid-area: sidebar; }
   :global(footer.bottom-bar) { grid-area: bottom; }
+  :global(aside.party-panel) { grid-area: party; }
+
+  /* ── Desktop: expand grid to include party panel column when open ─────── */
+  @media (min-width: 641px) {
+    .shell.party-open {
+      grid-template-columns: var(--sidebar-w) 1fr 280px;
+      grid-template-areas:
+        "top    top    top"
+        "sidebar content party"
+        "bottom bottom  bottom";
+    }
+    .shell.tauri.party-open {
+      grid-template-columns: var(--sidebar-w) 1fr 280px;
+      grid-template-areas:
+        "titlebar titlebar titlebar"
+        "top      top      top"
+        "sidebar  content  party"
+        "bottom   bottom   bottom";
+    }
+  }
 
   /* ── Mobile layout: full-screen content, fixed bottom mobile UI ─────────── */
   @media (max-width: 640px) {

@@ -1,7 +1,13 @@
 <script lang="ts">
+  import { derived } from 'svelte/store';
+  import { lpPanelOpen, lpRole } from '$lib/stores/listenParty';
+
   export let keys: string[] = [];
   export let activeKey: string = '';
   export let scrollEl: HTMLElement | null = null;
+
+  // Shift the bar left on desktop when the listen party panel is open
+  const partyOpen = derived([lpPanelOpen, lpRole], ([$open, $role]) => $open && $role === 'host');
 
   function jumpTo(key: string) {
     if (!scrollEl) return;
@@ -15,7 +21,7 @@
 </script>
 
 {#if keys.length > 0}
-  <nav class="alpha-bar" aria-label="Quick navigation">
+  <nav class="alpha-bar" aria-label="Quick navigation" style="right: {$partyOpen ? '280px' : '0'}">
     {#each keys as key}
       <button
         class="key-item"
@@ -35,6 +41,7 @@
     right: 0;
     top: var(--top-h);
     bottom: var(--bottom-h);
+  
     width: 36px;
     display: flex;
     flex-direction: column;
@@ -73,6 +80,7 @@
   /* On mobile the real bottom is: nav (60px) + mini-player (~68px) + safe-area */
   @media (max-width: 640px) {
     .alpha-bar {
+      right: 0 !important; /* party panel is full-screen on mobile, don't shift */
       bottom: calc(128px + env(safe-area-inset-bottom, 0px));
     }
   }

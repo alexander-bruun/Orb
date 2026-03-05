@@ -26,16 +26,37 @@
       : ''
   );
 
+  function fallbackCopy(text: string): boolean {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  async function copyToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      if (!fallbackCopy(text)) throw new Error('copy failed');
+    }
+  }
+
   async function copyLink() {
     if (!inviteUrl) return;
-    await navigator.clipboard.writeText(inviteUrl).catch(() => {});
+    await copyToClipboard(inviteUrl).catch(() => {});
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
 
   async function copyCode() {
     if (!$lpAccessCode) return;
-    await navigator.clipboard.writeText($lpAccessCode).catch(() => {});
+    await copyToClipboard($lpAccessCode).catch(() => {});
     codeCopied = true;
     setTimeout(() => (codeCopied = false), 2000);
   }
@@ -193,16 +214,11 @@
 
 <style>
   .party-panel {
-    position: fixed;
-    right: 0;
-    top: var(--top-h, 48px);
-    bottom: var(--bottom-h, 80px);
-    width: 280px;
     background: var(--bg-elevated);
     border-left: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    z-index: 100;
+    overflow-y: auto;
     box-shadow: -4px 0 16px rgba(0,0,0,0.15);
   }
 
@@ -484,5 +500,108 @@
     color: var(--text-muted);
     margin: 0;
     line-height: 1.4;
+  }
+
+  /* ── Mobile: full-screen bottom sheet ──────────────────────────────────── */
+  @media (max-width: 640px) {
+    .party-panel {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      border-left: none;
+      border-radius: 0;
+      z-index: 110;
+      box-shadow: 0 -4px 24px rgba(0,0,0,0.25);
+    }
+
+    .panel-header {
+      padding: 16px 20px 14px;
+      padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    }
+
+    .panel-title {
+      font-size: 1rem;
+    }
+
+    .close-btn {
+      padding: 8px;
+    }
+    .close-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .status-row {
+      padding: 10px 20px;
+    }
+
+    .invite-section, .participants-section, .code-section {
+      padding: 14px 20px;
+    }
+
+    .invite-input {
+      font-size: 0.82rem;
+      padding: 10px 12px;
+    }
+
+    .copy-btn {
+      padding: 10px 12px;
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+    }
+
+    .participant-row {
+      padding: 10px 8px;
+    }
+
+    .participant-avatar {
+      width: 34px;
+      height: 34px;
+      font-size: 0.85rem;
+    }
+
+    .participant-name {
+      font-size: 0.92rem;
+    }
+
+    .kick-btn {
+      opacity: 1;
+      padding: 8px;
+    }
+    .kick-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .panel-footer {
+      padding: 14px 20px;
+      padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .end-btn {
+      padding: 12px;
+      font-size: 0.95rem;
+    }
+
+    .code-digits {
+      font-size: 1.8rem;
+      padding: 10px 16px;
+    }
+
+    .icon-btn {
+      padding: 10px;
+    }
+    .icon-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .code-hint {
+      font-size: 0.8rem;
+    }
   }
 </style>

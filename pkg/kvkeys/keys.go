@@ -14,3 +14,10 @@ func TOTPPending(token string) string         { return "totp_pending:" + token }
 func UserStreamingPrefs(userID string) string { return "user:stream_prefs:" + userID }
 func ShareToken(token string) string          { return "share:" + token }
 func ShareStreamSession(token string) string  { return "share_stream:" + token }
+
+// Device session keys.
+func UserDevice(userID, deviceID string) string { return "user:device:" + userID + ":" + deviceID }
+func UserDeviceGlob(userID string) string       { return "user:device:" + userID + ":*" }
+func UserActiveDevice(userID string) string     { return "user:active_device:" + userID }
+func UserDeviceEvents(userID string) string     { return "user:device_events:" + userID }
+func UserExclusiveMode(userID string) string    { return "user:exclusive_mode:" + userID }

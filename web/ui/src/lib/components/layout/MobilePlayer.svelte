@@ -11,6 +11,7 @@
     repeatMode,
     shuffle,
     userQueue,
+    queue,
     queueModalOpen,
     togglePlayPause,
     seek,
@@ -19,6 +20,7 @@
     previous,
     toggleRepeat,
     toggleShuffle,
+    transferPlayback,
   } from '$lib/stores/player';
   import { library } from '$lib/api/library';
   import { favorites } from '$lib/stores/favorites';
@@ -26,6 +28,29 @@
   import { getApiBase } from '$lib/api/base';
   import { lyricsOpen, lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/lyrics';
   import { goto } from '$app/navigation';
+  import { activeDevices, deviceId, exclusiveMode } from '$lib/stores/deviceSession';
+  import { devices as devicesApi } from '$lib/api/devices';
+  import {
+    castState,
+    castDeviceName,
+    initCastSdk,
+    startCast,
+    stopCast,
+    sinkIdSupported,
+    audioOutputDevices,
+    selectedAudioOutputId,
+    setAudioOutput,
+    refreshAudioOutputDevices,
+    remotePlaybackSupported,
+    promptRemotePlayback,
+  } from '$lib/stores/casting';
+  import {
+    lpRole,
+    lpPanelOpen,
+    lpParticipants,
+    lpSessionId,
+    createAndConnect,
+  } from '$lib/stores/listenParty';
 
   const currentAlbum = writable<{ id: string; title: string; artist?: string } | null>(null);
 
@@ -136,6 +161,43 @@
       closePlayer();
       goto(`/artists/${$currentTrack.artist_id}`);
     }
+  }
+
+  // ── Device transfer ────────────────────────────────────────────────────────
+  let devicePickerOpen = false;
+
+  // Initialise Cast SDK so it's ready when the user opens the picker.
+  initCastSdk();
+
+  async function handleCastToggle() {
+    if ($castState === 'connected') {
+      stopCast();
+    } else if ($castState === 'idle') {
+      try { await startCast(); } catch { /* user cancelled */ }
+    } else if ($castState === 'unavailable') {
+      // Try the Remote Playback API first (mobile browsers).
+      if (remotePlaybackSupported) {
+        try {
+          await promptRemotePlayback();
+          return;
+        } catch {
+          // User cancelled or no devices found — fall through.
+        }
+        return;
+      }
+      // Retry Cast SDK init — may succeed if conditions changed.
+      initCastSdk();
+      // Give it a moment then check again.
+      await new Promise(r => setTimeout(r, 1500));
+      if ($castState === 'idle') {
+        try { await startCast(); } catch { /* user cancelled */ }
+      }
+    }
+  }
+
+  async function transferToDevice(targetId: string) {
+    devicePickerOpen = false;
+    await transferPlayback(targetId);
   }
 </script>
 
@@ -448,8 +510,37 @@
         </svg>
       </div>
 
-      <!-- Extras row: queue -->
+      <!-- Extras row: queue + listen along + device transfer -->
       <div class="fs-extras">
+        {#if $lpRole === 'host'}
+          <button
+            class="fs-extra-btn"
+            class:active={$lpPanelOpen}
+            on:click={() => { closePlayer(); lpPanelOpen.update(v => !v); }}
+            aria-label="Listen Along"
+            title="Listen Along"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+              <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+            </svg>
+            <span>Party{#if $lpParticipants.length > 0}&nbsp;<span class="party-count">{$lpParticipants.length}</span>{/if}</span>
+          </button>
+        {:else if $lpRole === null}
+          <button
+            class="fs-extra-btn"
+            on:click={createAndConnect}
+            aria-label="Start Listen Along"
+            title="Start Listen Along"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+              <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+            </svg>
+            <span>Party</span>
+          </button>
+        {/if}
+
         {#if $userQueue.length > 1}
           <button
             class="fs-extra-btn"
@@ -468,6 +559,143 @@
             </svg>
             <span>Queue <span class="queue-count">{$userQueue.length}</span></span>
           </button>
+        {/if}
+
+        <button
+          class="fs-extra-btn"
+          class:active={$castState === 'connected'}
+          on:click={handleCastToggle}
+          disabled={$castState === 'connecting'}
+          aria-label={$castState === 'connected' ? 'Stop casting' : 'Cast to device'}
+          title={$castState === 'connected' ? `Casting to ${$castDeviceName}` : 'Cast'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/>
+            <path d="M2 15a7 7 0 0 1 7 7"/>
+            <path d="M2 15a3 3 0 0 1 3 3"/>
+            <line x1="2" y1="22" x2="2.01" y2="22"/>
+          </svg>
+          {#if $castState === 'connected'}
+            <span class="fs-cast-dot"></span>
+          {/if}
+          <span>{$castState === 'connected' ? $castDeviceName : 'Cast'}</span>
+        </button>
+
+        {#if ($exclusiveMode && $activeDevices.length > 0) || sinkIdSupported || $castState !== 'unavailable'}
+          <div class="fs-device-wrap">
+            <button
+              class="fs-extra-btn"
+              class:active={devicePickerOpen}
+              on:click|stopPropagation={() => { devicePickerOpen = !devicePickerOpen; if (devicePickerOpen) refreshAudioOutputDevices(); }}
+              aria-label="Switch playback device or audio output"
+              title="Switch device / audio output"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="2" y="3" width="20" height="14" rx="2"/>
+                <path d="M8 21h8"/>
+                <path d="M12 17v4"/>
+              </svg>
+              <span>Devices{#if $activeDevices.length > 1}&nbsp;<span class="queue-count">{$activeDevices.length}</span>{/if}</span>
+            </button>
+
+            {#if devicePickerOpen}
+              <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+              <div
+                class="fs-device-overlay"
+                on:click|stopPropagation={() => (devicePickerOpen = false)}
+                on:touchstart|stopPropagation={() => {}}
+                on:touchmove|stopPropagation={() => {}}
+              ></div>
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <div
+                class="fs-device-popup"
+                on:touchstart|stopPropagation={() => {}}
+                on:touchmove|stopPropagation={() => {}}
+              >
+                <!-- ── Chromecast section ─────────────────────────── -->
+                {#if $castState !== 'unavailable'}
+                  <div class="fs-device-header">Cast</div>
+                  <button
+                    class="fs-device-item"
+                    class:is-active={$castState === 'connected'}
+                    on:click={handleCastToggle}
+                    disabled={$castState === 'connecting'}
+                  >
+                    <div class="fs-device-left">
+                      <span class="fs-device-dot" class:fs-device-dot--active={$castState === 'connected'}></span>
+                      <div class="fs-device-info">
+                        <span class="fs-device-name">
+                          {$castState === 'connected' ? $castDeviceName : 'Chromecast / Cast device'}
+                        </span>
+                        <span class="fs-device-track">
+                          {#if $castState === 'connecting'}Connecting…
+                          {:else if $castState === 'connected'}Casting now — tap to stop
+                          {:else}Tap to cast to a nearby device{/if}
+                        </span>
+                      </div>
+                    </div>
+                    {#if $castState !== 'connected'}
+                      <span class="fs-transfer-hint">Cast</span>
+                    {:else}
+                      <span class="fs-transfer-hint" style="color:var(--error,#e55)">Stop</span>
+                    {/if}
+                  </button>
+                {/if}
+
+                <!-- ── Audio output section ──────────────────────── -->
+                {#if sinkIdSupported && $audioOutputDevices.length > 0}
+                  <div class="fs-device-header" style="margin-top:{$castState !== 'unavailable' ? '8px' : '0'}">Audio output</div>
+                  {#each $audioOutputDevices as out (out.deviceId)}
+                    <button
+                      class="fs-device-item"
+                      class:is-active={$selectedAudioOutputId === out.deviceId}
+                      on:click={() => { setAudioOutput(out.deviceId); devicePickerOpen = false; }}
+                    >
+                      <div class="fs-device-left">
+                        <span class="fs-device-dot" class:fs-device-dot--active={$selectedAudioOutputId === out.deviceId}></span>
+                        <div class="fs-device-info">
+                          <span class="fs-device-name">{out.label}</span>
+                          <span class="fs-device-track">{out.deviceId === 'default' ? 'System default' : 'Audio output'}</span>
+                        </div>
+                      </div>
+                      {#if $selectedAudioOutputId !== out.deviceId}
+                        <span class="fs-transfer-hint">Select</span>
+                      {/if}
+                    </button>
+                  {/each}
+                {/if}
+
+                <!-- ── Browser / app sessions (only in exclusive mode) ── -->
+                {#if $exclusiveMode && $activeDevices.length > 0}
+                  <div class="fs-device-header" style="margin-top:{($castState !== 'unavailable' || (sinkIdSupported && $audioOutputDevices.length > 0)) ? '8px' : '0'}">Sessions</div>
+                  {#each $activeDevices as device (device.id)}
+                    <button
+                      class="fs-device-item"
+                      class:is-active={device.is_active}
+                      class:is-this={device.id === deviceId}
+                      on:click={() => transferToDevice(device.id)}
+                    >
+                      <div class="fs-device-left">
+                        <span class="fs-device-dot" class:fs-device-dot--active={device.is_active}></span>
+                        <div class="fs-device-info">
+                          <span class="fs-device-name">
+                            {device.name}
+                            {#if device.id === deviceId}<span class="fs-this-badge">this device</span>{/if}
+                          </span>
+                          <span class="fs-device-track">{device.state.track_title || 'Idle'}</span>
+                        </div>
+                      </div>
+                      {#if device.id !== deviceId}
+                        <span class="fs-transfer-hint">Transfer</span>
+                      {:else if !device.is_active}
+                        <span class="fs-transfer-hint">Play here</span>
+                      {/if}
+                    </button>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </div>
         {/if}
       </div>
     </div>
@@ -1060,6 +1288,7 @@
       font-size: 11px;
       padding: 8px;
       border-radius: 8px;
+      position: relative;
       -webkit-tap-highlight-color: transparent;
       transition: color 0.15s;
     }
@@ -1068,8 +1297,142 @@
       color: var(--accent);
     }
 
+    .party-count {
+      font-weight: 700;
+    }
+
     .queue-count {
       font-weight: 700;
+    }
+
+    /* Device picker */
+    .fs-device-wrap {
+      position: relative;
+    }
+
+    .fs-device-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+    }
+
+    .fs-device-popup {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: 260px;
+      background: var(--bg-elevated, #1e1e1e);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      overflow: hidden;
+      z-index: 11;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+    }
+
+    .fs-device-header {
+      padding: 10px 14px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .fs-device-item {
+      width: 100%;
+      background: none;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 14px;
+      cursor: pointer;
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 0.875rem;
+      text-align: left;
+      transition: background 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .fs-device-item:active,
+    .fs-device-item:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .fs-device-item.is-active {
+      color: #fff;
+    }
+
+    .fs-device-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .fs-device-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    .fs-device-dot--active {
+      background: var(--accent, #1db954);
+      box-shadow: 0 0 6px var(--accent, #1db954);
+    }
+
+    /* Small pulsing dot shown on the Devices button when casting is active */
+    .fs-cast-dot {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent, #1db954);
+      box-shadow: 0 0 5px var(--accent, #1db954);
+    }
+
+    .fs-device-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .fs-device-name {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .fs-this-badge {
+      font-size: 10px;
+      font-weight: 400;
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .fs-device-track {
+      font-size: 0.75rem;
+      color: rgba(255, 255, 255, 0.4);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .fs-transfer-hint {
+      font-size: 11px;
+      color: var(--accent, #1db954);
+      flex-shrink: 0;
+      font-weight: 500;
     }
   }
 </style>

@@ -4,6 +4,7 @@
   import TrackList from '$lib/components/library/TrackList.svelte';
   import type { Album, Track, Genre } from '$lib/types';
   import { playTrack, shuffle, startRadio } from '$lib/stores/player';
+  import { downloadAlbum, downloads } from '$lib/stores/downloads';
 
   import { getApiBase } from '$lib/api/base';
 
@@ -63,6 +64,21 @@
   }
 
   $: discCount = new Set(tracks.map((t) => t.disc_number ?? 1)).size;
+
+  let downloading = false;
+  $: dlDoneCount = tracks.filter(t => $downloads.get(t.id)?.status === 'done').length;
+  $: allDownloaded = tracks.length > 0 && dlDoneCount === tracks.length;
+  $: dlActiveCount = tracks.filter(t => $downloads.get(t.id)?.status === 'downloading').length;
+
+  async function downloadAll() {
+    if (downloading || tracks.length === 0) return;
+    downloading = true;
+    try {
+      await downloadAlbum(tracks);
+    } finally {
+      downloading = false;
+    }
+  }
 </script>
 
 {#if loading}
@@ -117,6 +133,12 @@
             <circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>
           </svg>
           {radioLoading ? 'Loading…' : 'Start Radio'}
+        </button>
+        <button class="btn-download" on:click={downloadAll} disabled={tracks.length === 0 || allDownloaded || downloading} title="Download all tracks for offline playback">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          {#if allDownloaded}Downloaded{:else if downloading || dlActiveCount > 0}{dlDoneCount}/{tracks.length}{:else}Download{/if}
         </button>
       </div>
     </div>
@@ -224,6 +246,21 @@
   }
   .btn-radio:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
   .btn-radio:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-download {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 7px 16px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-download:hover { color: var(--text); border-color: var(--text); }
+  .btn-download:disabled { opacity: 0.6; cursor: not-allowed; }
   .muted { color: var(--text-muted); }
 
   /* Variant / edition picker */

@@ -15,7 +15,9 @@ export default defineConfig({
 		...(!isTauriBuild ? [
 			VitePWA({
 				registerType: 'autoUpdate',
-				strategies: 'generateSW',
+				strategies: 'injectManifest',
+				srcDir: 'src',
+				filename: 'sw.ts',
 				manifest: {
 					name: 'Orb',
 					short_name: 'Orb',
@@ -29,22 +31,9 @@ export default defineConfig({
 						{ src: '/pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
 					],
 				},
-				workbox: {
+				injectManifest: {
 					// Cache the app shell and static assets
 					globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-					// Don't try to precache audio streams or API responses
-					navigationPreload: false,
-					runtimeCaching: [
-						{
-							// Cache cover art with a stale-while-revalidate strategy
-							urlPattern: /\/api\/(covers|artists)\//,
-							handler: 'CacheFirst',
-							options: {
-								cacheName: 'cover-art',
-								expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
-							},
-						},
-					],
 				},
 				devOptions: { enabled: false },
 			}),

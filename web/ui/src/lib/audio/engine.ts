@@ -11,6 +11,7 @@ import { get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 import { positionMs, durationMs, bufferedPct, next as playerNext } from '$lib/stores/player';
 import type { EQBand } from '$lib/types';
+import { getOfflineBlob, getOfflineBlobUrl } from '$lib/stores/downloads';
 
 import { getApiBase } from '$lib/api/base';
 
@@ -59,6 +60,8 @@ class AudioEngine {
 	private startTime = 0;
 	private offsetSeconds = 0;
 	private positionInterval: ReturnType<typeof setInterval> | null = null;
+	/** Blob URL for offline playback — must be revoked when done. */
+	private offlineBlobUrl: string | null = null;
 
 	/** True after a successful play(); false after stop() or before first play. */
 	get isLoaded(): boolean {
@@ -194,8 +197,24 @@ class AudioEngine {
 
 	private async playWasm(trackId: string, sampleRate: number, startSeconds: number): Promise<void> {
 		const ctx = await this.getCtx(sampleRate);
-		const token = get(authStore).token ?? '';
 		this.wasmFullBuffer = null;
+
+		// Offline: decode directly from IndexedDB blob (works on insecure origins)
+		try {
+			const offlineBlob = await getOfflineBlob(trackId);
+			if (offlineBlob) {
+				const data = new Uint8Array(await offlineBlob.arrayBuffer());
+				const buf = await ctx.decodeAudioData(
+					(data.buffer as ArrayBuffer).slice(data.byteOffset, data.byteOffset + data.byteLength)
+				);
+				this._setFullBuffer(buf);
+				this.startWasmPlayback(ctx, buf, startSeconds);
+				this.startPositionTracking();
+				return;
+			}
+		} catch { /* IDB unavailable — fall through to network */ }
+
+		const token = get(authStore).token ?? '';
 
 		// For non-zero start positions we need the full buffer for accurate
 		// decoding, so skip the quick-start optimisation.
@@ -373,9 +392,23 @@ class AudioEngine {
 		if (!this.nativePlayer) {
 			this.nativePlayer = new NativePlayer();
 		}
-		const token = get(authStore).token ?? '';
-		const url = `${getApiBase()}/stream/${trackId}`;
-		await this.nativePlayer.play(url, token, startSeconds);
+
+		// Offline: play from IndexedDB blob URL (works on insecure origins)
+		let usedOffline = false;
+		try {
+			const blobUrl = await getOfflineBlobUrl(trackId);
+			if (blobUrl) {
+				this.offlineBlobUrl = blobUrl;
+				await this.nativePlayer.playBlob(blobUrl, startSeconds);
+				usedOffline = true;
+			}
+		} catch { /* IDB unavailable — fall through to network */ }
+
+		if (!usedOffline) {
+			const token = get(authStore).token ?? '';
+			const url = `${getApiBase()}/stream/${trackId}`;
+			await this.nativePlayer.play(url, token, startSeconds);
+		}
 
 		this.nativePlayer.onPosition((ms) => positionMs.set(ms));
 		this.nativePlayer.onDuration((ms) => durationMs.set(ms));
@@ -392,6 +425,16 @@ class AudioEngine {
 			try {
 				const el = this.nativePlayer.getElement();
 				this.nativeCtx = new AudioContext();
+				// Android Chrome auto-suspends AudioContexts when the tab is backgrounded.
+				// Because audio from the <audio> element is routed through this context via
+				// createMediaElementSource, a suspended context silences playback entirely
+				// and removes the media notification from the shade. Auto-resume immediately
+				// whenever a suspension occurs while a track is loaded.
+				this.nativeCtx.addEventListener('statechange', () => {
+					if (this.nativeCtx?.state === 'suspended' && this.loaded && !this.wasmActive) {
+						this.nativeCtx.resume().catch(() => {});
+					}
+				});
 				this.nativeGain = this.nativeCtx.createGain();
 				this.nativeReplayGainNode = this.nativeCtx.createGain();
 				this.nativeGain.connect(this.nativeReplayGainNode);
@@ -437,6 +480,15 @@ class AudioEngine {
 		} else {
 			this.nativePlayer?.resume();
 		}
+	}
+
+	/**
+	 * Resume any suspended AudioContexts. Called when the page regains
+	 * visibility (e.g. user returns to Chrome from another app on Android).
+	 */
+	resumeAllContexts() {
+		if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
+		if (this.nativeCtx?.state === 'suspended') this.nativeCtx.resume().catch(() => {});
 	}
 
 	seek(positionSeconds: number) {
@@ -568,6 +620,62 @@ class AudioEngine {
 		}
 	}
 
+	/**
+	 * Route audio output to a specific device (e.g. a Bluetooth speaker or HDMI
+	 * output).  Delegates to the native <audio> element via setSinkId() for the
+	 * native path.  The WASM/Web Audio path routes through AudioContext whose
+	 * destination is always the default system output — no setSinkId equivalent
+	 * exists for AudioContext, so only tracks on the native path are affected.
+	 */
+	/**
+	 * Return the underlying HTMLAudioElement used by the native path,
+	 * lazily creating it if needed. Used by the Remote Playback API for
+	 * mobile casting.
+	 */
+	getMediaElement(): HTMLAudioElement {
+		if (!this.nativePlayer) {
+			this.nativePlayer = new NativePlayer();
+		}
+		return this.nativePlayer.getElement();
+	}
+
+	/**
+	 * True when the browser supports the Remote Playback API on the
+	 * native <audio> element. Available on mobile Chrome/Edge.
+	 */
+	get remotePlaybackSupported(): boolean {
+		if (!this.nativePlayer) {
+			this.nativePlayer = new NativePlayer();
+		}
+		return this.nativePlayer.remotePlaybackSupported;
+	}
+
+	/**
+	 * Prompt the user to select a remote playback device via the
+	 * browser's native Remote Playback API (Chromecast, AirPlay, etc.).
+	 */
+	async promptRemotePlayback(): Promise<void> {
+		if (!this.nativePlayer) {
+			this.nativePlayer = new NativePlayer();
+		}
+		await this.nativePlayer.promptRemotePlayback();
+	}
+
+	async setAudioOutput(sinkId: string): Promise<void> {
+		// Ensure the NativePlayer exists (it may not have been created yet).
+		if (!this.nativePlayer) {
+			this.nativePlayer = new NativePlayer();
+		}
+		await this.nativePlayer.setSinkId(sinkId);
+		// Also apply to the iOS wake-lock element if it exists.
+		if (this.iosWakeLockEl) {
+			const el = this.iosWakeLockEl as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+			if (typeof el.setSinkId === 'function') {
+				el.setSinkId(sinkId).catch(() => {});
+			}
+		}
+	}
+
 	stop() {
 		bufferedPct.set(0);
 		this.stopPositionTracking();
@@ -588,6 +696,11 @@ class AudioEngine {
 		if (this.nativePlayer) {
 			this.nativePlayer.onEnded(() => {});
 			this.nativePlayer.pause();
+		}
+		// Free any outstanding offline blob URL to avoid memory leaks.
+		if (this.offlineBlobUrl) {
+			URL.revokeObjectURL(this.offlineBlobUrl);
+			this.offlineBlobUrl = null;
 		}
 	}
 

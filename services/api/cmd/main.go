@@ -18,6 +18,7 @@ import (
 	"github.com/alexander-bruun/orb/pkg/store"
 	"github.com/alexander-bruun/orb/services/api/internal/admin"
 	"github.com/alexander-bruun/orb/services/api/internal/auth"
+	"github.com/alexander-bruun/orb/services/api/internal/device"
 	"github.com/alexander-bruun/orb/services/api/internal/discovery"
 	"github.com/alexander-bruun/orb/services/api/internal/library"
 	"github.com/alexander-bruun/orb/services/api/internal/listenparty"
@@ -135,7 +136,11 @@ func run(ctx context.Context) error {
 		r.Route("/recommend", recSvc.Routes)
 
 		userSvc := user.New(db, kv)
-		r.Route("/user", userSvc.Routes)
+		deviceSvc := device.New(kv)
+		r.Route("/user", func(r chi.Router) {
+			userSvc.Routes(r)
+			deviceSvc.Routes(r)
+		})
 
 		adminSvc := admin.New(db)
 		r.Group(func(r chi.Router) {
