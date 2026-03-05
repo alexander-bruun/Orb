@@ -228,7 +228,7 @@ jobs:
           sed -i '' 's/CODE_SIGNING_ALLOWED = [^;]*;/CODE_SIGNING_ALLOWED = NO;/g' "$PROJ"
 
       - name: Build iOS (release, simulator)
-        run: cargo tauri ios build -- --simulator
+        run: cargo tauri ios build --simulator
 
       - name: Upload iOS artifacts to release
         uses: softprops/action-gh-release@v2
