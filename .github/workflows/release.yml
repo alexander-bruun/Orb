@@ -217,24 +217,33 @@ jobs:
       - name: Tauri iOS init
         run: cargo tauri ios init || true
 
-      - name: Disable code signing for CI
-        working-directory: web/ui
+      - name: Build iOS (real device, no signing)
         run: |
-          PROJ=src-tauri/gen/apple/orb.xcodeproj/project.pbxproj
-          sed -i '' 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' "$PROJ"
-          sed -i '' 's/CODE_SIGN_IDENTITY = [^;]*;/CODE_SIGN_IDENTITY = "";/g' "$PROJ"
-          sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' "$PROJ"
-          sed -i '' 's/CODE_SIGNING_REQUIRED = [^;]*;/CODE_SIGNING_REQUIRED = NO;/g' "$PROJ"
-          sed -i '' 's/CODE_SIGNING_ALLOWED = [^;]*;/CODE_SIGNING_ALLOWED = NO;/g' "$PROJ"
+          xcodebuild \
+            -scheme orb_iOS \
+            -workspace src-tauri/gen/apple/orb.xcodeproj/project.xcworkspace \
+            -sdk iphoneos \
+            -arch arm64 \
+            -configuration Release \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
 
-      - name: Build iOS (release, simulator)
-        run: cargo tauri ios build --simulator
+      - name: Package IPA (unsigned, AltStore-compatible)
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData/orb-*/Build/Products/Release-iphoneos -name "*.app" | head -1)
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r orb-unsigned.ipa Payload/
+          rm -rf Payload
 
-      - name: Upload iOS artifacts to release
+      - name: Upload iOS IPA to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: web/ui/src-tauri/gen/apple/build/arm64/**/*.app
+          files: web/ui/orb-unsigned.ipa
 
   publish-release:
     needs: [create-release, build-tauri, build-android, build-ios]
