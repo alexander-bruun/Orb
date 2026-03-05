@@ -4,6 +4,7 @@
 
   export let tracks: Track[];
   export let showCover: boolean = false;
+  export let showDiscNumbers: boolean = true;
 
   // Group tracks by disc number; sort groups and tracks within each group.
   $: discs = (() => {
@@ -19,7 +20,7 @@
   $: isMultiDisc = discs.length > 1;
 </script>
 
-{#if isMultiDisc}
+{#if showDiscNumbers && isMultiDisc}
   {#each discs as [discNum, discTracks]}
     <div class="disc-group">
       <div class="disc-header">
@@ -38,7 +39,7 @@
 {:else}
   <div class="track-list">
     {#each tracks as track, i (track.id)}
-      <TrackRow {track} trackList={tracks} index={i} {showCover} />
+      <TrackRow {track} trackList={tracks} index={i} {showCover} useRankIndex={!showDiscNumbers} />
     {/each}
   </div>
 {/if}

@@ -22,6 +22,7 @@ import (
 type trackWithArtists struct {
 	store.Track
 	ArtistName      *string        `json:"artist_name,omitempty"`
+	AlbumName       *string        `json:"album_name,omitempty"`
 	FeaturedArtists []store.Artist `json:"featured_artists,omitempty"`
 }
 
@@ -38,11 +39,15 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 		featMap = map[string][]store.Artist{}
 	}
 
-	// Collect the unique main artist IDs so we can resolve names in one query.
+	// Collect the unique main artist IDs and album IDs for bulk resolution.
 	artistIDSet := make(map[string]struct{})
+	albumIDSet := make(map[string]struct{})
 	for _, t := range tracks {
 		if t.ArtistID != nil && *t.ArtistID != "" {
 			artistIDSet[*t.ArtistID] = struct{}{}
+		}
+		if t.AlbumID != nil && *t.AlbumID != "" {
+			albumIDSet[*t.AlbumID] = struct{}{}
 		}
 	}
 	artistIDs := make([]string, 0, len(artistIDSet))
@@ -53,6 +58,14 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 	if err != nil {
 		artistNames = map[string]string{}
 	}
+	albumIDs := make([]string, 0, len(albumIDSet))
+	for id := range albumIDSet {
+		albumIDs = append(albumIDs, id)
+	}
+	albumTitles, err := s.db.GetAlbumTitlesByIDs(ctx, albumIDs)
+	if err != nil {
+		albumTitles = map[string]string{}
+	}
 
 	out := make([]trackWithArtists, len(tracks))
 	for i, t := range tracks {
@@ -62,7 +75,13 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 				artistName = &name
 			}
 		}
-		out[i] = trackWithArtists{Track: t, ArtistName: artistName, FeaturedArtists: featMap[t.ID]}
+		var albumName *string
+		if t.AlbumID != nil {
+			if title, ok := albumTitles[*t.AlbumID]; ok {
+				albumName = &title
+			}
+		}
+		out[i] = trackWithArtists{Track: t, ArtistName: artistName, AlbumName: albumName, FeaturedArtists: featMap[t.ID]}
 	}
 	return out
 }

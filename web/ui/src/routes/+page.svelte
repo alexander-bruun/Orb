@@ -169,7 +169,7 @@
           {#if playsLoading}
             <p class="muted">Loading…</p>
           {:else if pagedRecent.length > 0}
-            <TrackList tracks={pagedRecent} showCover />
+            <TrackList tracks={pagedRecent} showCover showDiscNumbers={false} />
           {:else}
             <p class="muted">No plays in this period.</p>
           {/if}
@@ -192,7 +192,7 @@
           {#if playsLoading}
             <p class="muted">Loading…</p>
           {:else if pagedMost.length > 0}
-            <TrackList tracks={pagedMost} showCover />
+            <TrackList tracks={pagedMost} showCover showDiscNumbers={false} />
           {:else}
             <p class="muted">No plays in this period.</p>
           {/if}

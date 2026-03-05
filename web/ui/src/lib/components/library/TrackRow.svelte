@@ -9,6 +9,7 @@
   export let trackList: Track[] = [];
   export let index: number = 0;
   export let showCover: boolean = false;
+  export let useRankIndex: boolean = false;
 
   import { getApiBase } from '$lib/api/base';
 
@@ -64,7 +65,7 @@
         <span class="dot"></span>
       </span>
     {:else}
-      {track.track_number ?? (index + 1)}
+      {useRankIndex ? (index + 1) : (track.track_number ?? (index + 1))}
     {/if}
   </span>
   {#if showCover}

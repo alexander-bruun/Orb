@@ -3,7 +3,11 @@
 
 Orb is a self-hosted, lossless music streaming platform - a personal Spotify backed by your own audio library. Stream FLAC, WAV, and other lossless formats at full fidelity to a modern web client. Multi-user, playlists, and queue support.
 
-![Orb Example UI](example.png)
+![Orb Desktop UI](desktop.png)
+<div style="display: flex; gap: 20px; justify-content: center;">
+    <img src="mobile.png" alt="Orb Mobile UI" style="max-width: 300px;">
+    <img src="mobile-lyrics.png" alt="Orb Mobile + Lyrics UI" style="max-width: 300px;">
+</div>
 
 ## ✨ Features
 
@@ -13,11 +17,9 @@ Orb is a self-hosted, lossless music streaming platform - a personal Spotify bac
 - **Discovery:** Advanced search, favorites, recently played
 - **UI:** SvelteKit frontend with Melt UI + Tailwind, responsive layout
 
-> Native Windows, Mac, Linux, Android & IOS apps are on the roadmap.
-
 ## 📦 Supported Platforms
 
-Orb is distributed exclusively as Docker images for Linux (amd64, arm64). There is no static binary for the backend; Orb only runs in Docker.
+Orb is distributed exclusively as Docker images for Linux (amd64, arm64). Web UI is accessible from the browser, and can be installed as a PWA on mobile.
 
 ## 🚀 Quick Start
 

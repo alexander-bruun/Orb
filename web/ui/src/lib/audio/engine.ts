@@ -43,6 +43,13 @@ class AudioEngine {
 	private onBufferReadyCb: ((buf: AudioBuffer) => void) | null = null;
 	private wasmActive = false;
 	private loaded = false;
+	/**
+	 * Silent looping <audio> element used as an iOS AudioSession wake-lock.
+	 * When the WASM Web Audio path is active, iOS may not show lock-screen
+	 * media controls unless a native media element is also playing.
+	 * This silent element bridges that gap at effectively zero volume.
+	 */
+	private iosWakeLockEl: HTMLAudioElement | null = null;
 	// Primary source node (first segment during quick-start, or full buffer).
 	private currentSource: AudioBufferSourceNode | null = null;
 	// Continuation source scheduled to start after the first segment ends.
@@ -333,6 +340,7 @@ class AudioEngine {
 		this.offsetSeconds = offsetSeconds;
 		durationMs.set(buf.duration * 1000);
 		this.wasmActive = true;
+		this.startIosWakeLock();
 	}
 
 	/** Download and decode the full file then start playback. */
@@ -376,6 +384,7 @@ class AudioEngine {
 			playerNext().catch(() => {});
 		});
 		this.wasmActive = false;
+		this.stopIosWakeLock();
 
 		// Wire up the native analyser the first time (one-shot — createMediaElementSource
 		// can only be called once per HTMLMediaElement).
@@ -562,6 +571,7 @@ class AudioEngine {
 	stop() {
 		bufferedPct.set(0);
 		this.stopPositionTracking();
+		this.stopIosWakeLock();
 		for (const src of [this.currentSource, this.pendingSource]) {
 			if (src) {
 				try { src.onended = null; } catch { /* ignore */ }
@@ -579,6 +589,50 @@ class AudioEngine {
 			this.nativePlayer.onEnded(() => {});
 			this.nativePlayer.pause();
 		}
+	}
+
+	/**
+	 * Start a silent looping audio element so iOS keeps the AudioSession alive
+	 * while the WASM Web Audio path is playing.  On iOS 15.3 and earlier the
+	 * Media Session lock-screen controls only appear when a native media element
+	 * is active; this element acts as that bridge at effectively zero volume.
+	 */
+	private startIosWakeLock() {
+		if (this.iosWakeLockEl) return; // already running
+		try {
+			// Build a minimal 1-frame silent WAV dynamically — no network request needed.
+			const sampleRate = 8000;
+			const numSamples = 800; // 100 ms
+			const buf = new ArrayBuffer(44 + numSamples * 2);
+			const v = new DataView(buf);
+			const s = (o: number, str: string) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+			s(0, 'RIFF'); v.setUint32(4, 36 + numSamples * 2, true);
+			s(8, 'WAVE'); s(12, 'fmt '); v.setUint32(16, 16, true);
+			v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+			v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+			v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+			s(36, 'data'); v.setUint32(40, numSamples * 2, true);
+			const bytes = new Uint8Array(buf);
+			let b64 = '';
+			for (let i = 0; i < bytes.length; i++) b64 += String.fromCharCode(bytes[i]);
+			const src = 'data:audio/wav;base64,' + btoa(b64);
+
+			const el = document.createElement('audio');
+			el.src = src;
+			el.loop = true;
+			el.volume = 0;
+			el.play().catch(() => {});
+			this.iosWakeLockEl = el;
+		} catch {
+			// Non-browser env (SSR) or policy block — ignore.
+		}
+	}
+
+	private stopIosWakeLock() {
+		if (!this.iosWakeLockEl) return;
+		try { this.iosWakeLockEl.pause(); } catch { /* ignore */ }
+		this.iosWakeLockEl.src = '';
+		this.iosWakeLockEl = null;
 	}
 
 	private startPositionTracking() {

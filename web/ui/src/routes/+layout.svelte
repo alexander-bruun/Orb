@@ -19,6 +19,9 @@
   import { themeStore } from '$lib/stores/theme';
   import { isTauri } from '$lib/utils/platform';
   import TitleBar from '$lib/components/layout/TitleBar.svelte';
+  import MobileNav from '$lib/components/layout/MobileNav.svelte';
+  import MobilePlayer from '$lib/components/layout/MobilePlayer.svelte';
+  import MobileAvatar from '$lib/components/layout/MobileAvatar.svelte';
   import { getServerUrl } from '$lib/api/base';
   import { loadEQProfiles, getProfileForGenre, applyEQProfile, eqProfiles, genreEQMappings } from '$lib/stores/eq';
   import { library as libraryApi } from '$lib/api/library';
@@ -157,6 +160,9 @@
     </main>
     <BottomBar />
   </div>
+  <MobilePlayer />
+  <MobileNav />
+  <MobileAvatar />
   <ContextMenu />
   <QueueModal />
   <ListenPartyPanel />
@@ -197,23 +203,30 @@
   :global(aside.sidebar)    { grid-area: sidebar; }
   :global(footer.bottom-bar) { grid-area: bottom; }
 
-  /* ── Mobile layout (no sidebar column in grid) ─────────────────────────── */
+  /* ── Mobile layout: full-screen content, fixed bottom mobile UI ─────────── */
   @media (max-width: 640px) {
     .shell {
-      grid-template-rows: var(--top-h) 1fr auto;
+      grid-template-rows: 1fr;
       grid-template-columns: 1fr;
-      grid-template-areas:
-        "top"
-        "content"
-        "bottom";
+      grid-template-areas: "content";
     }
     .shell.tauri {
-      grid-template-rows: var(--titlebar-h) var(--top-h) 1fr auto;
+      grid-template-rows: var(--titlebar-h) 1fr;
       grid-template-areas:
         "titlebar"
-        "top"
-        "content"
-        "bottom";
+        "content";
+    }
+    /* Hide desktop navigation on mobile */
+    :global(header.topbar) { display: none !important; }
+    :global(footer.bottom-bar) { display: none !important; }
+    /* Sidebar stays off-screen (its own transform handles it) */
+    .content {
+      /* Pad below content so it doesn't hide behind mobile player + nav */
+      padding-bottom: calc(
+        64px +
+        env(safe-area-inset-bottom, 0px) +
+        /* mini player height */ 66px
+      );
     }
   }
 

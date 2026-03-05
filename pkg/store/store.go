@@ -286,6 +286,30 @@ func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, err
 	return a, nil
 }
 
+// GetAlbumTitlesByIDs returns a map of album ID → title for the given IDs.
+// Only id and title are fetched, making it efficient for bulk display enrichment.
+func (s *Store) GetAlbumTitlesByIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	if len(ids) == 0 {
+		return map[string]string{}, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, title FROM albums WHERE id = ANY($1)`,
+		ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string, len(ids))
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, err
+		}
+		result[id] = title
+	}
+	return result, rows.Err()
+}
+
 // GetArtistNamesByIDs returns a map of artist ID → name for the given IDs.
 // Only id and name are fetched, making it efficient for bulk display enrichment.
 func (s *Store) GetArtistNamesByIDs(ctx context.Context, ids []string) (map[string]string, error) {
@@ -2033,7 +2057,10 @@ func (s *Store) UpsertSimilarityIncremental(ctx context.Context, rows []TrackSim
 // ListSimilarTracks returns tracks similar to the given track, ordered by score.
 // If excludeAlbumID is non-empty, tracks belonging to that album are excluded.
 func (s *Store) ListSimilarTracks(ctx context.Context, trackID string, limit int, excludeAlbumID string) ([]TrackWithScore, error) {
-	var (rows pgx.Rows; err error)
+	var (
+		rows pgx.Rows
+		err  error
+	)
 	if excludeAlbumID != "" {
 		rows, err = s.pool.Query(ctx,
 			`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,

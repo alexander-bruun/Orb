@@ -64,6 +64,7 @@ export interface Track {
 	isrc?: string;
 	mbid?: string;
     artist_name?: string;
+    album_name?: string;
     artist?: Artist;
     featured_artist_ids?: string[];
     featured_artists?: Artist[];

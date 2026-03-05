@@ -386,6 +386,7 @@ function syncMediaMetadata(track: Track | null) {
 	navigator.mediaSession.metadata = new MediaMetadata({
 		title: track.title,
 		artist: track.artist_name ?? '',
+		album: track.album_name ?? '',
 		artwork,
 	});
 }
@@ -413,10 +414,21 @@ function syncPositionState(posMs: number, durMs: number) {
 if (mediaSessionSupported()) {
 	navigator.mediaSession.setActionHandler('play', () => togglePlayPause());
 	navigator.mediaSession.setActionHandler('pause', () => togglePlayPause());
+	navigator.mediaSession.setActionHandler('stop', () => {
+		audioEngine.stop();
+		positionMs.set(0);
+		playbackState.set('paused');
+	});
 	navigator.mediaSession.setActionHandler('previoustrack', () => { previous(); });
 	navigator.mediaSession.setActionHandler('nexttrack', () => { next(); });
 	navigator.mediaSession.setActionHandler('seekto', (details) => {
 		if (details.seekTime !== undefined) seek(details.seekTime);
+	});
+	navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+		seek(Math.max(0, get(positionMs) / 1000 - (details.seekOffset ?? 10)));
+	});
+	navigator.mediaSession.setActionHandler('seekforward', (details) => {
+		seek(Math.min(get(durationMs) / 1000, get(positionMs) / 1000 + (details.seekOffset ?? 10)));
 	});
 }
 

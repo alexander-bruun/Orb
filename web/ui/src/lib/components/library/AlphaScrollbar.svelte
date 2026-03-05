@@ -69,4 +69,11 @@
     color: var(--accent);
     font-size: 11px;
   }
+
+  /* On mobile the real bottom is: nav (60px) + mini-player (~68px) + safe-area */
+  @media (max-width: 640px) {
+    .alpha-bar {
+      bottom: calc(128px + env(safe-area-inset-bottom, 0px));
+    }
+  }
 </style>
