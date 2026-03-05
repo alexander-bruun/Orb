@@ -9,7 +9,8 @@ USER_ID            ?=
 
 .PHONY: dev-db dev-api dev-ui dev-ingest \
         migrate-up migrate-down migrate-diff migrate-status \
-        generate test lint
+        generate test lint \
+        tauri-dev tauri-build
 
 dev-db:
 	docker compose -f docker-compose.dev.yml up -d
@@ -23,6 +24,12 @@ dev-api:
 
 dev-ui:
 	cd web/ui && bun run dev
+
+tauri-dev:
+	cd web/ui && bun install && bun run tauri:dev
+
+tauri-build:
+	cd web/ui && bun install && bun run tauri:build
 
 dev-ingest:
 	cd cmd/ingest && \

@@ -18,6 +18,7 @@
   import { togglePlayPause, next, previous, currentTrack } from '$lib/stores/player';
   import { themeStore } from '$lib/stores/theme';
   import { isTauri } from '$lib/utils/platform';
+  import TitleBar from '$lib/components/layout/TitleBar.svelte';
   import { getServerUrl } from '$lib/api/base';
   import { loadEQProfiles, getProfileForGenre, applyEQProfile, eqProfiles, genreEQMappings } from '$lib/stores/eq';
   import { library as libraryApi } from '$lib/api/library';
@@ -133,6 +134,10 @@
   <title>Orb</title>
 </svelte:head>
 
+{#if isTauri()}
+  <div class="window-frame" aria-hidden="true"></div>
+{/if}
+
 {#if $page.url.pathname.startsWith('/listen/') || $page.url.pathname === '/connect' || $page.url.pathname.startsWith('/share/')}
   <!-- Public page: render without shell or auth guards -->
   {@render children()}
@@ -143,7 +148,8 @@
 {:else if !$setupRequired && $page.url.pathname === '/login'}
   {@render children()}
 {:else if !$setupRequired && $isAuthenticated}
-  <div class="shell">
+  <div class="shell" class:tauri={isTauri()}>
+    {#if isTauri()}<TitleBar />{/if}
     <TopBar />
     <Sidebar />
     <main class="content">
@@ -170,6 +176,15 @@
       "bottom bottom";
     overflow: hidden;
   }
+
+  .shell.tauri {
+    grid-template-rows: var(--titlebar-h) var(--top-h) 1fr var(--bottom-h);
+    grid-template-areas:
+      "titlebar titlebar"
+      "top      top"
+      "sidebar  content"
+      "bottom   bottom";
+  }
   .content {
     grid-area: content;
     overflow-y: auto;
@@ -192,5 +207,23 @@
         "content"
         "bottom";
     }
+    .shell.tauri {
+      grid-template-rows: var(--titlebar-h) var(--top-h) 1fr auto;
+      grid-template-areas:
+        "titlebar"
+        "top"
+        "content"
+        "bottom";
+    }
+  }
+
+  /* ── Tauri frameless window border overlay ──────────────────────────────── */
+  .window-frame {
+    position: fixed;
+    inset: 0;
+    border: 1px solid var(--border-2);
+    border-radius: 0;
+    pointer-events: none;
+    z-index: 99999;
   }
 </style>

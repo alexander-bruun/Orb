@@ -20,6 +20,7 @@
   --accent:      #c084fc;
   --accent-dim:  rgba(192,132,252,0.12);
   --accent-glow: rgba(192,132,252,0.25);
+  --titlebar-h:  28px;
   --sidebar-w:   232px;
   --top-h:       52px;
   --bottom-h:    76px;

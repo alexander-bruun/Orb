@@ -5,7 +5,6 @@
   import { formattedFormat } from '$lib/stores/player';
   import { avatarStore } from '$lib/stores/theme';
   import { sidebarOpen } from '$lib/stores/sidebar';
-
   let query = '';
   let menuOpen = false;
 
@@ -118,6 +117,7 @@
       {/if}
     </div>
   {/if}
+
 </header>
 
 <style>
@@ -338,4 +338,6 @@
     .search-box { max-width: none; }
     .topbar { padding: 0 12px; gap: 10px; }
   }
+
+
 </style>
