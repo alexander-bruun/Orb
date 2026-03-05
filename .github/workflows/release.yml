@@ -159,6 +159,44 @@ jobs:
       - name: Tauri Android init
         run: cargo tauri android init || true
 
+      - name: Allow cleartext HTTP (local LAN servers)
+        run: |
+          # Tauri Android init regenerates the project; patch it to allow HTTP
+          # so users can connect to http:// Orb servers on their local network.
+          MANIFEST=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          XML_DIR=src-tauri/gen/android/app/src/main/res/xml
+          mkdir -p "$XML_DIR"
+
+          # Network security config: permit cleartext for all destinations
+          cat > "$XML_DIR/network_security_config.xml" <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+            <base-config cleartextTrafficPermitted="true">
+              <trust-anchors>
+                <certificates src="system" />
+              </trust-anchors>
+            </base-config>
+          </network-security-config>
+          EOF
+
+          # Inject attributes into <application> tag
+          python3 - "$MANIFEST" <<'PYEOF'
+          import re, sys
+          path = sys.argv[1]
+          with open(path) as f:
+              content = f.read()
+          # Only add if not already present
+          if 'networkSecurityConfig' not in content:
+              content = re.sub(
+                  r'(<application\b)',
+                  r'\1\n        android:networkSecurityConfig="@xml/network_security_config"'
+                  r'\n        android:usesCleartextTraffic="true"',
+                  content, count=1
+              )
+          with open(path, 'w') as f:
+              f.write(content)
+          PYEOF
+
       - name: Build Android (release)
         env:
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
