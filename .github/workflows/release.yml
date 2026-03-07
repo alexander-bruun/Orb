@@ -113,9 +113,6 @@ jobs:
   build-tauri-android:
     needs: create-release
     runs-on: ubuntu-22.04
-    env:
-      ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
-      ANDROID_HOME: ${{ runner.temp }}/android-sdk
     steps:
       - uses: actions/checkout@v6
 
@@ -134,10 +131,15 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Install Android SDK
+        env:
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
+          ANDROID_HOME: ${{ runner.temp }}/android-sdk
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip wget
           SDK_ROOT="$ANDROID_SDK_ROOT"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
           mkdir -p "$SDK_ROOT/cmdline-tools"
           curl -sSfL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o /tmp/cmdline-tools.zip
           unzip -q /tmp/cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools"
