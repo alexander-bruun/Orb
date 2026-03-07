@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { lyricsOpen, lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/player/lyrics';
-  import { currentTrack, positionMs } from '$lib/stores/player';
+  import { currentTrack, positionMs, seek } from '$lib/stores/player';
 
   // Drag state
   let posX = 0;
@@ -135,6 +135,12 @@
     }
   }
 
+  function seekToLine(time_ms: number) {
+    seek(time_ms / 1000);
+    userScrolling = false;
+    if (userScrollTimer) clearTimeout(userScrollTimer);
+  }
+
   // ── Drag ──
   onMount(() => {
     posX = window.innerWidth - 360;
@@ -205,6 +211,8 @@
         <div class="state-msg">No lyrics available</div>
       {:else}
         {#each $lyricsLines as line, i (line.time_ms + '-' + i)}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
           <div
             class="lyric-line"
             class:active={i === $activeLyricIndex}
@@ -212,6 +220,7 @@
             class:next={i === $activeLyricIndex + 1}
             style={i === $activeLyricIndex + 1 ? `opacity: ${0.55 + 0.45 * nextLineFade}` : ''}
             data-idx={i}
+            on:click={() => seekToLine(line.time_ms)}
           >
             {line.text}
           </div>
@@ -328,8 +337,13 @@
     color: var(--text-muted);
     border-radius: 6px;
     transition: color 0.3s ease, background 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
-    cursor: default;
+    cursor: pointer;
     opacity: 0.55;
+  }
+
+  .lyric-line:hover {
+    background: var(--bg-hover);
+    opacity: 1 !important;
   }
 
   .lyric-line.past {
