@@ -94,6 +94,9 @@ func run(ctx context.Context) error {
 	}
 	slog.Info("object store ready", "root", storeRoot)
 
+	// --- Ingest service (shared between HTTP handler and background watcher) ---
+	ingestSvc := buildIngestService(ctx, db, obj, kv)
+
 	// --- Router ---
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -150,7 +153,7 @@ func run(ctx context.Context) error {
 			r.Use(adminSvc.AdminMiddleware)
 			r.Route("/admin", func(r chi.Router) {
 				adminSvc.Routes(r)
-				if ingestSvc := buildIngestService(db, obj); ingestSvc != nil {
+				if ingestSvc != nil {
 					r.Route("/ingest", ingestSvc.Routes)
 				}
 			})
@@ -165,8 +168,10 @@ func run(ctx context.Context) error {
 	shareSvc := share.New(db, kv, obj, jwtMW)
 	r.Route("/share", shareSvc.Routes)
 
-	// --- Background ingest watcher ---
-	startBackgroundIngest(ctx, db, obj)
+	// --- Background ingest watcher (leader-elected, no-op if Watch=false) ---
+	if ingestSvc != nil {
+		go ingestSvc.StartWatch(ctx)
+	}
 
 	// --- mDNS discovery ---
 	if config.Env("MDNS_ENABLED", "true") == "true" {
@@ -204,7 +209,8 @@ func run(ctx context.Context) error {
 
 // buildIngestService creates the ingest.Service if INGEST_DIRS is configured.
 // Returns nil when ingest is not configured.
-func buildIngestService(db *store.Store, obj objstore.ObjectStore) *ingest.Service {
+// A single Service instance is shared by the HTTP handler and the background watcher.
+func buildIngestService(ctx context.Context, db *store.Store, obj objstore.ObjectStore, kv *redis.Client) *ingest.Service {
 	dirs := parseDirs(config.Env("INGEST_DIRS", ""))
 	if len(dirs) == 0 {
 		return nil
@@ -212,42 +218,14 @@ func buildIngestService(db *store.Store, obj objstore.ObjectStore) *ingest.Servi
 	cfg := ingest.Config{
 		Dirs:              dirs,
 		UserID:            config.Env("INGEST_USER_ID", ""),
+		Watch:             config.Env("INGEST_WATCH", "false") == "true",
 		Workers:           runtime.NumCPU(),
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
 		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
 	}
-	return ingest.NewService(ingest.New(db, obj, cfg))
-}
-
-// startBackgroundIngest launches the ingest watcher in a goroutine if
-// INGEST_DIRS and INGEST_WATCH=true are configured.
-func startBackgroundIngest(ctx context.Context, db *store.Store, obj objstore.ObjectStore) {
-	if config.Env("INGEST_WATCH", "false") != "true" {
-		return
-	}
-	dirs := parseDirs(config.Env("INGEST_DIRS", ""))
-	if len(dirs) == 0 {
-		return
-	}
-	cfg := ingest.Config{
-		Dirs:              dirs,
-		UserID:            config.Env("INGEST_USER_ID", ""),
-		Watch:             true,
-		Workers:           runtime.NumCPU(),
-		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
-		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
-		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
-		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
-	}
-	ing := ingest.New(db, obj, cfg)
-	slog.Info("starting background ingest watcher", "dirs", dirs)
-	go func() {
-		if err := ing.Run(ctx); err != nil && err != context.Canceled {
-			slog.Error("ingest watcher exited", "err", err)
-		}
-	}()
+	return ingest.NewService(ctx, ingest.New(db, obj, cfg), kv)
 }
 
 func parseDirs(s string) []string {

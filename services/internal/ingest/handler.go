@@ -1,42 +1,204 @@
 package ingest
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 )
+
+const (
+	leaderTTL     = 45 * time.Second
+	leaderRefresh = 15 * time.Second
+	scanLockTTL   = 2 * time.Hour
+)
+
+// Lua scripts for atomic Redis operations (only act if caller still owns the key).
+const luaRelease = `if redis.call("get",KEYS[1])==ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end`
+const luaExtend = `if redis.call("get",KEYS[1])==ARGV[1] then return redis.call("expire",KEYS[1],ARGV[2]) else return 0 end`
 
 // ScanResult holds the outcome of the last scan.
 type ScanResult struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
-	Ingested   int       `json:"ingested"`
-	Skipped    int       `json:"skipped"`
-	Errors     int       `json:"errors"`
+	// In distributed mode (Redis available) Enqueued is the number of paths
+	// pushed to the work queue; workers process them asynchronously.
+	// In single-instance mode Enqueued is 0 and Ingested holds the actual count.
+	Enqueued int `json:"enqueued,omitempty"`
+	Ingested int `json:"ingested,omitempty"`
+	Skipped  int `json:"skipped,omitempty"`
+	Errors   int `json:"errors,omitempty"`
 }
 
-// Service exposes HTTP endpoints for triggering and monitoring ingest.
+// Service exposes HTTP endpoints for triggering and monitoring ingest, and
+// manages leader-elected background coordination across multiple instances.
+//
+// Distributed mode (kv != nil):
+//   - All instances run worker goroutines consuming from the Redis work queue.
+//   - Only the elected leader runs the coordinator (directory scan → enqueue).
+//
+// Single-instance mode (kv == nil):
+//   - Leader election and distributed locks are skipped.
+//   - All processing happens in-process using the existing goroutine pool.
 type Service struct {
-	ingester *Ingester
+	ingester   *Ingester
+	kv         *redis.Client
+	instanceID string
+	rootCtx    context.Context
 
 	mu         sync.Mutex
 	running    atomic.Bool
 	lastResult *ScanResult
 }
 
-// NewService creates an ingest Service wrapping the given Ingester.
-func NewService(ingester *Ingester) *Service {
-	return &Service{ingester: ingester}
+// NewService creates an ingest Service. serverCtx is the top-level server
+// context (cancelled on shutdown); it is used for background scans so they are
+// not tied to the short-lived HTTP request context. kv may be nil.
+func NewService(serverCtx context.Context, ingester *Ingester, kv *redis.Client) *Service {
+	host, _ := os.Hostname()
+	id := fmt.Sprintf("%s:%d", host, os.Getpid())
+	return &Service{
+		ingester:   ingester,
+		kv:         kv,
+		instanceID: id,
+		rootCtx:    serverCtx,
+	}
 }
 
-// Routes registers ingest admin endpoints. Must be mounted under a JWT + admin middleware.
+// Routes registers ingest admin endpoints. Must be mounted under JWT + admin middleware.
 func (s *Service) Routes(r chi.Router) {
 	r.Post("/scan", s.triggerScan)
 	r.Get("/status", s.status)
+}
+
+// StartWatch is the entry point for background ingest. Call it once per instance
+// in a goroutine — it blocks until ctx is cancelled.
+//
+// In distributed mode (kv != nil):
+//   - Starts worker goroutines on this instance immediately.
+//   - Then enters a leader-election loop; the elected leader runs RunLeader.
+//
+// In single-instance mode (kv == nil):
+//   - Runs the existing single-process watcher (cfg.Watch must be true).
+func (s *Service) StartWatch(ctx context.Context) {
+	if s.kv != nil {
+		// Every instance participates as a worker regardless of leadership.
+		go s.ingester.RunWorkers(ctx, s.kv, s.ingester.cfg.Workers)
+	}
+
+	if !s.ingester.cfg.Watch {
+		return
+	}
+
+	// Leader election loop — only the leader runs the directory coordinator.
+	for {
+		if s.tryBecomeLeader(ctx) {
+			s.runAsLeader(ctx)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+			// back-off before retrying election
+		}
+	}
+}
+
+func (s *Service) tryBecomeLeader(ctx context.Context) bool {
+	if s.kv == nil {
+		return true // single-instance: always become "leader"
+	}
+	ok, err := s.kv.SetNX(ctx, kvkeys.IngestLeader(), s.instanceID, leaderTTL).Result()
+	if err != nil {
+		slog.Warn("ingest: leader election error", "err", err)
+		return false
+	}
+	if ok {
+		slog.Info("ingest: acquired leader lock", "instance", s.instanceID)
+	}
+	return ok
+}
+
+// runAsLeader starts a lock-refresh goroutine (which cancels leaderCtx on lock
+// loss), then runs the appropriate coordinator and releases the lock on exit.
+func (s *Service) runAsLeader(ctx context.Context) {
+	leaderCtx, leaderCancel := context.WithCancel(ctx)
+	defer leaderCancel()
+
+	// Refresh goroutine: extends the TTL every leaderRefresh interval.
+	// Steps down (cancels leaderCtx) if the lock can no longer be extended.
+	go func() {
+		defer leaderCancel()
+		ticker := time.NewTicker(leaderRefresh)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-leaderCtx.Done():
+				return
+			case <-ticker.C:
+				if s.kv == nil {
+					continue
+				}
+				ttlSecs := int(leaderTTL.Seconds())
+				res, err := s.kv.Eval(leaderCtx, luaExtend,
+					[]string{kvkeys.IngestLeader()}, s.instanceID, ttlSecs).Int()
+				if err != nil || res == 0 {
+					slog.Warn("ingest: lost leader lock, stepping down", "instance", s.instanceID)
+					return
+				}
+			}
+		}
+	}()
+
+	slog.Info("ingest: running as leader", "instance", s.instanceID)
+	var err error
+	if s.kv != nil {
+		// Distributed mode: leader only coordinates (scan → enqueue); workers process.
+		err = s.ingester.RunLeader(leaderCtx, s.kv)
+	} else {
+		// Single-instance mode: leader does everything in-process.
+		err = s.ingester.Run(leaderCtx)
+	}
+	if err != nil && err != context.Canceled {
+		slog.Error("ingest: leader exited with error", "err", err)
+	}
+
+	if s.kv != nil {
+		_ = s.kv.Eval(context.Background(), luaRelease,
+			[]string{kvkeys.IngestLeader()}, s.instanceID)
+		slog.Info("ingest: released leader lock", "instance", s.instanceID)
+	}
+}
+
+// acquireScanLock grabs a distributed Redis lock for an HTTP-triggered scan
+// so that only one instance runs the scan coordinator at a time.
+func (s *Service) acquireScanLock(ctx context.Context) bool {
+	if s.kv == nil {
+		return true
+	}
+	ok, err := s.kv.SetNX(ctx, kvkeys.IngestScanLock(), s.instanceID, scanLockTTL).Result()
+	if err != nil {
+		slog.Warn("ingest: scan lock error", "err", err)
+		return false
+	}
+	return ok
+}
+
+func (s *Service) releaseScanLock() {
+	if s.kv == nil {
+		return
+	}
+	_ = s.kv.Eval(context.Background(), luaRelease,
+		[]string{kvkeys.IngestScanLock()}, s.instanceID)
 }
 
 func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
@@ -44,25 +206,59 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "scan already in progress", http.StatusConflict)
 		return
 	}
+	if !s.acquireScanLock(r.Context()) {
+		s.running.Store(false)
+		http.Error(w, "scan already in progress on another instance", http.StatusConflict)
+		return
+	}
+
+	// Use the root server context — not r.Context() — so the scan survives
+	// after the HTTP response has been sent.
+	scanCtx := s.rootCtx
+	if scanCtx == nil {
+		scanCtx = context.Background()
+	}
 
 	go func() {
 		defer s.running.Store(false)
+		defer s.releaseScanLock()
+
 		started := time.Now()
-		newIDs, skipped, errs := s.ingester.Scan(r.Context())
-		finished := time.Now()
 
-		s.mu.Lock()
-		s.lastResult = &ScanResult{
-			StartedAt:  started,
-			FinishedAt: finished,
-			Ingested:   len(newIDs),
-			Skipped:    skipped,
-			Errors:     errs,
-		}
-		s.mu.Unlock()
-
-		if s.ingester.cfg.ComputeSimilarity {
-			_ = s.ingester.runSimilarity(r.Context(), newIDs)
+		if s.kv != nil {
+			// Distributed mode: this instance coordinates (enqueues paths);
+			// all workers (including this one) process from the queue.
+			n, err := s.ingester.ScanAndEnqueue(scanCtx, s.kv)
+			finished := time.Now()
+			errCount := 0
+			if err != nil {
+				slog.Error("ingest: scan-and-enqueue failed", "err", err)
+				errCount = 1
+			}
+			s.mu.Lock()
+			s.lastResult = &ScanResult{
+				StartedAt:  started,
+				FinishedAt: finished,
+				Enqueued:   n,
+				Errors:     errCount,
+			}
+			s.mu.Unlock()
+		} else {
+			// Single-instance mode: process everything in-process.
+			newIDs, skipped, errs := s.ingester.Scan(scanCtx)
+			finished := time.Now()
+			s.mu.Lock()
+			s.lastResult = &ScanResult{
+				StartedAt:  started,
+				FinishedAt: finished,
+				Ingested:   len(newIDs),
+				Skipped:    skipped,
+				Errors:     errs,
+			}
+			s.mu.Unlock()
+			if s.ingester.cfg.ComputeSimilarity {
+				_ = s.ingester.runSimilarity(scanCtx, newIDs)
+			}
 		}
 	}()
 
@@ -72,7 +268,17 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
-		"running": s.running.Load(),
+		"running":     s.running.Load(),
+		"instance_id": s.instanceID,
+		"distributed": s.kv != nil,
+	}
+
+	if s.kv != nil {
+		leader, _ := s.kv.Get(r.Context(), kvkeys.IngestLeader()).Result()
+		queueDepth, _ := s.kv.LLen(r.Context(), kvkeys.IngestWorkQueue()).Result()
+		resp["leader"]      = leader
+		resp["is_leader"]   = leader == s.instanceID
+		resp["queue_depth"] = queueDepth
 	}
 
 	s.mu.Lock()

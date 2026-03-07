@@ -15,6 +15,11 @@ func UserStreamingPrefs(userID string) string { return "user:stream_prefs:" + us
 func ShareToken(token string) string          { return "share:" + token }
 func ShareStreamSession(token string) string  { return "share_stream:" + token }
 
+// Ingest coordination keys (distributed leader election, scan lock, work queue).
+func IngestLeader() string   { return "ingest:leader" }
+func IngestScanLock() string { return "ingest:scan_lock" }
+func IngestWorkQueue() string { return "ingest:work_queue" }
+
 // Device session keys.
 func UserDevice(userID, deviceID string) string { return "user:device:" + userID + ":" + deviceID }
 func UserDeviceGlob(userID string) string       { return "user:device:" + userID + ":*" }

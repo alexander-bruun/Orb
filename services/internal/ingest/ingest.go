@@ -25,12 +25,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
 	"github.com/alexander-bruun/orb/services/internal/similarity"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/dhowden/tag"
 	"github.com/fsnotify/fsnotify"
+	"github.com/redis/go-redis/v9"
 )
 
 var ErrSkipped = errors.New("skipped")
@@ -972,6 +974,242 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// --- Distributed ingest: leader coordinates, all instances process ---
+
+// ScanAndEnqueue is the distributed leader path. It loads the latest ingest
+// state from the DB, walks all configured directories to find files that need
+// processing, and pushes their paths onto the Redis work queue for workers to
+// consume. Returns the number of paths enqueued.
+func (g *Ingester) ScanAndEnqueue(ctx context.Context, kv *redis.Client) (int, error) {
+	if err := g.loadState(ctx); err != nil {
+		return 0, fmt.Errorf("load ingest state: %w", err)
+	}
+
+	var toProcess []string
+	for _, dir := range g.cfg.Dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				slog.Warn("walk error", "path", path, "err", walkErr)
+				return nil
+			}
+			if d.IsDir() {
+				if !g.cfg.Watch && path != dir {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !isAudioFile(path) {
+				return nil
+			}
+			fi, err := os.Stat(path)
+			if err != nil || g.upToDate(path, fi) {
+				return nil
+			}
+			toProcess = append(toProcess, path)
+			return nil
+		}); err != nil {
+			slog.Warn("walk error", "dir", dir, "err", err)
+		}
+	}
+
+	if len(toProcess) == 0 {
+		slog.Info("ingest leader: no new files to enqueue")
+		return 0, nil
+	}
+
+	args := make([]interface{}, len(toProcess))
+	for i, p := range toProcess {
+		args[i] = p
+	}
+	if err := kv.LPush(ctx, kvkeys.IngestWorkQueue(), args...).Err(); err != nil {
+		return 0, fmt.Errorf("enqueue paths: %w", err)
+	}
+	slog.Info("ingest leader: enqueued paths for workers", "count", len(toProcess))
+	return len(toProcess), nil
+}
+
+// RunLeader performs leader coordination: initial scan-and-enqueue followed by
+// an optional watch loop that forwards new/changed file paths to the work queue.
+// Returns when ctx is cancelled or (non-watch mode) after the initial scan.
+func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
+	n, err := g.ScanAndEnqueue(ctx, kv)
+	if err != nil {
+		return err
+	}
+	slog.Info("ingest leader: initial scan complete", "enqueued", n)
+
+	if !g.cfg.Watch {
+		return nil
+	}
+
+	enqueue := func(path string) {
+		if err := kv.LPush(ctx, kvkeys.IngestWorkQueue(), path).Err(); err != nil {
+			slog.Warn("ingest leader: enqueue failed", "path", path, "err", err)
+		}
+	}
+
+	watcher, watchErr := fsnotify.NewWatcher()
+	if watchErr == nil {
+		for _, dir := range g.cfg.Dirs {
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				continue
+			}
+			if addErr := watcher.Add(dir); addErr != nil {
+				_ = watcher.Close()
+				watchErr = addErr
+				break
+			}
+		}
+	}
+	if watchErr != nil {
+		slog.Warn("inotify unavailable, falling back to polling",
+			"interval", g.cfg.PollInterval, "err", watchErr)
+		return g.watchWithPollingLeader(ctx, kv)
+	}
+	defer watcher.Close()
+
+	for _, dir := range g.cfg.Dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, e error) error {
+			if e == nil && d.IsDir() {
+				_ = watcher.Add(path)
+			}
+			return nil
+		})
+	}
+	slog.Info("ingest leader: watching for changes", "dirs", g.cfg.Dirs)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case ev, ok := <-watcher.Events:
+			if !ok {
+				return nil
+			}
+			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) == 0 {
+				continue
+			}
+			fi, err := os.Stat(ev.Name)
+			if err != nil {
+				continue
+			}
+			if fi.IsDir() {
+				_ = watcher.Add(ev.Name)
+				go func(p string) {
+					_ = filepath.WalkDir(p, func(path string, d os.DirEntry, e error) error {
+						if e != nil || d.IsDir() {
+							return nil
+						}
+						if isAudioFile(path) {
+							enqueue(path)
+						}
+						return nil
+					})
+				}(ev.Name)
+				continue
+			}
+			if !isAudioFile(ev.Name) {
+				continue
+			}
+			go enqueue(ev.Name)
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
+			slog.Warn("watcher error", "err", err)
+		case <-time.After(10 * time.Second):
+			// keep alive
+		}
+	}
+}
+
+func (g *Ingester) watchWithPollingLeader(ctx context.Context, kv *redis.Client) error {
+	slog.Warn("leader polling fallback active", "interval", g.cfg.PollInterval, "dirs", g.cfg.Dirs)
+	ticker := time.NewTicker(g.cfg.PollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			n, err := g.ScanAndEnqueue(ctx, kv)
+			if err != nil {
+				slog.Error("ingest leader: poll enqueue failed", "err", err)
+			} else if n > 0 {
+				slog.Info("ingest leader: poll enqueued", "count", n)
+			}
+		}
+	}
+}
+
+// RunWorkers starts n goroutines that consume file paths from the Redis work
+// queue and process them independently. Blocks until ctx is cancelled.
+func (g *Ingester) RunWorkers(ctx context.Context, kv *redis.Client, n int) {
+	if n < 1 {
+		n = 1
+	}
+	slog.Info("ingest: starting distributed workers", "count", n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			g.workerLoop(ctx, kv)
+		}()
+	}
+	wg.Wait()
+}
+
+func (g *Ingester) workerLoop(ctx context.Context, kv *redis.Client) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		// BRPop blocks up to 5s waiting for a job; redis.Nil means timeout (queue empty).
+		result, err := kv.BRPop(ctx, 5*time.Second, kvkeys.IngestWorkQueue()).Result()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			slog.Warn("ingest worker: queue pop error", "err", err)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		path := result[1]
+		fi, err := os.Stat(path)
+		if err != nil {
+			slog.Warn("ingest worker: stat failed", "path", path, "err", err)
+			continue
+		}
+		if g.cfg.DryRun {
+			slog.Info("ingest worker: would process (dry run)", "path", path)
+			continue
+		}
+		// The leader already filtered out up-to-date files before enqueuing,
+		// so we skip the upToDate check here and process directly.
+		trackID, err := g.ingestFile(ctx, path, fi)
+		if err != nil {
+			slog.Error("ingest worker: failed", "path", path, "err", err)
+			continue
+		}
+		g.markDone(ctx, path, fi, trackID)
+		slog.Info("ingest worker: ingested", "path", path, "track_id", trackID)
+	}
 }
 
 // generateWaveformPeaks runs audiowaveform on path and returns a normalised
