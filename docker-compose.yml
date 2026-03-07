@@ -21,7 +21,7 @@ services:
       - valkey_data:/data
     restart: unless-stopped
 
-  api:
+  app:
     # build:
     #   context: .
     #   dockerfile: docker/Dockerfile

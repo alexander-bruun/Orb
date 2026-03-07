@@ -165,6 +165,21 @@ jobs:
           cd web
           npx cap sync
 
+      - name: Create dummy keystore for CI
+        run: |
+          cd web/android
+          # Create a dummy JKS keystore used only for CI builds
+          keytool -genkeypair -v -storetype JKS -keystore dummy-keystore.jks -storepass android -keypass android -alias dummykey -dname "CN=orb, OU=orb, O=orb, L=Earth, S=Earth, C=US" -keyalg RSA -keysize 2048 -validity 10000
+
+      - name: Write keystore properties for Gradle
+        run: |
+          cat > web/android/keystore.properties <<EOF
+          storeFile=./dummy-keystore.jks
+          storePassword=android
+          keyAlias=dummykey
+          keyPassword=android
+          EOF
+
       - name: Make Capacitor Android build (with Node)
         run: |
           cd web

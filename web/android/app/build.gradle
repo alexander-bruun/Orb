@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace = "com.orb.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -20,7 +26,27 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Choose signing config based on whether a keystore properties file was provided.
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.ci
+            } else {
+                signingConfig signingConfigs.debug
+            }
         }
+    }
+
+    // Signing configs: if `keystore.properties` exists (created in CI), use `ci`.
+    signingConfigs {
+        ci {
+            if (keystorePropsFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+        // debug signing is provided by the Android plugin; leave empty to use defaults
+        debug {}
     }
 }
 
