@@ -3,7 +3,6 @@
 ## Playback & Discovery
 
 - [ ] **Sleep timer** — stop playback after N minutes or at the end of the current track/album. Simple client-side timer, no backend needed.
-- [ ] **Crossfade / gapless playback** — blend the tail of one track into the start of the next using the Web Audio API.
 - [ ] **"Radio" mode** — infinite queue seeded from a track or artist using the existing `recommend` service, auto-fetching more tracks as the queue drains.
 - [ ] **Smart shuffle** — weight shuffle by recency, play count, or genre similarity instead of pure random.
 
@@ -37,3 +36,34 @@
 
 - Make it possible to click lyrics, which should result in seeking the song to that location and playing from there.
 - Rework the filter page, it's not very intuitive to have to expand the menu to search, and we should have a large search field on the page itself so we dont rely on the field in the top. The search field in the top bar, should show search results in a little modal showing the results. Not the search page itself. So they are basically simple search and advanced search.
+
+## Admin / Management
+
+- [ ] **Advanced admin panel & statistics** — create an admin UI where site admins can view system statistics and perform administrative actions. Core requirements:
+	- Invite users via email (backend SMTP support, invite tokens, templates, queueing).
+	- User management (roles, activate/deactivate, quotas, API keys, rate limits).
+	- Dashboard: storage usage, total tracks/albums, active users, concurrent streams, ingest progress, play counts, error logs.
+	- Job control: start/stop/reschedule ingest jobs, re-scan library, re-fetch metadata, regenerate waveforms.
+	- Audit logs & activity feed for actions performed by admins/users.
+	- Backup & restore controls (database + object store snapshots), and manual/automatic export of playlists.
+	- Metrics and monitoring integration (Prometheus / Grafana endpoints) and health checks.
+	- Site settings UI: SMTP config, storage backends, object store credentials, CDN / proxy settings.
+	- Security: 2FA support, SSO/LDAP/OAuth optional integrations, and access tokens for external apps.
+
+## Brainstorm: Good features for a self-hosted Spotify-like app
+
+- Support multiple storage backends (local FS, S3-compatible, MinIO) and remote object stores.
+- Import/export playlists (Spotify/Apple/M3U/JSPF) and one-click Spotify playlist import.
+- Collaborative playlists and shareable invite links with permissions.
+- On-the-fly transcoding / bitrate limiting for bandwidth-constrained devices.
+- DLNA / UPnP and Chromecast support; local network discovery (mDNS).
+- Offline sync for mobile apps (download + DRM-free playback) and per-user storage quotas.
+- Scrobbling (Last.fm), remote control (web + mobile + physical devices), and multi-room playback.
+- Fine-grained recommendations and smart shuffle (weight by recency, rating, play count).
+- Per-user customizable EQ, crossfade/gapless playback, and advanced playback settings.
+- Audit logs, activity analytics (most-played, least-played, trending), and scheduled reports.
+- Admin tools: bulk metadata edit, artwork uploader, duplicate detector, and missing-artwork scanner.
+- Security and privacy: TLS, OAuth, API tokens, rate limiting, and optional public/ private instance modes.
+- Integrations: webhooks for events, Prometheus metrics, LDAP/SSO, SMTP for invites & notifications.
+
+*Example note:* the admin invite flow requires backend mail support (SMTP config, templates, queuing, retries). Add a backend mailer and an admin SMTP settings UI as part of the implementation plan.

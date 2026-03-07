@@ -12,6 +12,7 @@ import { listen } from '@tauri-apps/api/event';
 import { exclusiveMode, deviceId, activeDeviceId, activeDevices, setPlayerRef, sendHeartbeat, refreshDevices as refreshDevicesFromSession } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
+import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
 
 export const currentTrack = writable<Track | null>(null);
 export const playbackState = writable<PlaybackState>('idle');
@@ -75,6 +76,94 @@ function formatTime(ms: number): string {
 	const m = Math.floor(s / 60);
 	const sec = s % 60;
 	return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+// ── Crossfade / gapless helpers ──────────────────────────────────────────────
+
+/**
+ * Peek at the track that would play next without modifying any state.
+ * Returns null when the next track can't be determined (e.g. end of queue
+ * with autoplay needing an async API call).
+ */
+function peekNext(): Track | null {
+	const uq = get(userQueue);
+	if (uq.length > 0) return uq[0];
+	const q = get(queue);
+	const idx = get(queueIndex);
+	const repeat = get(repeatMode);
+	if (repeat === 'one') return get(currentTrack);
+	if (idx < q.length - 1) return q[actualIndex(idx + 1)];
+	if (repeat === 'all') return q[actualIndex(0)];
+	return null;
+}
+
+/**
+ * Advance the queue state (userQueue / queueIndex) by one slot without
+ * starting audio. Mirrors the logic in next() but skips playback.
+ */
+function advanceQueueState() {
+	const uq = get(userQueue);
+	if (uq.length > 0) {
+		userQueue.update((q) => q.slice(1));
+		return;
+	}
+	const q = get(queue);
+	const idx = get(queueIndex);
+	const repeat = get(repeatMode);
+	if (repeat === 'one') return;
+	if (idx < q.length - 1) {
+		queueIndex.set(idx + 1);
+	} else if (repeat === 'all') {
+		if (get(shuffle)) shuffleOrder.set(generateShuffle(q.length));
+		queueIndex.set(0);
+	}
+}
+
+/**
+ * Preload the next track and schedule a crossfade or gapless transition.
+ * Only applies to the WASM (24-bit+) path. Best-effort: if the preload
+ * doesn't finish in time, normal sequential playback happens instead.
+ */
+async function setupCrossfade(track: Track): Promise<void> {
+	if (!get(crossfadeEnabled) && !get(gaplessEnabled)) return;
+	if (!audioEngine.isWasmActive) return;
+	// Both the current and next track must be hi-res for sample-accurate transition.
+	if ((track.bit_depth ?? 16) <= 16) return;
+
+	const nextTrack = peekNext();
+	if (!nextTrack) return;
+	if ((nextTrack.bit_depth ?? 16) <= 16) return;
+
+	const fadeSecs = get(crossfadeEnabled) ? get(crossfadeSecs) : 0;
+
+	// Preload next track's audio in the background.
+	await audioEngine.preloadNext(nextTrack.id, nextTrack.sample_rate);
+
+	// Wait for the current track's full buffer to be ready (WASM quick-start
+	// may still be decoding), then schedule the transition.
+	audioEngine.onFullBufferForCrossfade(() => {
+		audioEngine.scheduleCrossfade(fadeSecs, () => {
+			// ── Transition: audio is now playing the next track ──
+			currentTrack.set(nextTrack);
+			durationMs.set(nextTrack.duration_ms);
+			positionMs.set(0);
+			playbackState.set('playing');
+
+			// Apply replay gain for the incoming track.
+			const rgDb = get(replayGainEnabled) ? (nextTrack.replay_gain_track ?? 0) : 0;
+			audioEngine.setReplayGainDb(rgDb);
+
+			// Advance queue pointers to match.
+			advanceQueueState();
+
+			// Record play and sync state to other devices/services.
+			libraryApi.recordPlay(nextTrack.id, 0).catch(() => {});
+			sendHeartbeat().catch(() => {});
+
+			// Chain: set up the next-next crossfade.
+			setupCrossfade(nextTrack).catch(() => {});
+		});
+	});
 }
 
 export async function playTrack(track: Track, trackList?: Track[], startSeconds = 0) {
@@ -144,6 +233,8 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		sendHeartbeat().catch(() => {});
 		// Record the play fire-and-forget; ignore errors so playback is never blocked.
 		libraryApi.recordPlay(track.id, 0).catch(() => {});
+		// Preload the next track and schedule crossfade / gapless if enabled.
+		setupCrossfade(track).catch(() => {});
 	} catch (err) {
 		console.error('playTrack error', err);
 		playbackState.set('idle');
@@ -214,6 +305,9 @@ export function seek(posSeconds: number) {
 	audioEngine.seek(clamped);
 	positionMs.set(clamped * 1000);
 	sendHeartbeat().catch(() => {});
+	// Re-schedule crossfade with updated timing after seek.
+	const seekTrack = get(currentTrack);
+	if (seekTrack) setupCrossfade(seekTrack).catch(() => {});
 }
 
 export function setVolume(gain: number) {

@@ -42,6 +42,8 @@ class AudioEngine {
 	private currentEQBands: EQBand[] = [];
 	/** Single-slot callback; fires whenever the full decoded AudioBuffer is ready. */
 	private onBufferReadyCb: ((buf: AudioBuffer) => void) | null = null;
+	/** One-shot callback for crossfade scheduling; fires (and clears) when full buffer is ready. */
+	private onFullBufferCrossfadeCb: ((buf: AudioBuffer) => void) | null = null;
 	private wasmActive = false;
 	private loaded = false;
 	/**
@@ -65,9 +67,39 @@ class AudioEngine {
 	/** Blob URL for offline playback — must be revoked when done. */
 	private offlineBlobUrl: string | null = null;
 
+	// ── Crossfade / gapless ────────────────────────────────────────────────────
+	/**
+	 * Per-track gain node inserted between each WASM source and gainNode.
+	 * Allows fading the current track out independently of the main volume.
+	 * Connects: source → crossfadeGain → gainNode
+	 */
+	private crossfadeGain: GainNode | null = null;
+	/** Preloaded AudioBuffer for the upcoming track (populated by preloadNext()). */
+	private nextBuffer: AudioBuffer | null = null;
+	/** Track ID of the last successfully preloaded buffer (for cache reuse). */
+	private nextBufferTrackId: string | null = null;
+	/** setTimeout handle for the crossfade; cleared on stop/seek. */
+	private crossfadeTimer: ReturnType<typeof setTimeout> | null = null;
+	/** UI callback fired when the next track begins playing (at crossfade start). */
+	private onCrossfadeTransition: (() => void) | null = null;
+	/** Source node for the outgoing track during crossfade; stopped after fade completes. */
+	private outgoingSource: AudioBufferSourceNode | null = null;
+	/** Gain node for the outgoing track during crossfade; disconnected after fade completes. */
+	private outgoingGain: GainNode | null = null;
+
 	/** True after a successful play(); false after stop() or before first play. */
 	get isLoaded(): boolean {
 		return this.loaded;
+	}
+
+	/** True when the WASM (Web Audio) path is active for the current track. */
+	get isWasmActive(): boolean {
+		return this.wasmActive;
+	}
+
+	/** True when a next-track buffer has been preloaded and is ready to crossfade. */
+	get hasPreloadedNext(): boolean {
+		return this.nextBuffer !== null;
 	}
 
 	/**
@@ -99,6 +131,19 @@ class AudioEngine {
 	 */
 	onBufferReady(cb: (buf: AudioBuffer) => void): void {
 		this.onBufferReadyCb = cb;
+	}
+
+	/**
+	 * Register a one-shot callback for crossfade scheduling that fires when the
+	 * full decoded buffer is available. If the buffer is already ready it fires
+	 * immediately. Replaces any previous crossfade-ready callback.
+	 */
+	onFullBufferForCrossfade(cb: (buf: AudioBuffer) => void): void {
+		if (this.wasmFullBuffer) {
+			cb(this.wasmFullBuffer);
+		} else {
+			this.onFullBufferCrossfadeCb = cb;
+		}
 	}
 
 	/**
@@ -145,6 +190,12 @@ class AudioEngine {
 		this.wasmFullBuffer = buf;
 		bufferedPct.set(100);
 		this.onBufferReadyCb?.(buf);
+		// Fire and clear the crossfade-ready callback if registered.
+		if (this.onFullBufferCrossfadeCb) {
+			const cb = this.onFullBufferCrossfadeCb;
+			this.onFullBufferCrossfadeCb = null;
+			cb(buf);
+		}
 	}
 
 	/**
@@ -311,7 +362,9 @@ class AudioEngine {
 
 				const restSource = ctx.createBufferSource();
 				restSource.buffer = fullBuf;
-				restSource.connect(this.gainNode!);
+				// Connect through the shared crossfadeGain so crossfade gain
+				// ramps affect both the segment and the continuation uniformly.
+				restSource.connect(this.crossfadeGain ?? this.gainNode!);
 				// Start at the position in the full buffer where the first
 				// segment left off.
 				restSource.start(continuationAt, segBuf.duration);
@@ -338,6 +391,9 @@ class AudioEngine {
 
 	/** Create and start an AudioBufferSourceNode, replacing any current source. */
 	private startWasmPlayback(ctx: AudioContext, buf: AudioBuffer, offsetSeconds: number): void {
+		// Cancel any in-flight crossfade from a previous track.
+		this._cancelCrossfade();
+
 		// Clear any existing sources.
 		for (const src of [this.currentSource, this.pendingSource]) {
 			if (src) {
@@ -348,9 +404,21 @@ class AudioEngine {
 		}
 		this.pendingSource = null;
 
+		// Disconnect the old crossfadeGain if present.
+		if (this.crossfadeGain) {
+			try { this.crossfadeGain.disconnect(); } catch { /* ignore */ }
+			this.crossfadeGain = null;
+		}
+
+		// Insert a per-track gain node for crossfade control (transparent at 1.0).
+		const cfGain = ctx.createGain();
+		cfGain.gain.value = 1;
+		cfGain.connect(this.gainNode!);
+		this.crossfadeGain = cfGain;
+
 		const source = ctx.createBufferSource();
 		source.buffer = buf;
-		source.connect(this.gainNode!);
+		source.connect(cfGain);
 		source.start(0, offsetSeconds);
 		source.onended = () => {
 			if (this.currentSource === source && this.wasmActive) {
@@ -386,6 +454,175 @@ class AudioEngine {
 		this._setFullBuffer(buf);
 		this.startWasmPlayback(ctx, buf, startSeconds);
 		this.startPositionTracking();
+	}
+
+	// ---------------------------------------------------------------------------
+	// Crossfade / gapless (WASM path only)
+	// ---------------------------------------------------------------------------
+
+	/**
+	 * Preload the next track's audio into memory so a crossfade or gapless
+	 * transition can be scheduled. WASM/24-bit path only; no-op otherwise.
+	 * Best-effort: errors are swallowed so playback is never blocked.
+	 * Only preloads when the next track's sample rate matches the current context.
+	 */
+	async preloadNext(trackId: string, sampleRate: number): Promise<void> {
+		// Reuse the existing preloaded buffer if it's already for this track.
+		if (this.nextBuffer && this.nextBufferTrackId === trackId) return;
+		this.nextBuffer = null;
+		this.nextBufferTrackId = null;
+		if (!this.wasmActive || !this.ctx) return;
+		// If sample rates differ we'd need to resample — skip for lossless accuracy.
+		if (this.ctx.sampleRate !== sampleRate) return;
+
+		const token = get(authStore).token ?? '';
+		try {
+			const offlineBlob = await getOfflineBlob(trackId);
+			let data: Uint8Array;
+			if (offlineBlob) {
+				data = new Uint8Array(await offlineBlob.arrayBuffer());
+			} else {
+				const res = await fetch(`${getApiBase()}/stream/${trackId}`, {
+					headers: { Authorization: `Bearer ${token}`, Range: 'bytes=0-' }
+				});
+				if (!res.ok) return;
+				data = new Uint8Array(await res.arrayBuffer());
+			}
+			const buf = await this.decodeAudioData(this.ctx, data);
+			if (buf) {
+				this.nextBuffer = buf;
+				this.nextBufferTrackId = trackId;
+			}
+		} catch { /* best-effort */ }
+	}
+
+	/**
+	 * Schedule a crossfade (or gapless) transition to the preloaded next buffer.
+	 * `crossfadeSecs = 0` → gapless: next source starts sample-accurately at
+	 * the exact moment the current track ends, with no gain ramping.
+	 * `crossfadeSecs > 0` → crossfade: overlapping gain ramps over that window.
+	 *
+	 * `onTransition` is called at the moment the next track starts playing so
+	 * the player store can update currentTrack, queue index, etc.
+	 *
+	 * No-op when: no next buffer preloaded, not on WASM path, or too little
+	 * time remaining in the current track to schedule anything.
+	 */
+	scheduleCrossfade(crossfadeSecs: number, onTransition: () => void): void {
+		this._cancelCrossfade();
+		if (!this.ctx || !this.wasmActive || !this.nextBuffer) return;
+
+		const ctx = this.ctx;
+		const buf = this.wasmFullBuffer ?? this.currentSource?.buffer;
+		if (!buf) return;
+
+		const effectiveDuration = buf.duration - this.offsetSeconds;
+		const trackEnd = this.startTime + effectiveDuration;
+		// When to start playing the next track.
+		const crossfadeAt = trackEnd - crossfadeSecs;
+		const delayMs = (crossfadeAt - ctx.currentTime) * 1000;
+
+		// Need at least 200 ms of runway to do anything meaningful.
+		if (delayMs < 200) return;
+
+		const nextBuf = this.nextBuffer;
+		this.onCrossfadeTransition = onTransition;
+
+		// --- Web Audio scheduling (sample-accurate) ---
+		const nextGain = ctx.createGain();
+		nextGain.connect(this.gainNode!);
+
+		const nextSource = ctx.createBufferSource();
+		nextSource.buffer = nextBuf;
+		nextSource.connect(nextGain);
+
+		if (crossfadeSecs > 0) {
+			// Fade current track out over [crossfadeAt, crossfadeAt + crossfadeSecs].
+			const cf = this.crossfadeGain;
+			if (cf) {
+				cf.gain.setValueAtTime(1, crossfadeAt);
+				cf.gain.linearRampToValueAtTime(0, crossfadeAt + crossfadeSecs);
+			}
+			// Fade next track in over the same window.
+			nextGain.gain.setValueAtTime(0, crossfadeAt);
+			nextGain.gain.linearRampToValueAtTime(1, crossfadeAt + crossfadeSecs);
+		} else {
+			// Gapless: next track plays at full volume from the start.
+			nextGain.gain.value = 1;
+		}
+
+		// Schedule the next source to start at the crossfade point.
+		nextSource.start(crossfadeAt);
+		nextSource.onended = () => {
+			if (this.currentSource === nextSource && this.wasmActive) {
+				playerNext().catch(() => {});
+			}
+		};
+
+		// Suppress the outgoing sources so they don't double-trigger playerNext.
+		const suppressEnded = (src: AudioBufferSourceNode | null) => {
+			if (src) try { src.onended = null; } catch { /* ignore */ }
+		};
+
+		// --- JS timer to update state when the transition fires ---
+		this.crossfadeTimer = setTimeout(() => {
+			this.crossfadeTimer = null;
+
+			suppressEnded(this.currentSource);
+			suppressEnded(this.pendingSource);
+
+			// Save outgoing references for cleanup after the fade completes.
+			this.outgoingSource = this.pendingSource ?? this.currentSource;
+			this.outgoingGain = this.crossfadeGain;
+
+			// Promote the next track as the active one.
+			this.currentSource = nextSource;
+			this.pendingSource = null;
+			this.crossfadeGain = nextGain;
+			this.startTime = crossfadeAt;
+			this.offsetSeconds = 0;
+			this.wasmFullBuffer = nextBuf;
+			this.nextBuffer = null;
+			durationMs.set(nextBuf.duration * 1000);
+
+			// Notify player store to update UI (currentTrack, queueIndex, etc.).
+			const cb = this.onCrossfadeTransition;
+			this.onCrossfadeTransition = null;
+			cb?.();
+
+			// After the fade window, stop and disconnect the outgoing source.
+			const cleanupDelay = Math.max(0, crossfadeSecs) * 1000 + 100;
+			setTimeout(() => {
+				if (this.outgoingSource) {
+					try { this.outgoingSource.stop(); } catch { /* ignore */ }
+					try { this.outgoingSource.disconnect(); } catch { /* ignore */ }
+					this.outgoingSource = null;
+				}
+				if (this.outgoingGain) {
+					try { this.outgoingGain.disconnect(); } catch { /* ignore */ }
+					this.outgoingGain = null;
+				}
+			}, cleanupDelay);
+		}, delayMs);
+	}
+
+	/** Cancel any pending crossfade timer and clean up outgoing nodes. */
+	private _cancelCrossfade(): void {
+		if (this.crossfadeTimer !== null) {
+			clearTimeout(this.crossfadeTimer);
+			this.crossfadeTimer = null;
+		}
+		this.onCrossfadeTransition = null;
+		this.onFullBufferCrossfadeCb = null;
+		if (this.outgoingSource) {
+			try { this.outgoingSource.stop(); } catch { /* ignore */ }
+			try { this.outgoingSource.disconnect(); } catch { /* ignore */ }
+			this.outgoingSource = null;
+		}
+		if (this.outgoingGain) {
+			try { this.outgoingGain.disconnect(); } catch { /* ignore */ }
+			this.outgoingGain = null;
+		}
 	}
 
 	// ---------------------------------------------------------------------------
@@ -497,6 +734,10 @@ class AudioEngine {
 
 	seek(positionSeconds: number) {
 		if (this.wasmActive && this.ctx) {
+			// Cancel any in-flight crossfade — seek invalidates the scheduled timing.
+			// Keep nextBuffer: the preloaded data is still valid for a re-schedule.
+			this._cancelCrossfade();
+
 			// Prefer the full buffer for seeking; fall back to whatever is loaded.
 			const buf =
 				this.wasmFullBuffer ??
@@ -516,9 +757,19 @@ class AudioEngine {
 			this.currentSource = null;
 			this.pendingSource = null;
 
+			// Disconnect and recreate the crossfade gain so seek starts clean.
+			if (this.crossfadeGain) {
+				try { this.crossfadeGain.disconnect(); } catch { /* ignore */ }
+				this.crossfadeGain = null;
+			}
+			const cfGain = this.ctx.createGain();
+			cfGain.gain.value = 1;
+			cfGain.connect(this.gainNode!);
+			this.crossfadeGain = cfGain;
+
 			const source = this.ctx.createBufferSource();
 			source.buffer = buf;
-			source.connect(this.gainNode!);
+			source.connect(cfGain);
 			source.start(0, positionSeconds);
 			source.onended = () => {
 				if (this.currentSource === source && this.wasmActive) {
@@ -685,6 +936,9 @@ class AudioEngine {
 		bufferedPct.set(0);
 		this.stopPositionTracking();
 		this.stopIosWakeLock();
+		this._cancelCrossfade();
+		this.nextBuffer = null;
+		this.nextBufferTrackId = null;
 		for (const src of [this.currentSource, this.pendingSource]) {
 			if (src) {
 				try { src.onended = null; } catch { /* ignore */ }
@@ -694,6 +948,10 @@ class AudioEngine {
 		}
 		this.currentSource = null;
 		this.pendingSource = null;
+		if (this.crossfadeGain) {
+			try { this.crossfadeGain.disconnect(); } catch { /* ignore */ }
+			this.crossfadeGain = null;
+		}
 		this.wasmFullBuffer = null;
 		this.wasmActive = false;
 		this.loaded = false;

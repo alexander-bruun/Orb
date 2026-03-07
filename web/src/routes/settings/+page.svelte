@@ -10,6 +10,7 @@
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled } from '$lib/stores/player';
   import { waveformEnabled } from '$lib/stores/settings/theme';
+  import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
   import { downloads, deleteDownload, deleteAllDownloads, getStorageEstimate } from '$lib/stores/offline/downloads';
@@ -1174,6 +1175,71 @@
         <span class="toggle-knob"></span>
       </button>
     </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Gapless Playback</span>
+        <span class="setting-desc">
+          Schedule the next track to start the instant the current one ends — no silence between tracks.
+          Only applies to 24-bit Hi-Res tracks on the Web Audio path.
+          Disabled when Crossfade is on.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$gaplessEnabled && !$crossfadeEnabled}
+        role="switch"
+        aria-checked={$gaplessEnabled && !$crossfadeEnabled}
+        disabled={$crossfadeEnabled}
+        on:click={() => gaplessEnabled.set(!$gaplessEnabled)}
+        title={$gaplessEnabled ? 'Disable gapless playback' : 'Enable gapless playback'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Crossfade</span>
+        <span class="setting-desc">
+          Blend the end of one track into the start of the next using overlapping volume fades.
+          Only applies to 24-bit Hi-Res tracks on the Web Audio path.
+          When on, overrides Gapless Playback.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$crossfadeEnabled}
+        role="switch"
+        aria-checked={$crossfadeEnabled}
+        on:click={() => crossfadeEnabled.set(!$crossfadeEnabled)}
+        title={$crossfadeEnabled ? 'Disable crossfade' : 'Enable crossfade'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    {#if $crossfadeEnabled}
+    <div class="setting-row" style="align-items:center; gap:1rem;">
+      <div class="setting-info" style="flex:1 1 auto;">
+        <span class="setting-name">Crossfade Duration</span>
+        <span class="setting-desc">How many seconds the outgoing and incoming tracks overlap.</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:0.6rem; flex-shrink:0;">
+        <input
+          type="range"
+          min="1"
+          max="12"
+          step="0.5"
+          value={$crossfadeSecs}
+          on:input={(e) => crossfadeSecs.set(parseFloat((e.target as HTMLInputElement).value))}
+          style="width:120px; accent-color:var(--accent);"
+        />
+        <span style="min-width:2.5rem; text-align:right; font-size:0.85rem; color:var(--text-secondary);">{$crossfadeSecs}s</span>
+      </div>
+    </div>
+    {/if}
+
     {#if isTauri()}
     <div class="setting-row">
       <div class="setting-info">
