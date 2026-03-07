@@ -16,7 +16,6 @@
 <table align="center"><tr>
   <td><img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile.png" alt="Orb Mobile UI" width="300"></td>
   <td><img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-lyrics.png" alt="Orb Mobile + Lyrics" width="300"></td>
-  <td><img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-offline.png" alt="Orb Mobile Offline" width="300"></td>
 </tr></table>
 
 ---

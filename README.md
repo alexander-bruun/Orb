@@ -16,7 +16,6 @@
 <table align="center"><tr>
   <td><img src="docs/mobile.png" alt="Orb Mobile UI" width="300"></td>
   <td><img src="docs/mobile-lyrics.png" alt="Orb Mobile + Lyrics" width="300"></td>
-  <td><img src="docs/mobile-offline.png" alt="Orb Mobile Offline" width="300"></td>
 </tr></table>
 
 ---
