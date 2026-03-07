@@ -22,10 +22,10 @@ services:
     restart: unless-stopped
 
   app:
-    # build:
-    #   context: .
-    #   dockerfile: docker/Dockerfile
-    image: alexbruun/orb:latest
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    # image: alexbruun/orb:latest
     environment:
       DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
       KV_MODE: standalone

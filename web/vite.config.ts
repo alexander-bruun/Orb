@@ -5,9 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 // TAURI_ENV_ARCH is set automatically by the Tauri CLI during dev and build.
 const isTauriBuild = !!process.env.TAURI_ENV_ARCH;
-const isCapacitorBuild = !!process.env.CAPACITOR_PLATFORM;
 console.log('[vite] TAURI_ENV_ARCH =', process.env.TAURI_ENV_ARCH, '→ isTauri:', isTauriBuild);
-console.log('[vite] CAPACITOR_PLATFORM =', process.env.CAPACITOR_PLATFORM, '→ isCapacitor:', isCapacitorBuild);
 
 export default defineConfig({
 	plugins: [
@@ -15,7 +13,7 @@ export default defineConfig({
 		sveltekit(),
 		// Service worker only makes sense in the web build; Tauri ships its own
 		// update mechanism and doesn't benefit from a PWA SW.
-		...(!isTauriBuild && !isCapacitorBuild ? [
+		...(!isTauriBuild ? [
 			VitePWA({
 				registerType: 'autoUpdate',
 				strategies: 'injectManifest',
@@ -42,9 +40,7 @@ export default defineConfig({
 			}),
 		] : []),
 	],
-	define: {
-		__IS_CAPACITOR__: isCapacitorBuild,
-	},
+	define: {},
 	build: {
 		rollupOptions: {},
 	},

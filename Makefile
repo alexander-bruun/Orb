@@ -7,28 +7,9 @@ HTTP_PORT          ?= 8080
 DIR                ?= ./music
 USER_ID            ?=
 
-# Capacitor targets
-cap-build:
-	cd web && npm run build
-
-cap-sync: cap-build
-	cd web && npx cap sync
-
-cap-ios: cap-sync
-	cd web && npx cap open ios
-
-cap-android: cap-sync
-	cd web && npx cap open android
-
-cap-ios-build: cap-sync
-	cd web && npx cap build ios
-
-cap-android-build: cap-sync
-	cd web && npx cap build android
-
 # Docker targets
 docker-build:
-	docker compose build
+	sudo docker compose build
 
 docker-up: docker-build
 	sudo docker compose up --remove-orphans
@@ -38,11 +19,50 @@ docker-down:
 
 # Local targets
 web-install:
-	cd web && npm install
+	cd web && bun install
 
 tauri-build: web-install
 	cd web && \
-	GH_TOKEN=$(GH_TOKEN) npx tauri build
+	GH_TOKEN=$(GH_TOKEN) bunx tauri build
+
+# Tauri Android targets (local)
+tauri-android-init:
+	. scripts/android.env && cd web && bunx tauri android init
+	@$(MAKE) tauri-android-dev-sign
+
+tauri-android-build:
+	. scripts/android.env && cd web && bunx tauri android build --apk --aab
+
+tauri-android-dev-sign:
+	scripts/android-sign.sh --dev
+
+# Tauri iOS targets (local)
+tauri-ios-init:
+	. scripts/ios.env && cd web && bunx tauri ios init
+	@$(MAKE) tauri-ios-dev-sign
+
+tauri-ios-build:
+	. scripts/ios.env && cd web && bunx tauri ios build
+
+tauri-ios-dev-sign:
+	scripts/ios-sign.sh --dev
+
+# Tauri CI targets (env already set by workflow)
+tauri-android-init-ci:
+	cd web && bunx tauri android init --ci
+	@$(MAKE) tauri-patch-cleartext
+
+tauri-android-build-ci:
+	cd web && bunx tauri android build --apk --aab -- --unsigned
+
+tauri-ios-init-ci:
+	cd web && bunx tauri ios init --ci
+
+tauri-ios-build-ci:
+	cd web && bunx tauri ios build
+
+tauri-patch-cleartext:
+	sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' web/src-tauri/gen/android/app/build.gradle.kts
 
 # Linting
 lint:

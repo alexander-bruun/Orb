@@ -6,12 +6,12 @@ RUN GOWORK=off GONOSUMCHECK=github.com/alexander-bruun/orb/* \
     CGO_ENABLED=0 GOOS=linux \
     go build -trimpath -o /bin/api ./cmd/main.go
 
-FROM node:25-alpine AS ui-builder
+FROM oven/bun:alpine AS ui-builder
 WORKDIR /app
 COPY web/package.json ./
-RUN npm install
+RUN bun install
 COPY web/ ./
-RUN npm run build
+RUN bun run build
 
 FROM nginx:alpine
 RUN mkdir -p /opt
