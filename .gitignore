@@ -42,9 +42,6 @@ web/src-tauri/gen/
 logs/
 *.log
 
-# Docker / compose overrides
-docker-compose.override.yml
-
 # Secrets / keys
 *.key
 *.pem

@@ -1,21 +1,3 @@
-# Local single-server deployment — no pgBouncer, no Sentinel.
-# On a fresh volume Postgres runs schema.sql via initdb; on an existing volume
-# the API applies any schema changes automatically on startup via store.Migrate().
-# Music is served directly from the local filesystem via a shared volume.
-#
-# Multiple music directories are supported — mount each source drive as a
-# separate read-only volume under /music/<name> and list them comma-separated
-# in the INGEST_DIRS environment variable:
-#
-#   volumes:
-#     - /mnt/d/Music:/music/drive-d:ro
-#     - /mnt/e/FLAC:/music/drive-e:ro
-#   environment:
-#     INGEST_DIRS: /music/drive-d,/music/drive-e
-#
-# Usage:
-#   docker compose -f docker-compose.yml up -d
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -25,10 +7,6 @@ services:
       POSTGRES_DB: orb
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Mount the whole db/ directory so Docker Desktop doesn't cache a
-      # stale single-file bind-mount path. Postgres only executes .sql files
-      # directly in initdb.d (not subdirectories), so schema.sql runs once on
-      # a fresh volume; migrations/, queries/
       - ./services/db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orb"]
@@ -44,9 +22,10 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+    # build:
+    #   context: .
+    #   dockerfile: docker/Dockerfile
+    image: alexbruun/orb:latest
     environment:
       DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
       KV_MODE: standalone
@@ -54,14 +33,12 @@ services:
       STORE_ROOT: /data/audio
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
-      INGEST_DIRS: /music/drive-d
+      INGEST_DIRS: /music
       INGEST_WATCH: "true"
       DLNA_ENABLED: "true"
     volumes:
       - audio_data:/data/audio
-      - /mnt/d/Music:/music/drive-d:ro
-      # Add more drives as needed:
-      # - /mnt/e/FLAC:/music/drive-e:ro
+      - /my-music:/music:ro
     ports:
       - 3000:80 # UI
       - 8080:8080 # API
@@ -73,8 +50,6 @@ services:
       valkey:
         condition: service_started
     restart: unless-stopped
-
-
 
 volumes:
   postgres_data:

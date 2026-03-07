@@ -144,6 +144,11 @@ jobs:
       - name: Install frontend dependencies (npm)
         run: cd web && npm install
 
+      - name: Build frontend assets
+        run: |
+          cd web
+          npm run build
+
       - name: Setup Node 22 for Capacitor
         uses: actions/setup-node@v4
         with:
@@ -197,6 +202,11 @@ jobs:
 
       - name: Install frontend dependencies (npm)
         run: cd web && npm install
+
+      - name: Build frontend assets
+        run: |
+          cd web
+          npm run build
 
       - name: Setup Node 22 for Capacitor
         uses: actions/setup-node@v4
