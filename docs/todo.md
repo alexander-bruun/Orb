@@ -8,6 +8,7 @@
 - Collaborative playlists and shareable invite links with permissions.
 - On-the-fly transcoding / bitrate limiting for bandwidth-constrained devices.
 - Look for any usage of unicode icons, and refactor them to use proper icons. THey dont render the same on all devices.
+- Implement airplay support directly in the web and mobile player.
 
 - [ ] **Advanced admin panel & statistics** — create an admin UI where site admins can view system statistics and perform administrative actions. Core requirements the first user created is the default admin:
 

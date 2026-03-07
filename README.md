@@ -27,7 +27,7 @@ Orb is distributed exclusively as Docker images for Linux (amd64, arm64). Web UI
 ### Using Docker (Recommended)
 
 ```bash
-docker compose -f docker-compose.local.yml up -d
+docker compose up -d --build
 ```
 
 ## 🤝 Contributing

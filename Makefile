@@ -44,12 +44,12 @@ cap-ios-build: cap-sync
 cap-android-build: cap-sync
 	cd web && bunx cap build android
 
-# Run docker-compose local build & up (matches developer local command)
-docker-local-up:
-	sudo docker-compose -f docker-compose.local.yml build && sudo docker-compose -f docker-compose.local.yml up --remove-orphans
+# Run docker-compose build & up
+docker-up:
+	sudo docker-compose -f docker-compose.yml up --build --remove-orphans
 
-docker-local-down:
-	sudo docker-compose -f docker-compose.local.yml down -v
+docker-down:
+	sudo docker-compose -f docker-compose.yml down -v
 
 # Frontend / Tauri targets used by CI
 .PHONY: web-install web-build tauri-build build-api build docker-build

@@ -1828,6 +1828,22 @@ func (s *Store) ListAllTrackFeaturesMap(ctx context.Context) (map[string]TrackFe
 	return m, nil
 }
 
+// ListAllTracks returns paginated tracks ordered by title (for DLNA browsing).
+func (s *Store) ListAllTracks(ctx context.Context, limit, offset int32) ([]Track, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
+FROM tracks t
+LEFT JOIN track_features tf ON tf.track_id = t.id
+ORDER BY t.title ASC
+LIMIT $1 OFFSET $2`,
+		limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}
+
 // ListAllTracksBasic returns minimal track info for bulk similarity computation.
 func (s *Store) ListAllTracksBasic(ctx context.Context) ([]TrackBasic, error) {
 	rows, err := s.pool.Query(ctx,

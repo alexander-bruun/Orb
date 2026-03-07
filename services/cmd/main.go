@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,9 +16,11 @@ import (
 
 	"github.com/alexander-bruun/orb/services/internal/admin"
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/castproxy"
 	"github.com/alexander-bruun/orb/services/internal/config"
 	"github.com/alexander-bruun/orb/services/internal/device"
 	"github.com/alexander-bruun/orb/services/internal/discovery"
+	"github.com/alexander-bruun/orb/services/internal/dlna"
 	"github.com/alexander-bruun/orb/services/internal/ingest"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/library"
@@ -168,6 +171,11 @@ func run(ctx context.Context) error {
 	shareSvc := share.New(db, kv, obj, jwtMW)
 	r.Route("/share", shareSvc.Routes)
 
+	// Chromecast proxy routes (public — cast devices can't do JWT)
+	castBaseURL := config.Env("CAST_BASE_URL", fmt.Sprintf("http://%s:%s", detectLANIP(), port))
+	castSvc := castproxy.New(db, obj, castBaseURL)
+	castSvc.Routes(r)
+
 	// --- Background ingest watcher (leader-elected, no-op if Watch=false) ---
 	if ingestSvc != nil {
 		go ingestSvc.StartWatch(ctx)
@@ -182,6 +190,21 @@ func run(ctx context.Context) error {
 		} else {
 			defer mdnsSrv.Shutdown()
 		}
+	}
+
+	// --- DLNA/UPnP media server ---
+	if config.Env("DLNA_ENABLED", "true") == "true" {
+		dlnaPort, _ := strconv.Atoi(config.Env("DLNA_PORT", "9090"))
+		dlnaSrv := dlna.New(db, obj, dlna.Config{
+			HTTPPort:   dlnaPort,
+			ServerName: config.Env("DLNA_NAME", config.Env("SERVER_NAME", "Orb Music Server")),
+			ExternalIP: config.Env("DLNA_IP", ""),
+		})
+		go func() {
+			if err := dlnaSrv.Start(ctx); err != nil {
+				slog.Warn("dlna server stopped", "err", err)
+			}
+		}()
 	}
 
 	// --- HTTP server ---
@@ -295,6 +318,20 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// detectLANIP returns the first non-loopback IPv4 address.
+func detectLANIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return "127.0.0.1"
 }
 
 // Ensure kvkeys package is used (imported for side effects in future).

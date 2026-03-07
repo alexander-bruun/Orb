@@ -1,75 +1,82 @@
+# Local single-server deployment — no pgBouncer, no Sentinel.
+# On a fresh volume Postgres runs schema.sql via initdb; on an existing volume
+# the API applies any schema changes automatically on startup via store.Migrate().
+# Music is served directly from the local filesystem via a shared volume.
+#
+# Multiple music directories are supported — mount each source drive as a
+# separate read-only volume under /music/<name> and list them comma-separated
+# in the INGEST_DIRS environment variable:
+#
+#   volumes:
+#     - /mnt/d/Music:/music/drive-d:ro
+#     - /mnt/e/FLAC:/music/drive-e:ro
+#   environment:
+#     INGEST_DIRS: /music/drive-d,/music/drive-e
+#
+# Usage:
+#   docker compose -f docker-compose.yml up -d
+
 services:
-  postgres-primary:
+  postgres:
     image: postgres:16-alpine
-    environment: { POSTGRES_USER: orb, POSTGRES_PASSWORD: orb, POSTGRES_DB: orb }
-    volumes: [postgres_primary_data:/var/lib/postgresql/data]
+    environment:
+      POSTGRES_USER: orb
+      POSTGRES_PASSWORD: orb
+      POSTGRES_DB: orb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Mount the whole db/ directory so Docker Desktop doesn't cache a
+      # stale single-file bind-mount path. Postgres only executes .sql files
+      # directly in initdb.d (not subdirectories), so schema.sql runs once on
+      # a fresh volume; migrations/, queries/
+      - ./services/db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orb"]
       interval: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
 
-  postgres-replica:
-    image: postgres:16-alpine
-    environment: { PGUSER: replicator, PGPASSWORD: replicator, PRIMARY_HOST: postgres-primary }
-    volumes: [postgres_replica_data:/var/lib/postgresql/data]
-    depends_on: { postgres-primary: { condition: service_healthy } }
-
-  pgbouncer:
-    image: pgbouncer/pgbouncer:latest
-    environment:
-      DATABASES_HOST: postgres-primary
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: "1000"
-      DEFAULT_POOL_SIZE: "25"
-    ports: ["5432:5432"]
-    depends_on: { postgres-primary: { condition: service_healthy } }
-
-  valkey-primary:
+  valkey:
     image: valkey/valkey:7-alpine
     command: valkey-server --appendonly yes
-    volumes: [valkey_data:/data]
-
-  valkey-replica:
-    image: valkey/valkey:7-alpine
-    command: valkey-server --replicaof valkey-primary 6379
-    depends_on: [valkey-primary]
-
-  valkey-sentinel-1: &sentinel
-    image: valkey/valkey:7-alpine
-    command: valkey-sentinel /etc/valkey/sentinel.conf
-    volumes: [./docker/sentinel.conf:/etc/valkey/sentinel.conf:ro]
-  valkey-sentinel-2: *sentinel
-  valkey-sentinel-3: *sentinel
+    volumes:
+      - valkey_data:/data
+    restart: unless-stopped
 
   api:
-    build: { context: ., dockerfile: docker/api.Dockerfile }
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     environment:
-      KV_MODE: sentinel
-      DATABASE_URL: postgres://orb:orb@postgres-primary:5432/orb?sslmode=disable
-      KV_SENTINEL_ADDRS: valkey-sentinel-1:26379,valkey-sentinel-2:26379,valkey-sentinel-3:26379
-      KV_SENTINEL_MASTER: mymaster
+      DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
+      KV_MODE: standalone
+      KV_ADDR: valkey:6379
       STORE_ROOT: /data/audio
-      JWT_SECRET: "${JWT_SECRET}"
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
       INGEST_DIRS: /music/drive-d
       INGEST_WATCH: "true"
+      DLNA_ENABLED: "true"
     volumes:
       - audio_data:/data/audio
       - /mnt/d/Music:/music/drive-d:ro
       # Add more drives as needed:
       # - /mnt/e/FLAC:/music/drive-e:ro
-    ports: ["8080:8080"]
-    depends_on: { postgres-primary: { condition: service_healthy } }
+    ports:
+      - 3000:80 # UI
+      - 8080:8080 # API
+      - 9090:9090 # DLNA
+      - 1900:1900/udp # SSDP for DLNA discovery
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_started
     restart: unless-stopped
-
-  ui:
-    build: { context: ., dockerfile: docker/ui.Dockerfile }
-    ports: ["3000:80"]
 
 
 
 volumes:
-  postgres_primary_data:
-  postgres_replica_data:
+  postgres_data:
   valkey_data:
   audio_data:
