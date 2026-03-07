@@ -189,6 +189,8 @@ jobs:
   build-tauri-ios:
     needs: create-release
     runs-on: macos-latest
+    env:
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v6
 
@@ -202,6 +204,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: make web-install
+
+      - name: Require Apple Team ID
+        run: |
+          if [ -z "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "ERROR: APPLE_TEAM_ID secret is not set. Set the secret in repository settings to enable iOS builds." >&2
+            exit 1
+          fi
 
       - name: Initialize Tauri iOS
         run: make tauri-ios-init-ci
