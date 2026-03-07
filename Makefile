@@ -24,25 +24,25 @@ dev-api:
 	HTTP_PORT=$(HTTP_PORT) go run ./cmd/main.go
 
 dev-ui:
-	cd web && bun run dev
+	cd web && npm run dev
 
 cap-build:
-	cd web && bun run build
+	cd web && npm run build
 
 cap-sync: cap-build
-	cd web && bunx cap sync
+	cd web && npx cap sync
 
 cap-ios: cap-sync
-	cd web && bunx cap open ios
+	cd web && npx cap open ios
 
 cap-android: cap-sync
-	cd web && bunx cap open android
+	cd web && npx cap open android
 
 cap-ios-build: cap-sync
-	cd web && bunx cap build ios
+	cd web && npx cap build ios
 
 cap-android-build: cap-sync
-	cd web && bunx cap build android
+	cd web && npx cap build android
 
 # Run docker-compose build & up
 docker-up:
@@ -52,30 +52,17 @@ docker-down:
 	sudo docker-compose -f docker-compose.yml down -v
 
 # Frontend / Tauri targets used by CI
-.PHONY: web-install web-build tauri-build build-api build docker-build
+.PHONY: web-install tauri-build docker-build
 
 web-install:
-	cd web && bun install --frozen-lockfile
-
-web-build:
-	cd web && bun run build
+	cd web && npm install
 
 tauri-build: web-install
 	cd web && \
-	GH_TOKEN=$(GH_TOKEN) bunx tauri build
-
-build-api:
-	cd services && \
-	GOWORK=off GONOSUMCHECK=github.com/alexander-bruun/orb/* \
-	CGO_ENABLED=0 GOOS=linux go build -trimpath -o bin/api ./cmd/main.go
-
-build: web-build build-api
+	GH_TOKEN=$(GH_TOKEN) npx tauri build
 
 docker-build:
 	docker compose -f docker-compose.yml build
-
-test:
-	go test ./...
 
 lint:
 	golangci-lint run ./...

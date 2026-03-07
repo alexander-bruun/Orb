@@ -9,6 +9,7 @@ docker compose up -d --build
 ```
 
 Notes:
+
 - The compose file will build the unified image and start Postgres and Valkey alongside the Orb service.
 - The web UI is served by the container and is reachable on the host port you map to container port 80 (the compose file maps it to `3000` by default).
 
@@ -25,4 +26,4 @@ This composes Postgres, Valkey, and the unified Orb container.
 ## From source (advanced)
 
 - The project builds a static Go `api` binary and a web UI build. Use `make` targets provided in the repository (see `Makefile`).
-- Building locally requires a Go toolchain compatible with the `go` version in `services/go.mod` and Node/Bun for the UI.
+- Building locally requires a Go toolchain compatible with the `go` version in `services/go.mod` and Node for the UI.
