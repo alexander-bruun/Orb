@@ -53,7 +53,7 @@ tauri-android-init-ci:
 	@$(MAKE) tauri-patch-cleartext
 
 tauri-android-build-ci:
-	cd web && bunx tauri android build --apk --aab -- --unsigned
+	cd web && bunx tauri android build --apk --aab
 
 tauri-ios-init-ci:
 	cd web && bunx tauri ios init --ci
