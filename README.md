@@ -1,6 +1,4 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/web/static/icon.svg" alt="Orb" width="96" />
-  <br/>
   <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/web/static/logo.svg" alt="Orb" height="36" />
   <p>Self-hosted, lossless music streaming. Your library, your server, full fidelity.</p>
   <img alt="GitHub Release" src="https://img.shields.io/github/v/release/alexander-bruun/orb">
