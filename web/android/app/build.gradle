@@ -22,19 +22,6 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            // Choose signing config based on whether a keystore properties file was provided.
-            if (keystorePropsFile.exists()) {
-                signingConfig signingConfigs.ci
-            } else {
-                signingConfig signingConfigs.debug
-            }
-        }
-    }
-
     // Signing configs: if `keystore.properties` exists (created in CI), use `ci`.
     signingConfigs {
         ci {
@@ -47,6 +34,19 @@ android {
         }
         // debug signing is provided by the Android plugin; leave empty to use defaults
         debug {}
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Choose signing config based on whether a keystore properties file was provided.
+            if (keystorePropsFile.exists()) {
+                signingConfig signingConfigs.ci
+            } else {
+                signingConfig signingConfigs.debug
+            }
+        }
     }
 }
 
