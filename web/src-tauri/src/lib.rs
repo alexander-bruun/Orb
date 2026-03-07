@@ -8,7 +8,7 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, State,
+    AppHandle, Manager, State, Emitter,
 };
 
 // ─── mDNS Discovery ──────────────────────────────────────────────────────────
@@ -74,10 +74,7 @@ struct DiscordState(Mutex<Option<DiscordIpcClient>>);
 fn discord_connect(state: State<'_, DiscordState>) -> bool {
     let mut guard = state.0.lock().unwrap();
     // Client ID — replace with your application's ID if you have one.
-    let mut client = match DiscordIpcClient::new("1234567890") {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
+    let mut client = DiscordIpcClient::new("1234567890");
     if client.connect().is_err() {
         return false;
     }

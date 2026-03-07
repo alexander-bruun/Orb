@@ -20,6 +20,8 @@ body = """
 {% if previous.version %}
 **Full Changelog**: https://github.com/alexander-bruun/orb/compare/{{ previous.version }}...{{ version }}
 {% endif %}
+**Docker image**: https://hub.docker.com/r/alexbruun/orb
+**Tagged image**: docker.io/alexbruun/orb:{{ version }}
 """
 trim = true
 footer = ""

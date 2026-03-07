@@ -1,6 +1,6 @@
 module github.com/alexander-bruun/orb/services
 
-go 1.26.0
+go 1.26
 
 require (
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
