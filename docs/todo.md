@@ -2,31 +2,17 @@
 
 ## Playback & Discovery
 
-- [ ] **Sleep timer** — stop playback after N minutes or at the end of the current track/album. Simple client-side timer, no backend needed.
 - [ ] **"Radio" mode** — infinite queue seeded from a track or artist using the existing `recommend` service, auto-fetching more tracks as the queue drains.
-- [ ] **Smart shuffle** — weight shuffle by recency, play count, or genre similarity instead of pure random.
 
 ## Library Management
 
-- [ ] **Duplicate detector** — surface tracks that share the same MusicBrainz recording ID or very similar title+duration, let the user pick which to keep.
 - [ ] **Missing artwork scanner** — admin tool to list albums without cover art and trigger a MusicBrainz re-fetch for them.
-- [ ] **BPM / tempo tagging** — read `BPM` from audio file tags during ingest and expose it as a filterable field; useful for workout playlists.
 - [ ] **Track ratings (1–5 stars)** — finer-grained than a binary favorite; enables weighted recommendations.
 
 ## Playlists
 
-- [ ] **Auto-playlist (smart playlist)** — saved filter rules (genre = "Jazz", year > 2000, play count < 5) that dynamically populate a playlist on open.
+- [ ] **Auto-playlist (smart playlist)** — saved filter rules (genre = "Jazz", year > 2000, play count < 5) that dynamically populate a playlist on open. These should be shown on the home page, and refresh once a week, and once a day when it makes sense.
 - [ ] **Playlist collaboration** — allow other users on the same instance to add/remove tracks from a shared playlist (extends the existing listen party infrastructure).
-- [ ] **Export/import as M3U or JSPF** — useful for migrating to/from other players.
-
-## Social / Multi-user
-
-- [ ] **Activity feed** — per-user "now playing" and recent plays visible to other users on the instance, opt-in.
-- [ ] **"Also listened to"** — show what other users on the instance played after the current track (collaborative filtering, fully local).
-
-## UI / UX
-
-- [ ] **Themes / accent color picker** — `themeStore` already exists, just expose more customization.
 
 ## Ingest / Admin
 

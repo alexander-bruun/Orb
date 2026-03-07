@@ -10,6 +10,7 @@
     bufferedPct,
     repeatMode,
     shuffle,
+    smartShuffleEnabled,
     userQueue,
     queue,
     queueModalOpen,
@@ -446,12 +447,17 @@
           on:click={toggleShuffle}
           aria-label="Shuffle"
           aria-pressed={$shuffle}
+          title={$shuffle && $smartShuffleEnabled ? 'Smart Shuffle on' : 'Shuffle'}
+          style="position:relative"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
             <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
             <line x1="4" y1="4" x2="9" y2="9"/>
           </svg>
+          {#if $shuffle && $smartShuffleEnabled}
+            <span class="smart-dot" aria-hidden="true"></span>
+          {/if}
         </button>
 
         <button class="fs-btn fs-btn--prev" on:click={previous} aria-label="Previous">
@@ -1201,6 +1207,17 @@
 
     .fs-btn--icon {
       color: rgba(255, 255, 255, 0.5);
+    }
+
+    .smart-dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0.9;
     }
 
     .fs-btn--icon.active {

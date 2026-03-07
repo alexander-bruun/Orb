@@ -29,6 +29,8 @@ export const shuffle = writable(false);
 export const shuffleOrder = writable<number[]>([]);
 /** Tracks explicitly queued by the user via Play Next / Add to Queue. */
 export const userQueue = writable<Track[]>([]);
+/** When true, shuffle spreads tracks by artist and de-prioritises recently played. */
+export const smartShuffleEnabled = writable(false);
 /** Controls visibility of the Up Next queue panel. */
 export const queueModalOpen = writable(false);
 /** When true, similar tracks auto-queue when the queue runs out. */
@@ -38,18 +40,81 @@ export const discordEnabled = writable(false);
 /** When true, normalize track loudness using ReplayGain metadata. */
 export const replayGainEnabled = writable(false);
 
+/** Tracks played in this session; used by smart shuffle to de-prioritise repeats. */
+const recentlyPlayedIds = new Set<string>();
+
+/** Fisher-Yates in-place shuffle of an array. */
+function fisherYates<T>(arr: T[]): T[] {
+	for (let i = arr.length - 1; i > 0; i--) {
+		const j = Math.floor(Math.random() * (i + 1));
+		[arr[i], arr[j]] = [arr[j], arr[i]];
+	}
+	return arr;
+}
+
 /** Fisher-Yates shuffle, optionally pinning one index to position 0. */
 function generateShuffle(length: number, pinIndex = -1): number[] {
 	const order = Array.from({ length }, (_, i) => i);
-	for (let i = length - 1; i > 0; i--) {
-		const j = Math.floor(Math.random() * (i + 1));
-		[order[i], order[j]] = [order[j], order[i]];
-	}
+	fisherYates(order);
 	if (pinIndex >= 0) {
 		const pos = order.indexOf(pinIndex);
 		if (pos !== 0) [order[0], order[pos]] = [order[pos], order[0]];
 	}
 	return order;
+}
+
+/**
+ * Smart shuffle: groups tracks by artist and interleaves the groups so the
+ * same artist never plays back-to-back. Recently played tracks (this session)
+ * are moved toward the end of the order. The pinned track (if any) is always
+ * placed at position 0.
+ */
+function generateSmartShuffle(tracks: Track[], pinIndex = -1): number[] {
+	// Group indices by artist (fall back to artist_name or a shared sentinel).
+	const groupMap = new Map<string, number[]>();
+	tracks.forEach((t, i) => {
+		const key = t.artist_id ?? t.artist_name ?? '__unknown__';
+		if (!groupMap.has(key)) groupMap.set(key, []);
+		groupMap.get(key)!.push(i);
+	});
+
+	// Shuffle within each group and randomise the group order.
+	const groups = fisherYates([...groupMap.values()].map((idxs) => fisherYates([...idxs])));
+
+	// Sort groups by size descending so large artists spread through the whole list.
+	groups.sort((a, b) => b.length - a.length);
+
+	// Round-robin interleave: one track per group per round.
+	const result: number[] = [];
+	const maxLen = Math.max(...groups.map((g) => g.length), 0);
+	for (let round = 0; round < maxLen; round++) {
+		for (const group of groups) {
+			if (round < group.length) result.push(group[round]);
+		}
+	}
+
+	// De-prioritise recently played tracks by moving them toward the end.
+	if (recentlyPlayedIds.size > 0) {
+		const notRecent = result.filter((i) => !recentlyPlayedIds.has(tracks[i].id));
+		const recent    = result.filter((i) =>  recentlyPlayedIds.has(tracks[i].id));
+		result.length = 0;
+		result.push(...notRecent, ...recent);
+	}
+
+	// Pin the selected track to position 0.
+	if (pinIndex >= 0) {
+		const pos = result.indexOf(pinIndex);
+		if (pos > 0) [result[0], result[pos]] = [result[pos], result[0]];
+	}
+
+	return result;
+}
+
+/** Returns either a smart or plain shuffle depending on the current setting. */
+function buildShuffleOrder(tracks: Track[], pinIndex = -1): number[] {
+	return get(smartShuffleEnabled)
+		? generateSmartShuffle(tracks, pinIndex)
+		: generateShuffle(tracks.length, pinIndex);
 }
 
 /**
@@ -114,7 +179,7 @@ function advanceQueueState() {
 	if (idx < q.length - 1) {
 		queueIndex.set(idx + 1);
 	} else if (repeat === 'all') {
-		if (get(shuffle)) shuffleOrder.set(generateShuffle(q.length));
+		if (get(shuffle)) shuffleOrder.set(buildShuffleOrder(get(queue)));
 		queueIndex.set(0);
 	}
 }
@@ -190,7 +255,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		const idx = trackList.findIndex((t) => t.id === track.id);
 		const actualIdx = idx >= 0 ? idx : 0;
 		if (get(shuffle)) {
-			const order = generateShuffle(trackList.length, actualIdx);
+			const order = buildShuffleOrder(trackList, actualIdx);
 			shuffleOrder.set(order);
 			queueIndex.set(0);
 		} else {
@@ -231,6 +296,8 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		// Immediately push current playback state so other devices update without
 		// waiting for the next 30-second heartbeat cycle.
 		sendHeartbeat().catch(() => {});
+		// Track for smart shuffle recency weighting.
+		recentlyPlayedIds.add(track.id);
 		// Record the play fire-and-forget; ignore errors so playback is never blocked.
 		libraryApi.recordPlay(track.id, 0).catch(() => {});
 		// Preload the next track and schedule crossfade / gapless if enabled.
@@ -371,8 +438,7 @@ export async function next() {
 		await playTrack(q[actualIndex(nextIdx)]);
 	} else if (repeat === 'all') {
 		if (get(shuffle)) {
-			const order = generateShuffle(q.length);
-			shuffleOrder.set(order);
+			shuffleOrder.set(buildShuffleOrder(q));
 		}
 		queueIndex.set(0);
 		await playTrack(q[actualIndex(0)]);
@@ -436,7 +502,7 @@ export function toggleShuffle() {
 		const idx = get(queueIndex);
 		if (!sh) {
 			// Turning on: pin the current track to position 0 in the shuffle order.
-			const order = generateShuffle(q.length, idx);
+			const order = buildShuffleOrder(q, idx);
 			shuffleOrder.set(order);
 			queueIndex.set(0);
 		} else {
@@ -699,7 +765,8 @@ function writeState() {
 			shuffleOrder: get(shuffleOrder),
 			autoplay: get(autoplayEnabled),
 			discord: get(discordEnabled),
-			replayGain: get(replayGainEnabled)
+			replayGain: get(replayGainEnabled),
+			smartShuffle: get(smartShuffleEnabled)
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 	} catch {
@@ -747,6 +814,7 @@ queueIndex.subscribe(() => scheduleStateSave());
 volume.subscribe(() => scheduleStateSave());
 repeatMode.subscribe(() => scheduleStateSave());
 shuffle.subscribe(() => scheduleStateSave());
+smartShuffleEnabled.subscribe(() => scheduleStateSave());
 autoplayEnabled.subscribe(() => scheduleStateSave());
 discordEnabled.subscribe(() => scheduleStateSave());
 replayGainEnabled.subscribe(() => {
@@ -946,6 +1014,7 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		if (st.autoplay === false) autoplayEnabled.set(false);
 		if (st.discord === true) discordEnabled.set(true);
 		if (st.replayGain === true) replayGainEnabled.set(true);
+		if (st.smartShuffle === true) smartShuffleEnabled.set(true);
 
 		if (Array.isArray(st.queue) && st.queue.length) {
 			// New format: full track objects stored directly — no API calls needed.

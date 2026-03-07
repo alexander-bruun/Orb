@@ -11,6 +11,7 @@
     bufferedPct,
     repeatMode,
     shuffle,
+    smartShuffleEnabled,
     userQueue,
     queueModalOpen,
     togglePlayPause,
@@ -150,13 +151,17 @@
         class:active={$shuffle}
         on:click={toggleShuffle}
         aria-label="Shuffle"
-        title="Shuffle"
+        title={$shuffle && $smartShuffleEnabled ? 'Smart Shuffle on' : 'Shuffle'}
+        style="position:relative"
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
           <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
           <line x1="4" y1="4" x2="9" y2="9"/>
         </svg>
+        {#if $shuffle && $smartShuffleEnabled}
+          <span class="smart-dot" aria-hidden="true"></span>
+        {/if}
       </button>
       <button class="ctrl-btn" on:click={previous} aria-label="Previous">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="19,4 9,12 19,20"/><rect x="5" y="4" width="2.5" height="16" rx="1"/></svg>
@@ -658,6 +663,17 @@
     height: 4px;
     border-radius: 50%;
     background: var(--accent);
+  }
+  /* "S" dot on shuffle button when smart shuffle is active */
+  .smart-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.85;
   }
   /* "1" badge overlaid on the repeat icon */
   .one-badge {

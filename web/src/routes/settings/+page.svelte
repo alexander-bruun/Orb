@@ -8,7 +8,7 @@
   import EQEditor from '$lib/components/ui/EQEditor.svelte';
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
-  import { autoplayEnabled, discordEnabled, replayGainEnabled } from '$lib/stores/player';
+  import { autoplayEnabled, discordEnabled, replayGainEnabled, smartShuffleEnabled } from '$lib/stores/player';
   import { waveformEnabled } from '$lib/stores/settings/theme';
   import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
@@ -1152,6 +1152,26 @@
         aria-checked={$waveformEnabled}
         on:click={() => waveformEnabled.set(!$waveformEnabled)}
         title={$waveformEnabled ? 'Disable waveform seek bar' : 'Enable waveform seek bar'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Smart Shuffle</span>
+        <span class="setting-desc">
+          When shuffle is on, spread tracks by artist so the same artist never plays back-to-back,
+          and move recently played tracks toward the end of the order.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$smartShuffleEnabled}
+        role="switch"
+        aria-checked={$smartShuffleEnabled}
+        on:click={() => smartShuffleEnabled.set(!$smartShuffleEnabled)}
+        title={$smartShuffleEnabled ? 'Disable smart shuffle' : 'Enable smart shuffle'}
       >
         <span class="toggle-knob"></span>
       </button>
