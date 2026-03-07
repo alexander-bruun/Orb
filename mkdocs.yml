@@ -1,22 +1,4 @@
 site_name: Orb
-site_url: https://alexbruun.github.io/orb/
-site_author: Alexander Bruun
-site_description: Orb Music Server documentation
-
-repo_name: alexander-bruun/orb
-repo_url: https://github.com/alexander-bruun/orb
-
-nav:
-  - Home: index.md
-
-theme:
-  name: material
-
-language: en
-
-plugins:
-  - search
-site_name: Orb
 site_url: https://alexander-bruun.github.io/orb/
 site_author: Alexander Bruun
 site_description: >-
