@@ -116,7 +116,13 @@
     </svg>
   </button>
 
-  <a href="/" class="wordmark">orb</a>
+  <a href="/" class="wordmark" aria-label="Orb">
+    <svg viewBox="0 0 52 28" height="30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="14" r="10" stroke="currentColor" stroke-width="1.4" opacity="0.3"/>
+      <circle cx="12" cy="14" r="4.5" fill="currentColor"/>
+      <text x="27" y="21" font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="22" fill="currentColor" letter-spacing="-0.02em">orb</text>
+    </svg>
+  </a>
 
   <!-- Quick search -->
   <div class="search-wrap" on:click|stopPropagation>
@@ -286,13 +292,11 @@
   }
 
   .wordmark {
-    font-family: 'Instrument Serif', serif;
-    font-style: italic;
-    font-size: 22px;
     color: var(--accent);
-    letter-spacing: -0.02em;
     flex-shrink: 0;
     margin-right: 4px;
+    display: flex;
+    align-items: center;
   }
 
   /* ── Quick search ───────────────────────────────────────── */

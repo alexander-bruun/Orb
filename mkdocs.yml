@@ -11,6 +11,7 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
+  - Tauri: tauri.md
 
 theme:
   name: material
