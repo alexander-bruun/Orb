@@ -38,27 +38,9 @@ Orb is a self-hosted music server built for audiophiles who want Spotify-level c
 docker compose up -d
 ```
 
-Then open `http://localhost:8080` in your browser.
+Then open `http://localhost:3000` in your browser.
 
 See the [full documentation](https://alexander-bruun.github.io/orb/) for configuration, environment variables, and advanced setup.
-
-## Installation
-
-Orb is distributed as a multi-arch Docker image (`linux/amd64`, `linux/arm64`).
-
-```yaml
-services:
-  orb:
-    image: alexbruun/orb:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./music:/music
-      - ./data:/data
-    environment:
-      DATABASE_URL: postgres://orb:orb@db:5432/orb?sslmode=disable
-      INGEST_DIRS: /music
-```
 
 ## Contributing
 
