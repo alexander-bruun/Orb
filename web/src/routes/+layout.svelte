@@ -87,6 +87,9 @@
     )
       return;
 
+    // Ignore when modifier keys are held — allow browser/OS shortcuts (e.g. Ctrl+R).
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
     for (const sc of SHORTCUTS) {
       if (e.key === sc.key) {
         e.preventDefault();
