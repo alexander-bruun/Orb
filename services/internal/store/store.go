@@ -702,13 +702,14 @@ func (s *Store) ListRecentlyPlayed(ctx context.Context, p ListRecentlyPlayedPara
 	rows, err := s.pool.Query(ctx,
 		`SELECT sub.id, sub.album_id, sub.artist_id, sub.title, sub.track_number, sub.disc_number,
 		        sub.duration_ms, sub.file_key, sub.file_size, sub.format, sub.bit_depth,
-		        sub.sample_rate, sub.channels, sub.bitrate_kbps, sub.seek_table, sub.fingerprint, sub.created_at, sub.replay_gain_track
+		        sub.sample_rate, sub.channels, sub.bitrate_kbps, sub.seek_table, sub.fingerprint, sub.created_at, sub.replay_gain_track, sub.bpm
 		FROM (
 		  SELECT DISTINCT ON (ph.track_id)
 		    t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
 		    t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
 		    t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
 		    COALESCE(tf.replay_gain, 0) AS replay_gain_track,
+		    COALESCE(tf.bpm, 0) AS bpm,
 		    ph.played_at
 		  FROM play_history ph
 		  JOIN tracks t ON t.id = ph.track_id
@@ -733,7 +734,7 @@ func (s *Store) ListMostPlayed(ctx context.Context, p ListMostPlayedParams) ([]T
 	rows, err := s.pool.Query(ctx,
 		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
 		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
-		        t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
+		        t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
 		FROM tracks t
 		LEFT JOIN track_features tf ON tf.track_id = t.id
 		JOIN (

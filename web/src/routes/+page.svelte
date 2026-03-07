@@ -340,7 +340,7 @@
     gap: 32px;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 900px) {
     .plays-columns {
       grid-template-columns: 1fr;
     }
