@@ -59,7 +59,7 @@ tauri-ios-init-ci:
 	cd web && bunx tauri ios init --ci
 
 tauri-ios-build-ci:
-	cd web && bunx tauri ios build
+	cd web && DEVELOPMENT_TEAM=0000000000 bunx tauri ios build
 
 tauri-patch-cleartext:
 	sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' web/src-tauri/gen/android/app/build.gradle.kts
