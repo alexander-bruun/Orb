@@ -15,7 +15,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/.github/workflows"
     schedule:
-      interval: "weekly"
+      interval: "daily"
     labels:
       - "dependencies"
       - "ci"
@@ -47,3 +47,22 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+
+  # Android Gradle projects (wrapper, plugins, dependencies)
+  - package-ecosystem: "gradle"
+    directory: "/web/android"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "android"
+
+  - package-ecosystem: "gradle"
+    directory: "/web/android/capacitor-cordova-android-plugins"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "android"
