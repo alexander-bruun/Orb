@@ -70,6 +70,8 @@ export interface Track {
 	featured_artists?: Artist[];
 	/** Track-level ReplayGain offset in dB. Undefined when no ReplayGain data is available. */
 	replay_gain_track?: number;
+	/** Track tempo in beats per minute. Undefined when unknown. */
+	bpm?: number;
 }
 
 export interface Playlist {
@@ -92,9 +94,11 @@ export interface SearchFilters {
 	format?: string;
 	bitrate_min?: number;
 	bitrate_max?: number;
+	bpm_min?: number;
+	bpm_max?: number;
 	/** Which result sections to show. Defaults to all three. */
 	types?: ('tracks' | 'albums' | 'artists')[];
-	/** Sort for track results: relevance | title | year | bitrate | duration */
+	/** Sort for track results: relevance | title | year | bitrate | duration | bpm */
 	sort_tracks?: string;
 	/** Sort for album results: relevance | title | year */
 	sort_albums?: string;

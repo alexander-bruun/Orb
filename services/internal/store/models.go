@@ -87,6 +87,8 @@ type Track struct {
 	// ReplayGainTrack is the track-level ReplayGain value in dB (from track_features).
 	// Nil when no ReplayGain data is available.
 	ReplayGainTrack *float64 `json:"replay_gain_track,omitempty"`
+	// BPM is the track tempo in beats per minute (from track_features). Nil when unknown.
+	BPM *float64 `json:"bpm,omitempty"`
 }
 
 // UpsertArtistParams for upserting an artist.
@@ -209,9 +211,11 @@ type SearchTracksParams struct {
 	YearFrom   *int   // filter by album release_year >= YearFrom
 	YearTo     *int   // filter by album release_year <= YearTo
 	Format     string // filter by format (flac/mp3/wav etc., empty = no filter)
-	BitrateMin *int   // filter by bitrate_kbps >= BitrateMin
-	BitrateMax *int   // filter by bitrate_kbps <= BitrateMax
-	SortBy     string // "relevance" | "title" | "year" | "bitrate" | "duration"
+	BitrateMin *int     // filter by bitrate_kbps >= BitrateMin
+	BitrateMax *int     // filter by bitrate_kbps <= BitrateMax
+	BPMMin     *float64 // filter by bpm >= BPMMin
+	BPMMax     *float64 // filter by bpm <= BPMMax
+	SortBy     string   // "relevance" | "title" | "year" | "bitrate" | "duration" | "bpm"
 }
 
 // SearchAlbumsParams for searching albums.

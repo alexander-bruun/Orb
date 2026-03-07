@@ -20,7 +20,6 @@
 - [ ] **Ingest progress WebSocket** — stream ingest job status to the admin UI in real time instead of polling.
 - [ ] **Per-user upload** — let non-admin users upload their own tracks into a personal namespace.
 
-- Make it possible to click lyrics, which should result in seeking the song to that location and playing from there.
 - Rework the filter page, it's not very intuitive to have to expand the menu to search, and we should have a large search field on the page itself so we dont rely on the field in the top. The search field in the top bar, should show search results in a little modal showing the results. Not the search page itself. So they are basically simple search and advanced search.
 
 ## Admin / Management

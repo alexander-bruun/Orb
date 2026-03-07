@@ -19,6 +19,8 @@
   let format = '';
   let bitrateMin = '';
   let bitrateMax = '';
+  let bpmMin = '';
+  let bpmMax = '';
   let sortTracks = '';
   let sortAlbums = '';
   let typesTracks = true;
@@ -33,6 +35,8 @@
     if (format) f.format = format;
     const bmin = parseInt(bitrateMin); if (!isNaN(bmin) && bmin > 0) f.bitrate_min = bmin;
     const bmax = parseInt(bitrateMax); if (!isNaN(bmax) && bmax > 0) f.bitrate_max = bmax;
+    const pmin = parseFloat(bpmMin); if (!isNaN(pmin) && pmin > 0) f.bpm_min = pmin;
+    const pmax = parseFloat(bpmMax); if (!isNaN(pmax) && pmax > 0) f.bpm_max = pmax;
     if (sortTracks) f.sort_tracks = sortTracks;
     if (sortAlbums) f.sort_albums = sortAlbums;
     const types: ('tracks' | 'albums' | 'artists')[] = [];
@@ -50,6 +54,8 @@
     format = f.format ?? '';
     bitrateMin = f.bitrate_min ? String(f.bitrate_min) : '';
     bitrateMax = f.bitrate_max ? String(f.bitrate_max) : '';
+    bpmMin = f.bpm_min ? String(f.bpm_min) : '';
+    bpmMax = f.bpm_max ? String(f.bpm_max) : '';
     sortTracks = f.sort_tracks ?? '';
     sortAlbums = f.sort_albums ?? '';
     typesTracks = !f.types || f.types.includes('tracks');
@@ -59,7 +65,7 @@
 
   function hasActiveFilters(f: SearchFilters): boolean {
     return !!(f.genre || f.year_from || f.year_to || f.format || f.bitrate_min || f.bitrate_max ||
-              f.sort_tracks || f.sort_albums || (f.types && f.types.length < 3));
+              f.bpm_min || f.bpm_max || f.sort_tracks || f.sort_albums || (f.types && f.types.length < 3));
   }
 
   async function doSearch(q: string, filters: SearchFilters) {
@@ -80,7 +86,7 @@
   }
 
   function clearFilters() {
-    genre = yearFrom = yearTo = format = bitrateMin = bitrateMax = sortTracks = sortAlbums = '';
+    genre = yearFrom = yearTo = format = bitrateMin = bitrateMax = bpmMin = bpmMax = sortTracks = sortAlbums = '';
     typesTracks = typesAlbums = typesArtists = true;
     searchFilters.set({});
     if ($searchQuery) doSearch($searchQuery, {});
@@ -203,6 +209,16 @@
           </div>
         </div>
 
+        <!-- BPM -->
+        <div class="filter-group">
+          <span class="filter-label">BPM</span>
+          <div class="range-row">
+            <input class="filter-input narrow" type="number" placeholder="min" min="0" max="400" step="1" bind:value={bpmMin} />
+            <span class="range-sep">–</span>
+            <input class="filter-input narrow" type="number" placeholder="max" min="0" max="400" step="1" bind:value={bpmMax} />
+          </div>
+        </div>
+
         <!-- Sort tracks -->
         <div class="filter-group">
           <label class="filter-label" for="f-sort-tracks">Sort tracks</label>
@@ -212,6 +228,7 @@
             <option value="year">Year</option>
             <option value="bitrate">Bitrate</option>
             <option value="duration">Duration</option>
+            <option value="bpm">BPM</option>
           </select>
         </div>
 

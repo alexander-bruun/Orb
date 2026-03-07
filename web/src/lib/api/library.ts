@@ -30,6 +30,8 @@ export const library = {
 			if (filters.format) p.set('format', filters.format);
 			if (filters.bitrate_min) p.set('bitrate_min', String(filters.bitrate_min));
 			if (filters.bitrate_max) p.set('bitrate_max', String(filters.bitrate_max));
+			if (filters.bpm_min) p.set('bpm_min', String(filters.bpm_min));
+			if (filters.bpm_max) p.set('bpm_max', String(filters.bpm_max));
 			if (filters.types?.length) p.set('types', filters.types.join(','));
 			if (filters.sort_tracks) p.set('sort_tracks', filters.sort_tracks);
 			if (filters.sort_albums) p.set('sort_albums', filters.sort_albums);

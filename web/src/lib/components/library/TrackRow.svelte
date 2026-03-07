@@ -124,6 +124,9 @@
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
     </span>
   {/if}
+  {#if track.bpm}
+    <span class="bpm" title="BPM">{Math.round(track.bpm)}</span>
+  {/if}
   <span class="duration">{formatDuration(track.duration_ms)}</span>
 </div>
 
@@ -165,6 +168,7 @@
     color: var(--text-primary, currentColor);
   }
   .feat-sep, .comma { color: var(--text-muted); }
+  .bpm { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; opacity: 0.7; }
   .duration { font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
   .dl-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--accent); opacity: 0.8; }
   .dl-progress { opacity: 0.45; animation: dl-pulse 1.5s ease-in-out infinite; }

@@ -397,6 +397,7 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 	sortAlbums := strings.TrimSpace(qs.Get("sort_albums"))
 
 	var yearFrom, yearTo, bitrateMin, bitrateMax *int
+	var bpmMin, bpmMax *float64
 	if v, err := strconv.Atoi(qs.Get("year_from")); err == nil && v > 0 {
 		yearFrom = &v
 	}
@@ -408,6 +409,12 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, err := strconv.Atoi(qs.Get("bitrate_max")); err == nil && v > 0 {
 		bitrateMax = &v
+	}
+	if v, err := strconv.ParseFloat(qs.Get("bpm_min"), 64); err == nil && v > 0 {
+		bpmMin = &v
+	}
+	if v, err := strconv.ParseFloat(qs.Get("bpm_max"), 64); err == nil && v > 0 {
+		bpmMax = &v
 	}
 
 	// Determine which result types to include (default: all).
@@ -428,6 +435,8 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 			Format:     format,
 			BitrateMin: bitrateMin,
 			BitrateMax: bitrateMax,
+			BPMMin:     bpmMin,
+			BPMMax:     bpmMax,
 			SortBy:     sortTracks,
 		})
 		out["tracks"] = s.enrichTracks(r.Context(), tracks)
