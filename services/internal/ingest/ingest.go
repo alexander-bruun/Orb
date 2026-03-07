@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -175,6 +176,7 @@ type Config struct {
 	Workers           int
 	ComputeSimilarity bool
 	Enrich            bool
+	GenerateWaveforms bool
 	PollInterval      time.Duration
 }
 
@@ -738,6 +740,14 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		}
 	}
 
+	if g.cfg.GenerateWaveforms {
+		if peaks := generateWaveformPeaks(path); peaks != nil {
+			if err := g.db.UpsertTrackWaveform(ctx, trackID, peaks); err != nil {
+				slog.Warn("store waveform failed", "track_id", trackID, "err", err)
+			}
+		}
+	}
+
 	return trackID, nil
 }
 
@@ -962,4 +972,52 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// generateWaveformPeaks runs audiowaveform on path and returns a normalised
+// []float32 (0–1) suitable for waveform rendering. Returns nil when
+// audiowaveform is not installed or fails — callers must treat nil as "no data".
+func generateWaveformPeaks(path string) []float32 {
+	if _, err := exec.LookPath("audiowaveform"); err != nil {
+		return nil
+	}
+	// 4 px/s → ~240 data points for a 60-minute track; fast and compact.
+	out, err := exec.Command(
+		"audiowaveform", "-i", path,
+		"--output-format", "json",
+		"--pixels-per-second", "4",
+		"--bits", "8",
+		"-o", "-",
+	).Output()
+	if err != nil {
+		return nil
+	}
+	var result struct {
+		Data []int `json:"data"` // interleaved (min, max) pairs, 8-bit signed range
+	}
+	if err := json.Unmarshal(out, &result); err != nil || len(result.Data) < 2 {
+		return nil
+	}
+	n := len(result.Data) / 2
+	peaks := make([]float32, n)
+	var globalMax float32
+	for i := 0; i < n; i++ {
+		// Each pair is (min, max); take the larger absolute value as amplitude.
+		minAbs := float32(-result.Data[i*2])   // min is negative → negate
+		maxAbs := float32(result.Data[i*2+1])  // max is positive
+		amp := minAbs
+		if maxAbs > amp {
+			amp = maxAbs
+		}
+		peaks[i] = amp
+		if amp > globalMax {
+			globalMax = amp
+		}
+	}
+	if globalMax > 0 {
+		for i := range peaks {
+			peaks[i] /= globalMax
+		}
+	}
+	return peaks
 }

@@ -22,6 +22,7 @@ import { currentTrack } from '$lib/stores/player';
 import { audioEngine } from '$lib/audio/engine';
 import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
+import { library as libApi } from '$lib/api/library';
 
 export interface WaveformPeaks {
 	trackId: string;
@@ -106,6 +107,21 @@ currentTrack.subscribe(async (track) => {
 		waveformPeaks.set({ trackId: track!.id, peaks });
 		waveformLoading.set(false);
 	}
+
+	// Path 0: Pre-generated peaks from the server (instant, no download).
+	try {
+		const data = await libApi.trackWaveform(track.id);
+		if (gen !== generation) return;
+		if (Array.isArray(data.peaks) && data.peaks.length > 0) {
+			applied = true;
+			waveformPeaks.set({ trackId: track.id, peaks: new Float32Array(data.peaks) });
+			waveformLoading.set(false);
+			return;
+		}
+	} catch {
+		// Server has no pre-generated data — fall through to client-side paths.
+	}
+	if (gen !== generation) return;
 
 	// Path 1: WASM buffer already decoded (e.g. track resumed after pause,
 	// or store subscribes after audio has started playing).

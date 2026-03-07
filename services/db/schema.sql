@@ -222,7 +222,30 @@ CREATE TABLE user_streaming_prefs (
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX user_genre_eq_user_idx ON user_genre_eq(user_id);
+-- Equalizer profiles.
+-- bands is a JSONB array of {frequency: number, gain: number, type: string}.
+CREATE TABLE IF NOT EXISTS eq_profiles (
+    id         TEXT        PRIMARY KEY,
+    user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT        NOT NULL,
+    bands      JSONB       NOT NULL DEFAULT '[]',
+    is_default BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS eq_profiles_user_idx ON eq_profiles(user_id);
+
+-- Per-genre EQ profile mapping: when a track's album/artist genre matches,
+-- activate the corresponding profile automatically.
+CREATE TABLE IF NOT EXISTS user_genre_eq (
+    user_id    TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    genre_id   TEXT NOT NULL REFERENCES genres(id)   ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, genre_id)
+);
+
+CREATE INDEX IF NOT EXISTS user_genre_eq_user_idx ON user_genre_eq(user_id);
 
 -- Ingest state: tracks which files have been processed so re-runs skip unchanged files.
 CREATE TABLE ingest_state (

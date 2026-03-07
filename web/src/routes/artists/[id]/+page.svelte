@@ -13,10 +13,18 @@
   let genres: Genre[] = [];
   let relatedArtists: RelatedArtist[] = [];
   let appearsOn: Album[] = [];
-  let grouped: Map<string, Album[]> = new Map();
-  let keys: string[] = [];
   let appearsOnGrouped: Map<string, Album[]> = new Map();
   let appearsOnKeys: string[] = [];
+
+  // Discography timeline
+  let timelineYears: string[] = [];
+  let albumsByYear: Map<string, Album[]> = new Map();
+
+  // Bio
+  let bio = '';
+  let bioUrl = '';
+  let bioExpanded = false;
+
   let loading = true;
   let shuffling = false;
   let radioLoading = false;
@@ -31,16 +39,17 @@
       relatedArtists = res.related_artists ?? [];
       appearsOn = res.appears_on ?? [];
 
-      // Group albums by first letter of title
-      grouped = new Map();
-      for (const album of albums) {
-        const key = album.title?.[0]?.toUpperCase() ?? '#';
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key)?.push(album);
+      // Build discography timeline (newest first)
+      const sorted = [...albums].sort((a, b) => (b.release_year ?? 0) - (a.release_year ?? 0));
+      albumsByYear = new Map();
+      for (const album of sorted) {
+        const key = album.release_year ? String(album.release_year) : 'Unknown';
+        if (!albumsByYear.has(key)) albumsByYear.set(key, []);
+        albumsByYear.get(key)!.push(album);
       }
-      keys = Array.from(grouped.keys()).sort();
+      timelineYears = Array.from(albumsByYear.keys());
 
-      // Group appears-on albums the same way
+      // Group appears-on albums by first letter
       appearsOnGrouped = new Map();
       for (const album of appearsOn) {
         const key = album.title?.[0]?.toUpperCase() ?? '#';
@@ -50,6 +59,15 @@
       appearsOnKeys = Array.from(appearsOnGrouped.keys()).sort();
     } finally {
       loading = false;
+    }
+
+    // Fetch bio in the background (non-blocking)
+    try {
+      const bioRes = await libApi.artistBio(id);
+      bio = bioRes.bio ?? '';
+      bioUrl = bioRes.bio_url ?? '';
+    } catch {
+      // bio stays empty
     }
   });
 
@@ -140,8 +158,24 @@
       </button>
     </div>
   </div>
-  <h2 class="section">Albums</h2>
-  <AlbumGrid {grouped} {keys} />
+  {#if bio}
+    <div class="bio-section">
+      <p class="bio-text" class:bio-collapsed={!bioExpanded}>{bio}</p>
+      <div class="bio-footer">
+        <button class="bio-toggle" on:click={() => (bioExpanded = !bioExpanded)}>
+          {bioExpanded ? 'Show less' : 'Read more'}
+        </button>
+        {#if bioUrl}
+          <a href={bioUrl} target="_blank" rel="noopener noreferrer" class="bio-source">Wikipedia ↗</a>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  {#if albums.length > 0}
+    <h2 class="section">Discography</h2>
+    <AlbumGrid grouped={albumsByYear} keys={timelineYears} />
+  {/if}
 
   {#if appearsOn.length > 0}
     <h2 class="section" style="margin-top: 32px;">Appears On</h2>
@@ -239,6 +273,38 @@
   .related-artist:hover { border-color: var(--accent); }
   .related-name { font-size: 0.875rem; font-weight: 600; color: var(--text); }
   .related-type { font-size: 0.7rem; color: var(--text-muted); }
+
+  /* ── Bio ─────────────────────────────────────────────────── */
+  .bio-section { margin-bottom: 32px; }
+  .bio-text {
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    margin: 0 0 8px;
+  }
+  .bio-collapsed {
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .bio-footer { display: flex; align-items: center; gap: 16px; }
+  .bio-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .bio-toggle:hover { text-decoration: underline; }
+  .bio-source {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  .bio-source:hover { color: var(--text); }
 
   /* ── Mobile ─────────────────────────────────────────────── */
   @media (max-width: 640px) {

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
+	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -89,11 +92,12 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 // Service handles library HTTP routes.
 type Service struct {
 	db *store.Store
+	mb *musicbrainz.Client
 }
 
 // New returns a new library Service.
-func New(db *store.Store) *Service {
-	return &Service{db: db}
+func New(db *store.Store, mb *musicbrainz.Client) *Service {
+	return &Service{db: db, mb: mb}
 }
 
 // Routes registers library endpoints.
@@ -103,7 +107,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/artists", s.listArtists)
 	r.Get("/albums/{id}", s.albumDetail)
 	r.Get("/artists/{id}", s.artistDetail)
+	r.Get("/artists/{id}/bio", s.artistBio)
 	r.Get("/tracks/{id}", s.trackDetail)
+	r.Get("/tracks/{id}/waveform", s.trackWaveform)
 	r.Post("/tracks/{id}", s.addTrack)
 	r.Delete("/tracks/{id}", s.removeTrack)
 	r.Get("/search", s.search)
@@ -249,6 +255,94 @@ func (s *Service) artistDetail(w http.ResponseWriter, r *http.Request) {
 		resp["appears_on"] = appearsOn
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Service) artistBio(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	artist, err := s.db.GetArtistByID(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "artist not found")
+		return
+	}
+	empty := map[string]string{"bio": "", "bio_url": ""}
+	if artist.Mbid == nil || s.mb == nil {
+		writeJSON(w, http.StatusOK, empty)
+		return
+	}
+	detail, err := s.mb.GetArtist(r.Context(), *artist.Mbid)
+	if err != nil {
+		slog.Warn("artistBio: mb fetch failed", "mbid", *artist.Mbid, "err", err)
+		writeJSON(w, http.StatusOK, empty)
+		return
+	}
+	var wikiURL string
+	for _, rel := range detail.Relations {
+		if rel.URL != nil && strings.Contains(rel.URL.Resource, "wikipedia.org/wiki/") {
+			wikiURL = rel.URL.Resource
+			break
+		}
+	}
+	if wikiURL == "" {
+		writeJSON(w, http.StatusOK, empty)
+		return
+	}
+	bio, err := fetchWikipediaBio(r.Context(), wikiURL)
+	if err != nil {
+		slog.Warn("artistBio: wikipedia fetch failed", "url", wikiURL, "err", err)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"bio": bio, "bio_url": wikiURL})
+}
+
+// fetchWikipediaBio fetches the article extract from the Wikipedia REST API.
+func fetchWikipediaBio(ctx context.Context, wikiURL string) (string, error) {
+	u, err := url.Parse(wikiURL)
+	if err != nil {
+		return "", err
+	}
+	host := u.Hostname()
+	lang := strings.TrimSuffix(host, ".wikipedia.org")
+	if lang == host {
+		return "", nil
+	}
+	title := strings.TrimPrefix(u.Path, "/wiki/")
+	if title == "" {
+		return "", nil
+	}
+	apiURL := "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" + url.PathEscape(title)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "Orb/1.0 (https://github.com/alexander-bruun/orb)")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", nil
+	}
+	var result struct {
+		Extract string `json:"extract"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Extract, nil
+}
+
+func (s *Service) trackWaveform(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	peaks, err := s.db.GetTrackWaveform(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "track not found")
+		return
+	}
+	if peaks == nil {
+		peaks = []float32{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"peaks": peaks})
 }
 
 func (s *Service) trackDetail(w http.ResponseWriter, r *http.Request) {

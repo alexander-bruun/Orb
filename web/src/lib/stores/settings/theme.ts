@@ -100,3 +100,28 @@ function createAvatarStore() {
 }
 
 export const avatarStore = createAvatarStore();
+
+// ── Waveform seek bar preference ──────────────────────────────────────────────
+
+const WAVEFORM_KEY = 'orb_waveform_enabled';
+
+function createWaveformStore() {
+	const initial = browser
+		? (localStorage.getItem(WAVEFORM_KEY) ?? 'true') !== 'false'
+		: true;
+	const { subscribe, set } = writable<boolean>(initial);
+	return {
+		subscribe,
+		set(value: boolean) {
+			if (browser) localStorage.setItem(WAVEFORM_KEY, String(value));
+			set(value);
+		},
+		toggle() {
+			const next = !(browser ? (localStorage.getItem(WAVEFORM_KEY) ?? 'true') !== 'false' : true);
+			if (browser) localStorage.setItem(WAVEFORM_KEY, String(next));
+			set(next);
+		}
+	};
+}
+
+export const waveformEnabled = createWaveformStore();

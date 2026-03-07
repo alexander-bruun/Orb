@@ -276,3 +276,7 @@ CREATE INDEX IF NOT EXISTS user_genre_eq_user_idx ON user_genre_eq(user_id);
 
 -- Admin flag: grant a user elevated access to analytics and admin endpoints.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Pre-generated waveform peak data produced by audiowaveform during ingest.
+-- Stored as a compact JSON float array (0–1 range, ~200 values).
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS waveform_peaks JSONB;

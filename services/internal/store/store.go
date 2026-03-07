@@ -1344,6 +1344,34 @@ LIMIT 4`,
 	return scanTracks(rows)
 }
 
+// UpsertTrackWaveform stores pre-generated waveform peak data for a track.
+func (s *Store) UpsertTrackWaveform(ctx context.Context, trackID string, peaks []float32) error {
+	b, err := json.Marshal(peaks)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `UPDATE tracks SET waveform_peaks = $1 WHERE id = $2`, b, trackID)
+	return err
+}
+
+// GetTrackWaveform returns pre-generated waveform peaks for a track.
+// Returns nil peaks (no error) when waveform data has not been generated yet.
+func (s *Store) GetTrackWaveform(ctx context.Context, trackID string) ([]float32, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `SELECT waveform_peaks FROM tracks WHERE id = $1`, trackID).Scan(&raw)
+	if err != nil {
+		return nil, err
+	}
+	if raw == nil {
+		return nil, nil
+	}
+	var peaks []float32
+	if err := json.Unmarshal(raw, &peaks); err != nil {
+		return nil, err
+	}
+	return peaks, nil
+}
+
 // GetTrackLyrics returns the raw LRC lyrics string for a track.
 // Returns an empty string if the track exists but has no lyrics set.
 func (s *Store) GetTrackLyrics(ctx context.Context, trackID string) (string, error) {

@@ -23,6 +23,12 @@
     autoplayEnabled,
     transferPlayback,
   } from '$lib/stores/player';
+
+  $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
+  function onSeek(e: Event) {
+    const pct = parseFloat((e.target as HTMLInputElement).value);
+    seek(($durationMs / 1000) * (pct / 100));
+  }
   import { library } from '$lib/api/library';
   import { writable } from 'svelte/store';
   import { expanded } from './coverExpandStore';
@@ -36,6 +42,10 @@
   import { lyricsOpen, lyricsLines, lyricsLoading } from '$lib/stores/player/lyrics';
   import { visualizerStore } from '$lib/stores/player/visualizer';
   import Visualizer from '$lib/components/ui/Visualizer.svelte';
+  import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
+  import { waveformEnabled } from '$lib/stores/settings/theme';
+
+  let waveformWidth = 0;
   import { activeDevices, deviceId, exclusiveMode } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
   import {
@@ -75,14 +85,6 @@
     }
   }
 
-  $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
-
-  function onSeek(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const pct = parseFloat(input.value);
-    const seconds = ($durationMs / 1000) * (pct / 100);
-    seek(seconds);
-  }
 
   function onVolume(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -205,22 +207,22 @@
 
     <div class="seek-area">
       <span class="time">{$formattedPosition}</span>
-      <div class="seek-bar-wrap">
-        <div class="seek-track">
-          <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
-          <div class="seek-progress" style="width: {progress}%"></div>
+      {#if $waveformEnabled}
+        <div class="waveform-wrap" bind:clientWidth={waveformWidth}>
+          {#if waveformWidth > 0}
+            <TrackWaveform width={waveformWidth} height={36} />
+          {/if}
         </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="0.1"
-          value={progress}
-          on:input={onSeek}
-          class="seek-input"
-          aria-label="Seek"
-        />
-      </div>
+      {:else}
+        <div class="seek-bar-wrap">
+          <div class="seek-track">
+            <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
+            <div class="seek-progress" style="width: {progress}%"></div>
+          </div>
+          <input type="range" min="0" max="100" step="0.1" value={progress}
+            on:input={onSeek} class="seek-input" aria-label="Seek" />
+        </div>
+      {/if}
       <span class="time">{$formattedDuration}</span>
     </div>
 
@@ -678,7 +680,14 @@
   }
   .time { font-size: 0.75rem; color: var(--text-muted); width: 36px; flex-shrink: 0; }
 
-  /* Custom seek bar: layered track divs + transparent native input on top */
+  .waveform-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Plain seek bar (fallback when waveform is disabled) */
   .seek-bar-wrap {
     flex: 1;
     position: relative;
@@ -698,7 +707,7 @@
   .seek-buffered {
     position: absolute;
     height: 100%;
-    background: rgba(160, 160, 160, 0.45);
+    background: rgba(160,160,160,0.45);
     transition: width 0.4s ease;
     pointer-events: none;
   }
@@ -708,7 +717,6 @@
     background: var(--accent);
     pointer-events: none;
   }
-  /* Range input sits above the track divs; its track is transparent so only the thumb shows */
   .seek-input {
     position: absolute;
     left: 0; right: 0;
@@ -720,36 +728,18 @@
     appearance: none;
     background: transparent;
   }
-  .seek-input::-webkit-slider-runnable-track {
-    background: transparent;
-    height: 4px;
-  }
-  .seek-input::-moz-range-track {
-    background: transparent;
-    height: 4px;
-    border: none;
-  }
-  /* Thumb hidden at rest, shown on hover */
+  .seek-input::-webkit-slider-runnable-track { background: transparent; height: 4px; }
+  .seek-input::-moz-range-track { background: transparent; height: 4px; border: none; }
   .seek-input::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin-top: -4px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); margin-top: -4px; cursor: pointer;
+    opacity: 0; transition: opacity 0.15s;
   }
   .seek-input::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    border: none;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: none; cursor: pointer;
+    opacity: 0; transition: opacity 0.15s;
   }
   .seek-bar-wrap:hover .seek-track { height: 6px; }
   .seek-bar-wrap:hover .seek-input::-webkit-slider-thumb { opacity: 1; }

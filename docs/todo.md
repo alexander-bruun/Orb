@@ -27,8 +27,6 @@
 
 ## UI / UX
 
-- [ ] **Artist bio / discography timeline** — pull extended artist info from MusicBrainz (client already exists) and display it on the artist detail page.
-- [ ] **Waveform scrubber** — pre-generate waveform data during ingest and render it as the seek bar (audiowaveform or similar).
 - [ ] **Themes / accent color picker** — `themeStore` already exists, just expose more customization.
 
 ## Ingest / Admin

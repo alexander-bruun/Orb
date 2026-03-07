@@ -48,6 +48,9 @@ cap-android-build: cap-sync
 docker-local-up:
 	sudo docker-compose -f docker-compose.local.yml build && sudo docker-compose -f docker-compose.local.yml up --remove-orphans
 
+docker-local-down:
+	sudo docker-compose -f docker-compose.local.yml down -v
+
 # Frontend / Tauri targets used by CI
 .PHONY: web-install web-build tauri-build build-api build docker-build
 

@@ -10,7 +10,9 @@ export const library = {
 		apiFetch<Artist[]>(`/library/artists?limit=${limit}&offset=${offset}`),
 	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist; genres?: Genre[]; variants?: Album[] }>(`/library/albums/${id}`),
 	artist: (id: string) => apiFetch<{ artist: Artist; albums: Album[]; genres?: Genre[]; related_artists?: RelatedArtist[] }>(`/library/artists/${id}`),
+	artistBio: (id: string) => apiFetch<{ bio: string; bio_url: string }>(`/library/artists/${id}/bio`),
 	track: (id: string) => apiFetch<{ track: Track; genres?: Genre[] }>(`/library/tracks/${id}`),
+	trackWaveform: (id: string) => apiFetch<{ peaks: number[] }>(`/library/tracks/${id}/waveform`),
 	genres: () => apiFetch<Genre[]>('/library/genres'),
 	genreArtists: (id: string, limit = 50, offset = 0) =>
 		apiFetch<Artist[]>(`/library/genres/${id}/artists?limit=${limit}&offset=${offset}`),

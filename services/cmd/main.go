@@ -22,6 +22,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/library"
 	"github.com/alexander-bruun/orb/services/internal/listenparty"
+	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
 	"github.com/alexander-bruun/orb/services/internal/playlist"
 	"github.com/alexander-bruun/orb/services/internal/queue"
@@ -122,7 +123,7 @@ func run(ctx context.Context) error {
 	r.Group(func(r chi.Router) {
 		r.Use(jwtMW)
 
-		libSvc := library.New(db)
+		libSvc := library.New(db, musicbrainz.New())
 		r.Route("/library", libSvc.Routes)
 
 		r.Get("/stream/{track_id}", streamSvc.Stream)
@@ -214,6 +215,7 @@ func buildIngestService(db *store.Store, obj objstore.ObjectStore) *ingest.Servi
 		Workers:           runtime.NumCPU(),
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
+		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
 	}
 	return ingest.NewService(ingest.New(db, obj, cfg))
@@ -236,6 +238,7 @@ func startBackgroundIngest(ctx context.Context, db *store.Store, obj objstore.Ob
 		Workers:           runtime.NumCPU(),
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
+		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
 	}
 	ing := ingest.New(db, obj, cfg)

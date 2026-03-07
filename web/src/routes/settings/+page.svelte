@@ -9,6 +9,7 @@
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled } from '$lib/stores/player';
+  import { waveformEnabled } from '$lib/stores/settings/theme';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
   import { downloads, deleteDownload, deleteAllDownloads, getStorageEstimate } from '$lib/stores/offline/downloads';
@@ -1131,6 +1132,25 @@
         aria-checked={$autoplayEnabled}
         on:click={() => autoplayEnabled.set(!$autoplayEnabled)}
         title={$autoplayEnabled ? 'Disable autoplay' : 'Enable autoplay'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Waveform seek bar</span>
+        <span class="setting-desc">
+          Show a waveform visualisation instead of a plain seek bar. Pre-generated during ingest using audiowaveform; falls back to client-side computation.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$waveformEnabled}
+        role="switch"
+        aria-checked={$waveformEnabled}
+        on:click={() => waveformEnabled.set(!$waveformEnabled)}
+        title={$waveformEnabled ? 'Disable waveform seek bar' : 'Enable waveform seek bar'}
       >
         <span class="toggle-knob"></span>
       </button>

@@ -51,6 +51,8 @@
     lpSessionId,
     createAndConnect,
   } from '$lib/stores/social/listenParty';
+  import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
+  import { waveformEnabled } from '$lib/stores/settings/theme';
 
   const currentAlbum = writable<{ id: string; title: string; artist?: string } | null>(null);
 
@@ -165,6 +167,7 @@
 
   // ── Device transfer ────────────────────────────────────────────────────────
   let devicePickerOpen = false;
+  let waveformWidth = 0;
 
   // Initialise Cast SDK so it's ready when the user opens the picker.
   initCastSdk();
@@ -396,25 +399,39 @@
 
       <!-- Seek bar -->
       <div class="fs-seek">
-        <div class="seek-bar-wrap">
-          <div class="seek-track">
-            <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
-            <div class="seek-fill" style="width: {seekDragValue !== null ? seekDragValue : progress}%"></div>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            step="0.1"
-            value={seekDragValue !== null ? seekDragValue : progress}
-            on:input={onSeekInput}
-            on:change={onSeek}
+        {#if $waveformEnabled}
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div
+            class="waveform-wrap"
+            bind:clientWidth={waveformWidth}
             on:touchstart|stopPropagation={() => {}}
             on:touchmove|stopPropagation={() => {}}
-            class="seek-input"
-            aria-label="Seek"
-          />
-        </div>
+          >
+            {#if waveformWidth > 0}
+              <TrackWaveform width={waveformWidth} height={48} />
+            {/if}
+          </div>
+        {:else}
+          <div class="seek-bar-wrap">
+            <div class="seek-track">
+              <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
+              <div class="seek-fill" style="width: {seekDragValue !== null ? seekDragValue : progress}%"></div>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="0.1"
+              value={seekDragValue !== null ? seekDragValue : progress}
+              on:input={onSeekInput}
+              on:change={onSeek}
+              on:touchstart|stopPropagation={() => {}}
+              on:touchmove|stopPropagation={() => {}}
+              class="seek-input"
+              aria-label="Seek"
+            />
+          </div>
+        {/if}
         <div class="seek-times">
           <span>{$formattedPosition}</span>
           <span>{$formattedDuration}</span>
@@ -1065,6 +1082,11 @@
     .fs-seek {
       flex-shrink: 0;
       padding: 4px 0 12px;
+    }
+
+    .waveform-wrap {
+      width: 100%;
+      margin-bottom: 8px;
     }
 
     .seek-bar-wrap {

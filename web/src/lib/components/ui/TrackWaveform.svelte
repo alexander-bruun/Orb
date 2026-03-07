@@ -21,7 +21,6 @@
   export let height = 80;
 
   let canvas: HTMLCanvasElement | null = null;
-  let focused = false;
   const unsubs: (() => void)[] = [];
 
   // ── colour helpers ──────────────────────────────────────────────────────────
@@ -138,6 +137,34 @@
 
   // ── seeking ─────────────────────────────────────────────────────────────────
 
+  let rangeInput: HTMLInputElement | null = null;
+  let pointerSeeking = false;
+
+  function pctFromPointer(e: PointerEvent): number {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  }
+
+  function onPointerDown(e: PointerEvent) {
+    pointerSeeking = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    const pct = pctFromPointer(e);
+    seek(($durationMs / 1000) * pct);
+    if (rangeInput) rangeInput.value = String(pct * 100);
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (!pointerSeeking) return;
+    const pct = pctFromPointer(e);
+    seek(($durationMs / 1000) * pct);
+    if (rangeInput) rangeInput.value = String(pct * 100);
+  }
+
+  function onPointerUp() {
+    pointerSeeking = false;
+  }
+
+  // Keyboard navigation via the hidden range input (arrow keys, a11y).
   function onSeekInput(e: Event) {
     const val = parseFloat((e.target as HTMLInputElement).value); // 0..100
     seek(($durationMs / 1000) * (val / 100));
@@ -163,8 +190,10 @@
 
 <div
   class="wf-root"
-  class:wf-focused={focused}
   style="width:{width}px;height:{height}px;"
+  on:pointerdown={onPointerDown}
+  on:pointermove={onPointerMove}
+  on:pointerup={onPointerUp}
 >
   <figure
     class="wf-figure"
@@ -179,6 +208,7 @@
     Screen readers announce it as a seek slider; arrow keys work out of the box.
   -->
   <input
+    bind:this={rangeInput}
     type="range"
     class="wf-seek"
     min="0"
@@ -186,8 +216,6 @@
     step="0.01"
     value={progress}
     on:input={onSeekInput}
-    on:focus={() => (focused = true)}
-    on:blur={() => (focused = false)}
     aria-label="Seek"
     title="Click or drag to seek"
   />
@@ -198,10 +226,9 @@
     position: relative;
     border-radius: 4px;
     overflow: hidden;
-    /* Focus ring on the wrapper when the hidden input is focused */
     transition: box-shadow 0.12s;
   }
-  .wf-root.wf-focused {
+  .wf-root:has(.wf-seek:focus-visible) {
     box-shadow: 0 0 0 2px var(--accent, #5b8dee);
   }
 
@@ -216,7 +243,12 @@
     display: block;
   }
 
-  /* Invisible range input sits exactly on top of the canvas */
+  .wf-root { cursor: pointer; }
+
+  /* Range input is invisible and ignores pointer events — used only for
+     keyboard navigation (arrow keys) and screen-reader accessibility.
+     All mouse/touch seeking goes through the pointerdown/move/up handlers
+     on the container, which gives pixel-perfect position mapping. */
   .wf-seek {
     position: absolute;
     inset: 0;
@@ -224,11 +256,12 @@
     height: 100%;
     margin: 0;
     opacity: 0;
-    cursor: pointer;
+    pointer-events: none;
     -webkit-appearance: none;
     appearance: none;
   }
   /* Keep the input itself focusable via keyboard but invisible — the wrapper
      .wf-focused class renders the visible focus ring instead. */
   .wf-seek:focus { outline: none; }
+  .wf-seek:focus-visible { outline: none; }
 </style>
