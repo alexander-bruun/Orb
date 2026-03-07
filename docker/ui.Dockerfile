@@ -1,8 +1,8 @@
 FROM oven/bun:latest AS builder
 WORKDIR /app
-COPY web/ui/package.json web/ui/bun.lock ./
+COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
-COPY web/ui/ ./
+COPY web/ ./
 RUN bun run build
 
 FROM nginx:alpine

@@ -29,7 +29,7 @@ services:
       # stale single-file bind-mount path. Postgres only executes .sql files
       # directly in initdb.d (not subdirectories), so schema.sql runs once on
       # a fresh volume; migrations/, queries/
-      - ./db:/docker-entrypoint-initdb.d:ro
+      - ./services/db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orb"]
       interval: 5s
@@ -54,8 +54,13 @@ services:
       STORE_ROOT: /data/audio
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
+      INGEST_DIRS: /music/drive-d
+      INGEST_WATCH: "true"
     volumes:
       - audio_data:/data/audio
+      - /mnt/d/Music:/music/drive-d:ro
+      # Add more drives as needed:
+      # - /mnt/e/FLAC:/music/drive-e:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -75,24 +80,6 @@ services:
       - api
     restart: unless-stopped
 
-  ingest:
-    build:
-      context: .
-      dockerfile: docker/ingest.Dockerfile
-    environment:
-      DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
-      STORE_ROOT: /data/audio
-      INGEST_DIRS: /music/drive-d
-    command: ["--recursive", "--watch"]
-    volumes:
-      - audio_data:/data/audio
-      - /mnt/d/Music:/music/drive-d:ro
-      # Add more drives as needed:
-      # - /mnt/e/FLAC:/music/drive-e:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
 
 volumes:
   postgres_data:

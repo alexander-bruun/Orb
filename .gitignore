@@ -10,7 +10,7 @@ Thumbs.db
 .claude/
 
 # Go build outputs
-/bin/
+services/bin/
 *.exe
 *.dll
 *.so
@@ -18,7 +18,6 @@ Thumbs.db
 *.test
 *.out
 coverage.out
-ingest
 
 # Temporary files and editor swap files
 tmp/
@@ -26,18 +25,18 @@ tmp/
 *.swp
 *~
 
-# Air / dev tooling
-/tmp/main
-tmp/main
-
 # Frontend
-web/ui/node_modules/
-web/ui/.svelte-kit/
-web/ui/.vite/
-web/ui/.parcel-cache/
-web/ui/.turbo/
-web/ui/package-lock.json
-web/ui/build/
+web/node_modules/
+web/.svelte-kit/
+web/.vite/
+web/.parcel-cache/
+web/.turbo/
+web/package-lock.json
+web/build/
+
+# Tauri Rust build output
+web/src-tauri/target/
+web/src-tauri/gen/
 
 # Logs
 logs/
@@ -45,7 +44,6 @@ logs/
 
 # Docker / compose overrides
 docker-compose.override.yml
-docker-compose.*.local.yml
 
 # Secrets / keys
 *.key

@@ -37,7 +37,7 @@ services:
   valkey-sentinel-1: &sentinel
     image: valkey/valkey:7-alpine
     command: valkey-sentinel /etc/valkey/sentinel.conf
-    volumes: [./docker/valkey/sentinel.conf:/etc/valkey/sentinel.conf:ro]
+    volumes: [./docker/sentinel.conf:/etc/valkey/sentinel.conf:ro]
   valkey-sentinel-2: *sentinel
   valkey-sentinel-3: *sentinel
 
@@ -51,8 +51,13 @@ services:
       STORE_ROOT: /data/audio
       JWT_SECRET: "${JWT_SECRET}"
       HTTP_PORT: "8080"
+      INGEST_DIRS: /music/drive-d
+      INGEST_WATCH: "true"
     volumes:
       - audio_data:/data/audio
+      - /mnt/d/Music:/music/drive-d:ro
+      # Add more drives as needed:
+      # - /mnt/e/FLAC:/music/drive-e:ro
     ports: ["8080:8080"]
     depends_on: { postgres-primary: { condition: service_healthy } }
     restart: unless-stopped
@@ -61,22 +66,7 @@ services:
     build: { context: ., dockerfile: docker/ui.Dockerfile }
     ports: ["3000:80"]
 
-  ingest:
-    build: { context: ., dockerfile: docker/ingest.Dockerfile }
-    environment:
-      DATABASE_URL: postgres://orb:orb@postgres-primary:5432/orb?sslmode=disable
-      STORE_ROOT: /data/audio
-      INGEST_DIRS: /music/drive-d
-    command: ["--recursive", "--watch", "--compute-similarity"]
-    volumes:
-      - audio_data:/data/audio
-      - /mnt/d/Music:/music/drive-d:ro
-      # Add more drives as needed:
-      # - /mnt/e/FLAC:/music/drive-e:ro
-    depends_on:
-      postgres-primary:
-        condition: service_healthy
-    restart: unless-stopped
+
 
 volumes:
   postgres_primary_data:

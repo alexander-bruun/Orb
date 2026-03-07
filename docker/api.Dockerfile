@@ -1,8 +1,7 @@
 FROM golang:latest AS builder
 WORKDIR /src
-COPY pkg/ ./pkg/
-COPY services/api/ ./services/api/
-WORKDIR /src/services/api
+COPY services/ ./services/
+WORKDIR /src/services
 RUN GOWORK=off GONOSUMCHECK=github.com/alexander-bruun/orb/* \
     CGO_ENABLED=0 GOOS=linux \
     go build -trimpath -o /bin/api ./cmd/main.go

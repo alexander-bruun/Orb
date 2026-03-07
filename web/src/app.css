@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Instrument+Serif:ital@0;1&family=Syne:wght@400;500;600;700;800&display=swap');
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #080809;
+  --surface: #0f0f12;
+  --surface-2: #16161b;
+  --border: #1c1c22;
+  --border-2: #252530;
+  --text: #e2e2ec;
+  --text-2: #9090a8;
+  --muted: #50505f;
+  --accent: #c084fc;
+  --accent-dim: rgba(192, 132, 252, 0.12);
+  --accent-glow: rgba(192, 132, 252, 0.25);
+  --titlebar-h: 28px;
+  --sidebar-w: 232px;
+  --top-h: 52px;
+  --bottom-h: 76px;
+
+  /* page padding so content doesn't hug the window edges */
+  --page-padding: 1rem;
+  /* legacy aliases kept for components not yet updated */
+  --bg-elevated: var(--surface);
+  --bg-hover: var(--surface-2);
+  --text-muted: var(--text-2);
+}
+
+/* ── Light theme ──────────────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  --bg: #f0f0f5;
+  --surface: #ffffff;
+  --surface-2: #e8e8f0;
+  --border: #d8d8e8;
+  --border-2: #c4c4d8;
+  --text: #18182e;
+  --text-2: #52527a;
+  --muted: #9090b0;
+  --bg-elevated: var(--surface);
+  --bg-hover: var(--surface-2);
+  --text-muted: var(--text-2);
+}
+
+/* ── Scrollbar (follows theme) ─────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Syne', sans-serif;
+}
+
+button {
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
