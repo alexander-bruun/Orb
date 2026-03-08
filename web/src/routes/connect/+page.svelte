@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { setServerUrl } from '$lib/api/base';
-  import { isTauri, isNative } from '$lib/utils/platform';
+  import { isNative, isDesktop } from '$lib/utils/platform';
   import { invoke } from '@tauri-apps/api/core';
   import { setupRequired } from '$lib/stores/auth/setup';
   import { apiFetch } from '$lib/api/client';
@@ -17,7 +17,7 @@
   let discoveryError = '';
 
   // mDNS discovery available in Tauri desktop shell
-  const showDiscover = isTauri();
+  const showDiscover = isDesktop();
 
   async function discoverServers() {
     discovering = true;

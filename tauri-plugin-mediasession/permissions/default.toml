@@ -1,0 +1,15 @@
+[[set]]
+identifier = "default"
+description = "Default permissions for the media session plugin"
+permissions = [
+    "allow-initialize-player",
+    "allow-load-track",
+    "allow-play",
+    "allow-pause",
+    "allow-next-track",
+    "allow-previous-track",
+    "allow-seek",
+    "allow-stop",
+    "allow-get-log",
+    "allow-write-log",
+]

@@ -6,13 +6,41 @@ import { queue as queueApi } from '$lib/api/queue';
 import { library as libraryApi } from '$lib/api/library';
 import { recommend } from '$lib/api/recommend';
 import { addToast } from '$lib/stores/ui/toast';
-import { isTauri } from '$lib/utils/platform';
+import { isTauri, isMobile, isDesktop } from '$lib/utils/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { exclusiveMode, deviceId, activeDeviceId, activeDevices, setPlayerRef, sendHeartbeat, refreshDevices as refreshDevicesFromSession } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
 import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
+import { authStore } from '$lib/stores/auth';
+import type {
+	LoadTrackOptions,
+	PlaybackStateEvent,
+	PositionUpdateEvent,
+	MediaActionEvent,
+} from '$lib/native/mediasession';
+
+/** Holds native mediasession plugin functions once loaded on mobile. */
+let nativePlayer: {
+	initializePlayer: () => Promise<void>;
+	loadTrack: (opts: LoadTrackOptions) => Promise<void>;
+	play: () => Promise<void>;
+	pause: () => Promise<void>;
+	seek: (positionMs: number) => Promise<void>;
+	stop: () => Promise<void>;
+	writeLog: (msg: string) => Promise<void>;
+	onPlaybackState: (h: (e: PlaybackStateEvent) => void) => Promise<() => void>;
+	onPositionUpdate: (h: (e: PositionUpdateEvent) => void) => Promise<() => void>;
+	onMediaAction: (h: (e: MediaActionEvent) => void) => Promise<() => void>;
+	onTrackEnded: (h: () => void) => Promise<() => void>;
+} | null = null;
+
+/** Log to native file if available, otherwise console. */
+function nlog(msg: string) {
+	if (nativePlayer) nativePlayer.writeLog(msg).catch(() => {});
+	console.log('[mediasession]', msg);
+}
 
 export const currentTrack = writable<Track | null>(null);
 export const playbackState = writable<PlaybackState>('idle');
@@ -271,28 +299,62 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	positionMs.set(startSeconds * 1000);
 	durationMs.set(track.duration_ms);
 	try {
-		// Apply replay gain before starting playback so the engine applies it
-		// from the very first decoded sample.
-		const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
-		audioEngine.setReplayGainDb(rgDb);
-
-		// Apply the selected audio output device (Bluetooth, HDMI, etc.) before
-		// starting playback so the engine routes to the right sink from the start.
-		if (sinkIdSupported) {
-			const sinkId = get(selectedAudioOutputId);
-			if (sinkId && sinkId !== 'default') {
-				audioEngine.setAudioOutput(sinkId).catch(() => {});
+		if (nativePlayer) {
+			// ── Native ExoPlayer path (Android) ──
+			const base = getApiBase();
+			const origin = typeof location !== 'undefined' ? location.origin : '';
+			const token = get(authStore).token ?? '';
+			const streamUrl = `${origin}${base}/stream/${track.id}?token=${encodeURIComponent(token)}`;
+			const artworkUrl = track.album_id
+				? `${origin}${base}/covers/${track.album_id}`
+				: undefined;
+			nlog(`playTrack native: ${track.title} url=${streamUrl.substring(0, 80)}...`);
+			try {
+				await nativePlayer.loadTrack({
+					url: streamUrl,
+					title: track.title,
+					artist: track.artist_name ?? '',
+					album: track.album_name ?? undefined,
+					artwork: artworkUrl,
+				});
+				nlog('loadTrack resolved');
+				// Resume from a non-zero offset (e.g. restoring after page refresh).
+				if (startSeconds > 0) {
+					await nativePlayer.seek(Math.round(startSeconds * 1000));
+				}
+			} catch (nativeErr) {
+				nlog(`loadTrack FAILED: ${nativeErr} — falling back to audioEngine`);
+				// Fall back to web audio engine if native fails.
+				await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
+				setupCrossfade(track).catch(() => {});
 			}
-		}
+			// State updates (playing/paused/position) arrive via native events.
+		} else {
+			// ── Web audio engine path (desktop / browser) ──
+			// Apply replay gain before starting playback so the engine applies it
+			// from the very first decoded sample.
+			const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
+			audioEngine.setReplayGainDb(rgDb);
 
-		await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
+			// Apply the selected audio output device (Bluetooth, HDMI, etc.) before
+			// starting playback so the engine routes to the right sink from the start.
+			if (sinkIdSupported) {
+				const sinkId = get(selectedAudioOutputId);
+				if (sinkId && sinkId !== 'default') {
+					audioEngine.setAudioOutput(sinkId).catch(() => {});
+				}
+			}
+
+			await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
+			// Preload the next track and schedule crossfade / gapless if enabled.
+			setupCrossfade(track).catch(() => {});
+		}
 		_isRemoteMirror = false;
 		playbackState.set('playing');
 		// In exclusive mode, claim this device and tell peers to pause.
 		if (get(exclusiveMode) && deviceId) {
 			devicesApi.activate(deviceId).catch(() => {});
 		}
-		// In non-exclusive mode we still send a heartbeat but never activate.
 		// Immediately push current playback state so other devices update without
 		// waiting for the next 30-second heartbeat cycle.
 		sendHeartbeat().catch(() => {});
@@ -300,8 +362,6 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		recentlyPlayedIds.add(track.id);
 		// Record the play fire-and-forget; ignore errors so playback is never blocked.
 		libraryApi.recordPlay(track.id, 0).catch(() => {});
-		// Preload the next track and schedule crossfade / gapless if enabled.
-		setupCrossfade(track).catch(() => {});
 	} catch (err) {
 		console.error('playTrack error', err);
 		playbackState.set('idle');
@@ -316,7 +376,9 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
  */
 export function pauseLocal() {
 	_isRemoteMirror = false;
-	if (audioEngine.isLoaded) {
+	if (nativePlayer) {
+		nativePlayer.pause().catch(() => {});
+	} else if (audioEngine.isLoaded) {
 		audioEngine.stop();
 	}
 	const state = get(playbackState);
@@ -334,11 +396,20 @@ export function togglePlayPause() {
 	}
 	const state = get(playbackState);
 	if (state === 'playing') {
-		audioEngine.pause();
+		if (nativePlayer) {
+			nativePlayer.pause().catch(() => {});
+		} else {
+			audioEngine.pause();
+		}
 		playbackState.set('paused');
 		sendHeartbeat().catch(() => {});
 	} else if (state === 'paused') {
-		if (!audioEngine.isLoaded) {
+		if (nativePlayer) {
+			nativePlayer.play().catch(() => {});
+			_isRemoteMirror = false;
+			playbackState.set('playing');
+			sendHeartbeat().catch(() => {});
+		} else if (!audioEngine.isLoaded) {
 			// Restore scenario: nothing is loaded in the engine yet (e.g. after page
 			// refresh). Load the track starting from the saved position.
 			const track = get(currentTrack);
@@ -369,7 +440,11 @@ export function seek(posSeconds: number) {
 	const dur = get(durationMs) || 0;
 	const maxSec = Math.max(0, dur / 1000);
 	const clamped = Math.max(0, Math.min(posSeconds, Math.max(0, maxSec - 0.01)));
-	audioEngine.seek(clamped);
+	if (nativePlayer) {
+		nativePlayer.seek(Math.round(clamped * 1000)).catch(() => {});
+	} else {
+		audioEngine.seek(clamped);
+	}
 	positionMs.set(clamped * 1000);
 	sendHeartbeat().catch(() => {});
 	// Re-schedule crossfade with updated timing after seek.
@@ -461,12 +536,12 @@ export async function next() {
 				// Fall through to stop.
 			}
 		}
-		audioEngine.stop();
+		if (nativePlayer) nativePlayer.stop().catch(() => {}); else audioEngine.stop();
 		positionMs.set(0);
 		playbackState.set('paused');
 	} else {
 		// Autoplay disabled: stop the engine, reset position.
-		audioEngine.stop();
+		if (nativePlayer) nativePlayer.stop().catch(() => {}); else audioEngine.stop();
 		positionMs.set(0);
 		playbackState.set('paused');
 	}
@@ -931,7 +1006,7 @@ if (typeof document !== 'undefined') {
 // ─── Discord Rich Presence ───────────────────────────────────────────────────
 // Only active in the Tauri desktop shell. Updates presence when the track
 // changes or Discord is toggled on; clears it when toggled off.
-if (isTauri()) {
+if (isDesktop()) {
 	function pushDiscordPresence(track: Track | null) {
 		if (!get(discordEnabled) || !track) return;
 		invoke('discord_update', { title: track.title, artist: track.artist_name ?? '', album: '' }).catch(() => {});
@@ -961,7 +1036,7 @@ if (isTauri()) {
 // ─── System Tray Integration ─────────────────────────────────────────────────
 // Syncs playback state to the tray Play/Pause label and handles tray menu
 // button clicks (Previous / Play-Pause / Next) via Tauri events.
-if (isTauri()) {
+if (isDesktop()) {
 	playbackState.subscribe((state) => {
 		invoke('set_tray_playback_state', { playing: state === 'playing' }).catch(() => {});
 	});
@@ -1056,4 +1131,134 @@ if (typeof document !== 'undefined') {
 		syncVisibleState,
 		stopShadowTick,
 	});
+}
+
+// ─── Native Media Playback (Android ExoPlayer via Media3) ────────────────────
+// On mobile Tauri, ExoPlayer handles audio playback natively. The plugin
+// provides a foreground service, system media notification, and Bluetooth/
+// lock-screen controls. Position & state arrive via plugin events.
+if (isMobile()) {
+	import('$lib/native/mediasession').then((mod) => {
+		nativePlayer = mod;
+		nlog('mediasession module loaded');
+
+		// Start the native playback service.
+		mod.initializePlayer()
+			.then(() => nlog('initializePlayer() resolved'))
+			.catch((e) => nlog(`initializePlayer() FAILED: ${e}`));
+
+		// Native ExoPlayer reports position — update the store.
+		mod.onPositionUpdate((ev) => {
+			positionMs.set(ev.position_ms);
+			if (ev.duration_ms > 0) durationMs.set(ev.duration_ms);
+		}).catch((e) => nlog(`onPositionUpdate listener FAILED: ${e}`));
+
+		// Native state changes (playing/paused/loading/ended).
+		mod.onPlaybackState((ev) => {
+			nlog(`playback_state event: ${ev.state}`);
+			if (ev.state === 'playing' || ev.state === 'paused') {
+				playbackState.set(ev.state);
+			} else if (ev.state === 'loading') {
+				playbackState.set('loading');
+			}
+		}).catch((e) => nlog(`onPlaybackState listener FAILED: ${e}`));
+
+		// When a track finishes, advance to the next one.
+		mod.onTrackEnded(() => {
+			nlog('track_ended event → calling next()');
+			next();
+		}).catch((e) => nlog(`onTrackEnded listener FAILED: ${e}`));
+
+		// Handle media button presses from notification, lock screen, Bluetooth.
+		mod.onMediaAction((event) => {
+			nlog(`mediaAction event: ${event.action}`);
+			switch (event.action) {
+				case 'media-play':
+				case 'media-pause':
+					togglePlayPause();
+					break;
+				case 'media-next':
+					next();
+					break;
+				case 'media-previous':
+					previous();
+					break;
+				case 'media-stop':
+					mod.stop().catch(() => {});
+					positionMs.set(0);
+					playbackState.set('paused');
+					break;
+				case 'media-seekto':
+					if (event.seekPos !== undefined && event.seekPos >= 0) {
+						seek(event.seekPos / 1000);
+					}
+					break;
+			}
+		}).catch((e) => nlog(`onMediaAction listener FAILED: ${e}`));
+	}).catch((e) => {
+		console.error('[mediasession] dynamic import FAILED:', e);
+	});
+
+	// ─── Android Auto / CarPlay ──────────────────────────────────────────────
+	// Syncs now-playing and playback state to the car display and handles
+	// car playback control events.
+	import('$lib/native/car').then(({ setNowPlaying, setPlaybackState: setCarPlaybackState, onCarAction }) => {
+		// Push now-playing to car display when track changes.
+		currentTrack.subscribe((track) => {
+			if (!track) return;
+			const base = getApiBase();
+			const artworkUrl = track.album_id
+				? `${base.startsWith('http') ? base : location.origin + base}/covers/${track.album_id}`
+				: undefined;
+			setNowPlaying({
+				id: track.id,
+				title: track.title,
+				artist: track.artist_name ?? undefined,
+				album: track.album_name ?? undefined,
+				duration_ms: track.duration_ms,
+				artwork_url: artworkUrl,
+			}).catch(() => {});
+		});
+
+		// Push playback state to car display.
+		playbackState.subscribe((state) => {
+			if (state === 'idle' || state === 'loading') return;
+			setCarPlaybackState(state === 'playing', get(positionMs)).catch(() => {});
+		});
+
+		// Handle car control actions.
+		onCarAction((event) => {
+			switch (event.action) {
+				case 'car-play':
+				case 'car-pause':
+					togglePlayPause();
+					break;
+				case 'car-next':
+					next();
+					break;
+				case 'car-previous':
+					previous();
+					break;
+				case 'car-stop':
+					if (nativePlayer) nativePlayer.stop().catch(() => {}); else audioEngine.stop();
+					positionMs.set(0);
+					playbackState.set('paused');
+					break;
+				case 'car-seekto':
+					if (event.payload) {
+						const pos = parseInt(event.payload, 10);
+						if (pos >= 0) seek(pos / 1000);
+					}
+					break;
+				case 'car-play-item':
+					if (event.payload) {
+						// Play a specific track by ID from the current queue.
+						const q = get(queue);
+						const match = q.find((t) => t.id === event.payload);
+						if (match) playTrack(match, q);
+					}
+					break;
+			}
+		}).catch(() => {});
+	}).catch(() => {});
 }

@@ -2,7 +2,7 @@
   import { authStore } from '$lib/stores/auth';
   import { themeStore, avatarStore, ACCENTS } from '$lib/stores/settings/theme';
   import { apiFetch } from '$lib/api/client';
-  import { isTauri, isNative } from '$lib/utils/platform';
+  import { isNative, isDesktop } from '$lib/utils/platform';
   import { getServerUrl, setServerUrl } from '$lib/api/base';
   import QRCode from 'qrcode';
   import EQEditor from '$lib/components/ui/EQEditor.svelte';
@@ -1260,7 +1260,7 @@
     </div>
     {/if}
 
-    {#if isTauri()}
+    {#if isDesktop()}
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-name">Discord Rich Presence</span>

@@ -38,6 +38,9 @@ web/build/
 web/src-tauri/target/
 web/src-tauri/gen/
 
+tauri-plugin-mediasession/android/build/**
+tauri-plugin-car/android/build/**
+
 # Logs
 logs/
 *.log

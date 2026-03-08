@@ -27,7 +27,7 @@
     setVolume,
   } from "$lib/stores/player";
   import { themeStore } from "$lib/stores/settings/theme";
-  import { isTauri, isNative } from "$lib/utils/platform";
+  import { isTauri, isNative, isDesktop } from "$lib/utils/platform";
   import TitleBar from "$lib/components/layout/tauri/TitleBar.svelte";
   import MobileNav from "$lib/components/layout/mobile/MobileNav.svelte";
   import MobilePlayer from "$lib/components/layout/mobile/MobilePlayer.svelte";
@@ -279,7 +279,7 @@
   <title>Orb</title>
 </svelte:head>
 
-{#if isTauri()}
+{#if isDesktop()}
   <div class="window-frame" aria-hidden="true"></div>
 {/if}
 
@@ -295,10 +295,10 @@
 {:else if !$setupRequired && $isAuthenticated}
   <div
     class="shell"
-    class:tauri={isTauri()}
+    class:tauri={isDesktop()}
     class:party-open={$lpPanelOpen && $lpRole === "host"}
   >
-    {#if isTauri()}<TitleBar />{/if}
+    {#if isDesktop()}<TitleBar />{/if}
     <TopBar />
     <Sidebar />
     <main class="content">

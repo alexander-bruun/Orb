@@ -1,0 +1,4 @@
+[[set]]
+identifier = "default"
+description = "Default permissions for the car plugin"
+permissions = ["allow-set-now-playing", "allow-set-media-root", "allow-set-playback-state", "allow-on-car-connected"]
