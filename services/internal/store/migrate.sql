@@ -351,6 +351,25 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 );
 CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(webhook_id, delivered_at DESC);
 
+-- Smart playlists: saved filter rules that evaluate to a dynamic track list.
+-- rules is a JSONB array of {field, op, value} objects.
+-- rule_match: 'all' (AND) | 'any' (OR).
+CREATE TABLE IF NOT EXISTS smart_playlists (
+    id            TEXT        PRIMARY KEY,
+    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name          TEXT        NOT NULL,
+    description   TEXT,
+    rules         JSONB       NOT NULL DEFAULT '[]',
+    rule_match    TEXT        NOT NULL DEFAULT 'all',
+    sort_by       TEXT        NOT NULL DEFAULT 'title',
+    sort_dir      TEXT        NOT NULL DEFAULT 'asc',
+    limit_count   INT,
+    last_built_at TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS smart_playlists_user_idx ON smart_playlists(user_id);
+
 -- Track ratings: per-user 1–5 star rating for tracks.
 CREATE TABLE IF NOT EXISTS track_ratings (
     user_id   TEXT NOT NULL REFERENCES users(id)  ON DELETE CASCADE,

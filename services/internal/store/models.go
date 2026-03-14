@@ -5,6 +5,56 @@ import (
 	"time"
 )
 
+// SmartPlaylistRule is a single filter rule within a smart playlist.
+// Field: genre | year | artist | album | format | bit_depth | duration_ms | play_count | rating
+// Op:    is | is_not | contains | not_contains | gt | lt | gte | lte
+type SmartPlaylistRule struct {
+	Field string `json:"field"`
+	Op    string `json:"op"`
+	Value string `json:"value"`
+}
+
+// SmartPlaylist is a dynamically-evaluated playlist driven by filter rules.
+type SmartPlaylist struct {
+	ID           string              `json:"id"`
+	UserID       string              `json:"user_id"`
+	Name         string              `json:"name"`
+	Description  string              `json:"description,omitempty"`
+	Rules        []SmartPlaylistRule `json:"rules"`
+	RuleMatch    string              `json:"rule_match"`
+	SortBy       string              `json:"sort_by"`
+	SortDir      string              `json:"sort_dir"`
+	LimitCount   *int                `json:"limit_count,omitempty"`
+	LastBuiltAt  *time.Time          `json:"last_built_at,omitempty"`
+	CreatedAt    time.Time           `json:"created_at"`
+	UpdatedAt    time.Time           `json:"updated_at"`
+}
+
+// CreateSmartPlaylistParams holds the fields required to create a smart playlist.
+type CreateSmartPlaylistParams struct {
+	ID          string
+	UserID      string
+	Name        string
+	Description string
+	Rules       []SmartPlaylistRule
+	RuleMatch   string
+	SortBy      string
+	SortDir     string
+	LimitCount  *int
+}
+
+// UpdateSmartPlaylistParams holds updatable fields for a smart playlist.
+type UpdateSmartPlaylistParams struct {
+	ID          string
+	Name        string
+	Description string
+	Rules       []SmartPlaylistRule
+	RuleMatch   string
+	SortBy      string
+	SortDir     string
+	LimitCount  *int
+}
+
 // Playlist represents a playlist in the database.
 type Playlist struct {
 	ID          string  `json:"id"`
@@ -94,7 +144,9 @@ type Track struct {
 	// Nil when no ReplayGain data is available.
 	ReplayGainTrack *float64 `json:"replay_gain_track,omitempty"`
 	// BPM is the track tempo in beats per minute (from track_features). Nil when unknown.
-	BPM *float64 `json:"bpm,omitempty"`
+	BPM        *float64 `json:"bpm,omitempty"`
+	ArtistName *string  `json:"artist_name,omitempty"`
+	AlbumName  *string  `json:"album_name,omitempty"`
 }
 
 // UpsertArtistParams for upserting an artist.

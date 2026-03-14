@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { library as libApi } from "$lib/api/library";
-  import type { Track, Album } from "$lib/types";
+  import { smartPlaylists as spApi } from "$lib/api/smartPlaylists";
+  import type { Track, Album, SmartPlaylist } from "$lib/types";
   import TrackList from "$lib/components/library/TrackList.svelte";
   import AlbumCard from "$lib/components/library/AlbumCard.svelte";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
@@ -21,6 +22,7 @@
   let mostTracks: Track[] = [];
   let recentAlbums: Album[] = [];
   let newAlbums: Album[] = [];
+  let smartPls: SmartPlaylist[] = [];
   let loading = true;
   let playsLoading = false;
 
@@ -152,11 +154,12 @@
       return;
     }
     try {
-      [recentTracks, mostTracks, recentAlbums, newAlbums] = await Promise.all([
+      [recentTracks, mostTracks, recentAlbums, newAlbums, smartPls] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
         libApi.mostPlayed(100).then((r) => r ?? []),
         libApi.recentlyPlayedAlbums().then((r) => r ?? []),
         libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
+        spApi.list().then((r) => r ?? []),
       ]);
     } catch {
       // ignore — user may not be logged in
@@ -370,7 +373,32 @@
     </section>
   {/if}
 
-  {#if recentTracks.length === 0 && mostTracks.length === 0 && recentAlbums.length === 0 && newAlbums.length === 0}
+  {#if smartPls.length > 0}
+    <section class="home-section">
+      <div class="section-header">
+        <h2 class="section-title">Smart Playlists</h2>
+        <a href="/smart-playlists" class="view-all">View all</a>
+      </div>
+      <div class="sp-grid">
+        {#each smartPls.slice(0, 6) as sp (sp.id)}
+          <a class="sp-card" href="/smart-playlists/{sp.id}">
+            <div class="sp-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+            </div>
+            <div class="sp-info">
+              <span class="sp-name">{sp.name}</span>
+              <span class="sp-meta">{sp.rules.length} rule{sp.rules.length === 1 ? '' : 's'}</span>
+            </div>
+          </a>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if recentTracks.length === 0 && mostTracks.length === 0 && recentAlbums.length === 0 && newAlbums.length === 0 && smartPls.length === 0}
     <p class="muted">Nothing here yet. Go find some music!</p>
   {/if}
 {/if}
@@ -582,6 +610,39 @@
   .page-select:focus { outline: none; border-color: var(--accent); }
 
   .muted { color: var(--text-muted); font-size: 0.875rem; }
+
+  .sp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .sp-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .sp-card:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+  .sp-icon {
+    width: 36px;
+    height: 36px;
+    background: var(--bg-3, var(--bg-hover));
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--accent);
+  }
+  .sp-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .sp-name { font-size: 0.85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sp-meta { font-size: 0.72rem; color: var(--text-muted); }
 
   .album-slider {
     display: flex;

@@ -87,6 +87,40 @@ export interface Playlist {
 
 export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
+// ──────────────────────────────────────────────────────────────
+// Smart Playlists
+// ──────────────────────────────────────────────────────────────
+
+export type SmartPlaylistField =
+	| 'genre' | 'year' | 'artist' | 'album'
+	| 'format' | 'bit_depth' | 'duration_ms'
+	| 'play_count' | 'rating';
+
+export type SmartPlaylistOp =
+	| 'is' | 'is_not' | 'contains' | 'not_contains'
+	| 'gt' | 'lt' | 'gte' | 'lte';
+
+export interface SmartPlaylistRule {
+	field: SmartPlaylistField;
+	op: SmartPlaylistOp;
+	value: string;
+}
+
+export interface SmartPlaylist {
+	id: string;
+	user_id: string;
+	name: string;
+	description?: string;
+	rules: SmartPlaylistRule[];
+	rule_match: 'all' | 'any';
+	sort_by: string;
+	sort_dir: 'asc' | 'desc';
+	limit_count?: number;
+	last_built_at?: string;
+	created_at: string;
+	updated_at: string;
+}
+
 /** Filters for the advanced search. All fields are optional. */
 export interface SearchFilters {
 	genre?: string;

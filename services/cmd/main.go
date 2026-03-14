@@ -31,6 +31,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/queue"
 	"github.com/alexander-bruun/orb/services/internal/recommend"
 	"github.com/alexander-bruun/orb/services/internal/share"
+	"github.com/alexander-bruun/orb/services/internal/smartplaylist"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/stream"
 	"github.com/alexander-bruun/orb/services/internal/user"
@@ -141,6 +142,9 @@ func run(ctx context.Context) error {
 
 		plSvc := playlist.New(db)
 		r.Route("/playlists", plSvc.Routes)
+
+		spSvc := smartplaylist.New(db)
+		r.Route("/smart-playlists", spSvc.Routes)
 
 		qSvc := queue.New(db, kv)
 		r.Route("/queue", qSvc.Routes)

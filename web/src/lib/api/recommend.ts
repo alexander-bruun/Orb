@@ -14,6 +14,9 @@ export const recommend = {
 
 	radio: (limit = 50) => apiFetch<ScoredTrack[]>(`/recommend/radio?limit=${limit}`),
 
+	radioByArtist: (artistId: string, limit = 50) =>
+		apiFetch<ScoredTrack[]>(`/recommend/radio?seed_artist_id=${artistId}&limit=${limit}`),
+
 	autoplay: (afterTrackId: string, exclude: string[] = [], limit = 5) => {
 		const params = new URLSearchParams({ after: afterTrackId, limit: String(limit) });
 		if (exclude.length) params.set('exclude', exclude.join(','));

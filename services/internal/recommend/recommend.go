@@ -45,12 +45,21 @@ func (s *Service) similarTracks(w http.ResponseWriter, r *http.Request) {
 }
 
 // radio returns a personalized mix based on recent listening history.
-// GET /recommend/radio?limit=50
+// GET /recommend/radio?limit=50&seed_artist_id=<artist_id>
 func (s *Service) radio(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	limit := intQuery(r, "limit", 50)
+	seedArtistID := r.URL.Query().Get("seed_artist_id")
 
-	tracks, err := s.db.RecommendForUser(r.Context(), userID, limit)
+	var (
+		tracks []store.TrackWithScore
+		err    error
+	)
+	if seedArtistID != "" {
+		tracks, err = s.db.RecommendForArtist(r.Context(), seedArtistID, userID, limit)
+	} else {
+		tracks, err = s.db.RecommendForUser(r.Context(), userID, limit)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

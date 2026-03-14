@@ -114,6 +114,348 @@ ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.
 	return alb, err
 }
 
+// ── Smart playlist CRUD ────────────────────────────────────────────────────
+
+func (s *Store) ListSmartPlaylistsByUser(ctx context.Context, userID string) ([]SmartPlaylist, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at
+		 FROM smart_playlists WHERE user_id = $1 ORDER BY updated_at DESC`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSmartPlaylists(rows)
+}
+
+func (s *Store) GetSmartPlaylistByID(ctx context.Context, id string) (SmartPlaylist, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at
+		 FROM smart_playlists WHERE id = $1`,
+		id)
+	return scanSmartPlaylist(row)
+}
+
+func (s *Store) CreateSmartPlaylist(ctx context.Context, p CreateSmartPlaylistParams) (SmartPlaylist, error) {
+	rulesJSON, err := json.Marshal(p.Rules)
+	if err != nil {
+		return SmartPlaylist{}, err
+	}
+	row := s.pool.QueryRow(ctx,
+		`INSERT INTO smart_playlists (id, user_id, name, description, rules, rule_match, sort_by, sort_dir, limit_count)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		 RETURNING id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at`,
+		p.ID, p.UserID, p.Name, p.Description, rulesJSON, p.RuleMatch, p.SortBy, p.SortDir, p.LimitCount)
+	return scanSmartPlaylist(row)
+}
+
+func (s *Store) UpdateSmartPlaylist(ctx context.Context, p UpdateSmartPlaylistParams) (SmartPlaylist, error) {
+	rulesJSON, err := json.Marshal(p.Rules)
+	if err != nil {
+		return SmartPlaylist{}, err
+	}
+	row := s.pool.QueryRow(ctx,
+		`UPDATE smart_playlists SET name=$2, description=$3, rules=$4, rule_match=$5, sort_by=$6, sort_dir=$7, limit_count=$8, updated_at=now()
+		 WHERE id=$1
+		 RETURNING id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at`,
+		p.ID, p.Name, p.Description, rulesJSON, p.RuleMatch, p.SortBy, p.SortDir, p.LimitCount)
+	return scanSmartPlaylist(row)
+}
+
+func (s *Store) DeleteSmartPlaylist(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM smart_playlists WHERE id=$1`, id)
+	return err
+}
+
+// EvaluateSmartPlaylist executes the filter rules and returns matching tracks.
+// Only tracks in the user's library are eligible.
+func (s *Store) EvaluateSmartPlaylist(ctx context.Context, sp SmartPlaylist) ([]Track, error) {
+	args := []any{sp.UserID}
+	argN := 2
+
+	conds := make([]string, 0, len(sp.Rules))
+	for _, rule := range sp.Rules {
+		cond, newArgs, newN := smartRuleToCond(rule, args, argN)
+		if cond == "" {
+			continue
+		}
+		conds = append(conds, cond)
+		args = newArgs
+		argN = newN
+	}
+
+	join := " AND "
+	if sp.RuleMatch == "any" {
+		join = " OR "
+	}
+
+	where := "TRUE"
+	if len(conds) > 0 {
+		where = "(" + strings.Join(conds, join) + ")"
+	}
+
+	orderField := "t.title"
+	switch sp.SortBy {
+	case "year":
+		orderField = "a.release_year"
+	case "artist":
+		orderField = "ar.name"
+	case "duration_ms":
+		orderField = "t.duration_ms"
+	case "play_count":
+		orderField = "play_count"
+	case "rating":
+		orderField = "user_rating"
+	case "added_at":
+		orderField = "ul.added_at"
+	}
+	dir := "ASC"
+	if sp.SortDir == "desc" {
+		dir = "DESC"
+	}
+
+	limitClause := ""
+	if sp.LimitCount != nil && *sp.LimitCount > 0 {
+		limitClause = fmt.Sprintf("LIMIT %d", *sp.LimitCount)
+	}
+
+	q := fmt.Sprintf(`
+		SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		       t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		       t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		       COALESCE(tf.replay_gain, 0) AS replay_gain_track,
+		       ar.name AS artist_name, a.title AS album_name,
+		       COALESCE((SELECT COUNT(*) FROM play_history ph WHERE ph.track_id = t.id AND ph.user_id = $1), 0) AS play_count,
+		       (SELECT rating FROM track_ratings tr WHERE tr.track_id = t.id AND tr.user_id = $1) AS user_rating
+		FROM tracks t
+		JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $1
+		LEFT JOIN albums a ON a.id = t.album_id
+		LEFT JOIN artists ar ON ar.id = t.artist_id
+		LEFT JOIN track_features tf ON tf.track_id = t.id
+		WHERE %s
+		ORDER BY %s %s NULLS LAST
+		%s`,
+		where, orderField, dir, limitClause)
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Track{}
+	for rows.Next() {
+		var t Track
+		var albumID, artistID, fp, artistName, albumName sql.NullString
+		var trackNumber, bitDepth, bitrateKbps sql.NullInt64
+		var replayGain sql.NullFloat64
+		var userRating sql.NullInt64
+		var playCount int64
+
+		if err := rows.Scan(
+			&t.ID, &albumID, &artistID, &t.Title,
+			&trackNumber, &t.DiscNumber, &t.DurationMs,
+			&t.FileKey, &t.FileSize, &t.Format,
+			&bitDepth, &t.SampleRate, &t.Channels, &bitrateKbps,
+			nil, &fp, &t.CreatedAt,
+			&replayGain, &artistName, &albumName, &playCount, &userRating,
+		); err != nil {
+			return nil, err
+		}
+		if albumID.Valid {
+			t.AlbumID = &albumID.String
+		}
+		if artistID.Valid {
+			t.ArtistID = &artistID.String
+		}
+		if trackNumber.Valid {
+			n := int(trackNumber.Int64)
+			t.TrackNumber = &n
+		}
+		if bitDepth.Valid {
+			n := int(bitDepth.Int64)
+			t.BitDepth = &n
+		}
+		if bitrateKbps.Valid {
+			n := int(bitrateKbps.Int64)
+			t.BitrateKbps = &n
+		}
+		if artistName.Valid {
+			t.ArtistName = &artistName.String
+		}
+		if albumName.Valid {
+			t.AlbumName = &albumName.String
+		}
+		if replayGain.Valid {
+			t.ReplayGainTrack = &replayGain.Float64
+		}
+		out = append(out, t)
+	}
+	// Mark the playlist as built.
+	_, _ = s.pool.Exec(ctx, `UPDATE smart_playlists SET last_built_at=now() WHERE id=$1`, sp.ID)
+	return out, rows.Err()
+}
+
+// smartRuleToCond converts one SmartPlaylistRule to a SQL condition fragment.
+func smartRuleToCond(r SmartPlaylistRule, args []any, n int) (string, []any, int) {
+	placeholder := func(v any) (string, int) {
+		args = append(args, v)
+		ph := fmt.Sprintf("$%d", n)
+		n++
+		return ph, n
+	}
+
+	switch r.Field {
+	case "genre":
+		ph, _ := placeholder(r.Value)
+		subq := fmt.Sprintf(`EXISTS (SELECT 1 FROM track_genres tg JOIN genres g ON g.id = tg.genre_id WHERE tg.track_id = t.id AND lower(g.name) = lower(%s))`, ph)
+		if r.Op == "is_not" {
+			return "NOT " + subq, args, n
+		}
+		return subq, args, n
+	case "artist":
+		ph, _ := placeholder("%" + r.Value + "%")
+		switch r.Op {
+		case "contains":
+			return fmt.Sprintf("lower(ar.name) LIKE lower(%s)", ph), args, n
+		case "not_contains":
+			return fmt.Sprintf("lower(ar.name) NOT LIKE lower(%s)", ph), args, n
+		case "is":
+			args[len(args)-1] = r.Value
+			return fmt.Sprintf("lower(ar.name) = lower(%s)", ph), args, n
+		case "is_not":
+			args[len(args)-1] = r.Value
+			return fmt.Sprintf("lower(ar.name) != lower(%s)", ph), args, n
+		}
+	case "album":
+		ph, _ := placeholder("%" + r.Value + "%")
+		switch r.Op {
+		case "contains":
+			return fmt.Sprintf("lower(a.title) LIKE lower(%s)", ph), args, n
+		case "not_contains":
+			return fmt.Sprintf("lower(a.title) NOT LIKE lower(%s)", ph), args, n
+		case "is":
+			args[len(args)-1] = r.Value
+			return fmt.Sprintf("lower(a.title) = lower(%s)", ph), args, n
+		case "is_not":
+			args[len(args)-1] = r.Value
+			return fmt.Sprintf("lower(a.title) != lower(%s)", ph), args, n
+		}
+	case "format":
+		ph, _ := placeholder(r.Value)
+		if r.Op == "is_not" {
+			return fmt.Sprintf("t.format != %s", ph), args, n
+		}
+		return fmt.Sprintf("t.format = %s", ph), args, n
+	case "year":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		return fmt.Sprintf("a.release_year %s %s", op, ph), args, n
+	case "bit_depth":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		return fmt.Sprintf("t.bit_depth %s %s", op, ph), args, n
+	case "duration_ms":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		return fmt.Sprintf("t.duration_ms %s %s", op, ph), args, n
+	case "play_count":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		sub := fmt.Sprintf("(SELECT COUNT(*) FROM play_history ph WHERE ph.track_id = t.id AND ph.user_id = $1)")
+		return fmt.Sprintf("%s %s %s", sub, op, ph), args, n
+	case "rating":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		sub := "(SELECT rating FROM track_ratings tr WHERE tr.track_id = t.id AND tr.user_id = $1)"
+		return fmt.Sprintf("%s %s %s", sub, op, ph), args, n
+	}
+	return "", args, n
+}
+
+func sqlOp(op string) string {
+	switch op {
+	case "is", "eq":
+		return "="
+	case "is_not", "neq":
+		return "!="
+	case "gt":
+		return ">"
+	case "lt":
+		return "<"
+	case "gte":
+		return ">="
+	case "lte":
+		return "<="
+	}
+	return ""
+}
+
+func scanSmartPlaylists(rows pgx.Rows) ([]SmartPlaylist, error) {
+	out := []SmartPlaylist{}
+	for rows.Next() {
+		sp, err := scanSmartPlaylistRow(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSmartPlaylist(row scanner) (SmartPlaylist, error) {
+	return scanSmartPlaylistRow(row.Scan)
+}
+
+func scanSmartPlaylistRow(scan func(...any) error) (SmartPlaylist, error) {
+	var sp SmartPlaylist
+	var rulesJSON []byte
+	var desc sql.NullString
+	var limitCount sql.NullInt64
+	var lastBuiltAt sql.NullTime
+
+	if err := scan(
+		&sp.ID, &sp.UserID, &sp.Name, &desc,
+		&rulesJSON, &sp.RuleMatch, &sp.SortBy, &sp.SortDir,
+		&limitCount, &lastBuiltAt, &sp.CreatedAt, &sp.UpdatedAt,
+	); err != nil {
+		return sp, err
+	}
+	sp.Description = desc.String
+	if limitCount.Valid {
+		n := int(limitCount.Int64)
+		sp.LimitCount = &n
+	}
+	if lastBuiltAt.Valid {
+		sp.LastBuiltAt = &lastBuiltAt.Time
+	}
+	if err := json.Unmarshal(rulesJSON, &sp.Rules); err != nil {
+		sp.Rules = []SmartPlaylistRule{}
+	}
+	return sp, nil
+}
+
+// ── Regular playlist CRUD ──────────────────────────────────────────────────
+
 func (s *Store) ListPlaylistsByUser(ctx context.Context, userID string) ([]Playlist, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, user_id, name, description, cover_art_key, created_at FROM playlists WHERE user_id = $1 ORDER BY updated_at DESC`,
@@ -2307,6 +2649,56 @@ func (s *Store) AutoplayAfter(ctx context.Context, userID, trackID string, exclu
 		 ORDER BY s.score DESC
 		 LIMIT $3`,
 		trackID, exclude, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracksWithScore(rows)
+}
+
+// RecommendForArtist returns tracks from the given artist and related artists,
+// ordered by similarity score, excluding tracks played in the last 24 hours.
+func (s *Store) RecommendForArtist(ctx context.Context, artistID, userID string, limit int) ([]TrackWithScore, error) {
+	rows, err := s.pool.Query(ctx,
+		`WITH artist_tracks AS (
+		     -- tracks by this artist
+		     SELECT t.id AS track_id FROM tracks t WHERE t.artist_id = $1
+		 ),
+		 related AS (
+		     -- related artists (one hop)
+		     SELECT related_id FROM related_artists WHERE artist_id = $1
+		 ),
+		 candidate_ids AS (
+		     SELECT track_id FROM artist_tracks
+		     UNION
+		     SELECT t.id FROM tracks t JOIN related r ON t.artist_id = r.related_id
+		 ),
+		 scored AS (
+		     SELECT c.track_id,
+		            COALESCE(MAX(s.score), 0.5) AS score
+		     FROM candidate_ids c
+		     LEFT JOIN LATERAL (
+		         SELECT score FROM track_similarity
+		         WHERE track_a = c.track_id OR track_b = c.track_id
+		         ORDER BY score DESC LIMIT 1
+		     ) s ON TRUE
+		     GROUP BY c.track_id
+		 )
+		 SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        COALESCE(tf.replay_gain, 0) AS replay_gain_track, sc.score, ar.name AS artist_name
+		 FROM scored sc
+		 JOIN tracks t ON t.id = sc.track_id
+		 LEFT JOIN track_features tf ON tf.track_id = t.id
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 WHERE t.id NOT IN (
+		     SELECT track_id FROM play_history
+		     WHERE user_id = $2 AND played_at > now() - interval '24 hours'
+		 )
+		 ORDER BY sc.score DESC, random()
+		 LIMIT $3`,
+		artistID, userID, limit)
 	if err != nil {
 		return nil, err
 	}

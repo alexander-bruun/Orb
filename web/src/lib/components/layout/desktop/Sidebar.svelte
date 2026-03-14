@@ -25,7 +25,8 @@
   <nav class="nav">
     <a href="/" class:active={$page.url.pathname === '/'}>Home</a>
     <a href="/library" class:active={$page.url.pathname.startsWith('/library')}>Library</a>
-    <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists')}>Playlists</a>
+    <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists') && !$page.url.pathname.startsWith('/smart-playlists')}>Playlists</a>
+    <a href="/smart-playlists" class:active={$page.url.pathname.startsWith('/smart-playlists')}>Smart Playlists</a>
     <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
     <a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>
     <a href="/settings" class:active={$page.url.pathname === '/settings'}>Settings</a>

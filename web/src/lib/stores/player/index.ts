@@ -37,6 +37,12 @@ export const smartShuffleEnabled = writable(false);
 export const queueModalOpen = writable(false);
 /** When true, similar tracks auto-queue when the queue runs out. */
 export const autoplayEnabled = writable(true);
+/**
+ * When set, the player is in radio mode: the queue is continuously topped up
+ * with similar tracks as playback advances. Set by startRadio(), cleared by
+ * stopRadio() or explicit user play actions.
+ */
+export const radioMode = writable<{ seedTrackId?: string; seedArtistId?: string } | null>(null);
 /** When true, display current track in Discord Rich Presence (desktop only). */
 export const discordEnabled = writable(false);
 /** When true, normalize track loudness using ReplayGain metadata. */
@@ -485,6 +491,17 @@ export function removeFromUserQueue(index: number) {
 	userQueue.update((q) => q.filter((_, i) => i !== index));
 }
 
+/** Fetch more similar tracks and append them to the queue (radio mode). */
+async function _replenishRadio(currentQueue: Track[]) {
+	const current = get(currentTrack);
+	if (!current) return;
+	const exclude = currentQueue.map((t: Track) => t.id);
+	const more = await recommend.autoplay(current.id, exclude, 20);
+	if (more.length > 0) {
+		queue.update((q) => [...q, ...more]);
+	}
+}
+
 export async function next() {
 	// Control-device mode: delegate to active device (only in exclusive mode).
 	const activeDev = get(activeDeviceId);
@@ -517,12 +534,34 @@ export async function next() {
 		const nextIdx = idx + 1;
 		queueIndex.set(nextIdx);
 		await playTrack(q[actualIndex(nextIdx)]);
+		// Radio mode: silently top up the queue when fewer than 10 tracks remain.
+		const rm = get(radioMode);
+		if (rm && q.length - nextIdx <= 10) {
+			_replenishRadio(q).catch(() => {});
+		}
 	} else if (repeat === 'all') {
 		if (get(shuffle)) {
 			shuffleOrder.set(buildShuffleOrder(q));
 		}
 		queueIndex.set(0);
 		await playTrack(q[actualIndex(0)]);
+	} else if (get(radioMode)) {
+		// Radio mode end-of-queue: fetch more tracks and continue.
+		try {
+			await _replenishRadio(q);
+			const newQ = get(queue);
+			if (newQ.length > q.length) {
+				const nextIdx = idx + 1;
+				queueIndex.set(nextIdx);
+				await playTrack(newQ[actualIndex(nextIdx)]);
+				return;
+			}
+		} catch {
+			// Fall through to stop.
+		}
+		audioEngine.stop();
+		positionMs.set(0);
+		playbackState.set('paused');
 	} else if (get(autoplayEnabled)) {
 		// End of queue — try auto-playing similar tracks.
 		const current = get(currentTrack);
@@ -536,8 +575,10 @@ export async function next() {
 					const nextIdx = idx + 1;
 					queueIndex.set(nextIdx);
 					await playTrack(newQueue[actualIndex(nextIdx)]);
-					return;					} else {
-						addToast('No similar tracks found — run the ingest to compute similarities.', 'info');				}
+					return;
+				} else {
+					addToast('No similar tracks found — run the ingest to compute similarities.', 'info');
+				}
 			} catch {
 				// Fall through to stop.
 			}
@@ -799,26 +840,38 @@ export async function syncVisibleState(
 }
 
 /**
- * Start a radio queue.
- * If a seed track ID is provided, loads tracks similar to that track.
- * Otherwise loads a personalised station based on the user's listening history.
+ * Start a radio queue (infinite — the queue is automatically topped up as
+ * playback advances).
+ * - seedTrackId: seed from a specific track's similar tracks.
+ * - seedArtistId: seed from an artist's catalogue + related artists.
+ * - neither: personalised station based on the user's listening history.
  */
-export async function startRadio(seedTrackId?: string) {
+export async function startRadio(seedTrackId?: string, seedArtistId?: string) {
 	let tracks: Track[];
 	try {
-		tracks = seedTrackId
-			? await recommend.similar(seedTrackId, 50)
-			: await recommend.radio(50);
+		if (seedTrackId) {
+			tracks = await recommend.similar(seedTrackId, 50);
+		} else if (seedArtistId) {
+			tracks = await recommend.radioByArtist(seedArtistId, 50);
+		} else {
+			tracks = await recommend.radio(50);
+		}
 	} catch (err) {
 		console.error('startRadio error', err);
 		return;
 	}
 	if (!tracks || tracks.length === 0) return;
+	radioMode.set({ seedTrackId, seedArtistId });
 	shuffle.set(false);
 	shuffleOrder.set([]);
 	queue.set(tracks);
 	queueIndex.set(0);
 	await playTrack(tracks[0], tracks);
+}
+
+/** Stop radio mode. The current queue remains but will not be topped up. */
+export function stopRadio() {
+	radioMode.set(null);
 }
 
 // Persistence: save minimal player state so we can resume after a refresh.
