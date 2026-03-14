@@ -18,6 +18,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/store"
+	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -91,14 +92,18 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 
 // Service handles library HTTP routes.
 type Service struct {
-	db *store.Store
-	mb *musicbrainz.Client
+	db         *store.Store
+	mb         *musicbrainz.Client
+	dispatcher *webhook.Dispatcher
 }
 
 // New returns a new library Service.
 func New(db *store.Store, mb *musicbrainz.Client) *Service {
 	return &Service{db: db, mb: mb}
 }
+
+// SetDispatcher attaches a webhook dispatcher for track play events.
+func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
 
 // Routes registers library endpoints.
 func (s *Service) Routes(r chi.Router) {
@@ -549,6 +554,13 @@ func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.dispatcher != nil {
+		s.dispatcher.Dispatch(r.Context(), webhook.EventTrackPlayed, map[string]any{
+			"user_id":            userID,
+			"track_id":           body.TrackID,
+			"duration_played_ms": body.DurationPlayedMs,
+		})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

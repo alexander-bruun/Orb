@@ -316,3 +316,27 @@ CREATE TABLE IF NOT EXISTS site_settings (
     value      TEXT        NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Webhooks: outgoing HTTP callbacks for system events.
+CREATE TABLE IF NOT EXISTS webhooks (
+    id          TEXT        PRIMARY KEY,
+    url         TEXT        NOT NULL,
+    secret      TEXT        NOT NULL,
+    events      TEXT[]      NOT NULL DEFAULT '{}',
+    enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
+    description TEXT        NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Webhook delivery log: records every outbound delivery attempt.
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id           BIGSERIAL   PRIMARY KEY,
+    webhook_id   TEXT        NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event        TEXT        NOT NULL,
+    payload      JSONB       NOT NULL,
+    status_code  INT,
+    error        TEXT,
+    delivered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(webhook_id, delivered_at DESC);

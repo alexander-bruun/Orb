@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
+	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -54,6 +55,7 @@ type Service struct {
 	kv         *redis.Client
 	instanceID string
 	rootCtx    context.Context
+	dispatcher *webhook.Dispatcher
 
 	mu         sync.Mutex
 	running    atomic.Bool
@@ -73,6 +75,9 @@ func NewService(serverCtx context.Context, ingester *Ingester, kv *redis.Client)
 		rootCtx:    serverCtx,
 	}
 }
+
+// SetDispatcher attaches a webhook dispatcher for ingest completion events.
+func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
 
 // Routes registers ingest admin endpoints. Must be mounted under JWT + admin middleware.
 func (s *Service) Routes(r chi.Router) {
@@ -236,27 +241,35 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 				slog.Error("ingest: scan-and-enqueue failed", "err", err)
 				errCount = 1
 			}
-			s.mu.Lock()
-			s.lastResult = &ScanResult{
+			result := &ScanResult{
 				StartedAt:  started,
 				FinishedAt: finished,
 				Enqueued:   n,
 				Errors:     errCount,
 			}
+			s.mu.Lock()
+			s.lastResult = result
 			s.mu.Unlock()
+			if s.dispatcher != nil {
+				s.dispatcher.Dispatch(scanCtx, webhook.EventIngestCompleted, result)
+			}
 		} else {
 			// Single-instance mode: process everything in-process.
 			newIDs, skipped, errs := s.ingester.Scan(scanCtx)
 			finished := time.Now()
-			s.mu.Lock()
-			s.lastResult = &ScanResult{
+			result := &ScanResult{
 				StartedAt:  started,
 				FinishedAt: finished,
 				Ingested:   len(newIDs),
 				Skipped:    skipped,
 				Errors:     errs,
 			}
+			s.mu.Lock()
+			s.lastResult = result
 			s.mu.Unlock()
+			if s.dispatcher != nil {
+				s.dispatcher.Dispatch(scanCtx, webhook.EventIngestCompleted, result)
+			}
 			if s.ingester.cfg.ComputeSimilarity {
 				_ = s.ingester.runSimilarity(scanCtx, newIDs)
 			}

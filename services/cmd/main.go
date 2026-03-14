@@ -34,6 +34,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/stream"
 	"github.com/alexander-bruun/orb/services/internal/user"
+	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
@@ -129,7 +130,10 @@ func run(ctx context.Context) error {
 	r.Group(func(r chi.Router) {
 		r.Use(jwtMW)
 
+		webhookDispatcher := webhook.New(db)
+
 		libSvc := library.New(db, musicbrainz.New())
+		libSvc.SetDispatcher(webhookDispatcher)
 		r.Route("/library", libSvc.Routes)
 
 		r.Get("/stream/{track_id}", streamSvc.Stream)
@@ -152,11 +156,13 @@ func run(ctx context.Context) error {
 		})
 
 		adminSvc := admin.New(db, obj, musicbrainz.New(), kv)
+		adminSvc.SetDispatcher(webhookDispatcher)
 		r.Group(func(r chi.Router) {
 			r.Use(adminSvc.AdminMiddleware)
 			r.Route("/admin", func(r chi.Router) {
 				adminSvc.Routes(r)
 				if ingestSvc != nil {
+					ingestSvc.SetDispatcher(webhookDispatcher)
 					r.Route("/ingest", ingestSvc.Routes)
 				}
 			})

@@ -6,10 +6,10 @@
   import type {
     AdminSummary, UserPlayStat, TrackPlayCount, ArtistPlayCount,
     DailyPlayCount, StorageStats, InviteToken, AuditLog, Album,
-    SiteSettings, IngestProgressEvent
+    SiteSettings, IngestProgressEvent, Webhook, WebhookDelivery
   } from '$lib/api/admin';
 
-  type Tab = 'dashboard' | 'users' | 'library' | 'settings' | 'audit';
+  type Tab = 'dashboard' | 'users' | 'library' | 'settings' | 'audit' | 'integrations';
   let activeTab: Tab = 'dashboard';
 
   // Dashboard
@@ -55,6 +55,19 @@
   let auditTotal = 0;
   let auditOffset = 0;
 
+  // Integrations / webhooks
+  let webhooks: Webhook[] = [];
+  let webhookEvents: string[] = [];
+  let showWebhookModal = false;
+  let editingWebhook: Webhook | null = null;
+  let webhookForm = { url: '', secret: '', description: '', events: [] as string[], enabled: true };
+  let webhookSaving = false;
+  let webhookError = '';
+  let webhookDeliveries: WebhookDelivery[] = [];
+  let deliveriesWebhookId = '';
+  let showDeliveries = false;
+  let webhookTesting: Record<string, boolean> = {};
+
   // Shared
   let loading = true;
   let error = '';
@@ -95,6 +108,12 @@
     }
     if (tab === 'dashboard' && !storage) {
       storage = await adminApi.storageStats().catch(() => null);
+    }
+    if (tab === 'integrations' && webhooks.length === 0) {
+      [webhooks, webhookEvents] = await Promise.all([
+        adminApi.listWebhooks().catch(() => []),
+        adminApi.listWebhookEvents().catch(() => [])
+      ]);
     }
   }
 
@@ -229,6 +248,74 @@
     const r = await adminApi.auditLogs(50, offset).catch(() => ({ logs: [], total: 0 }));
     auditLogs = r.logs ?? []; auditTotal = r.total;
   }
+
+  function openCreateWebhook() {
+    editingWebhook = null;
+    webhookForm = { url: '', secret: '', description: '', events: [], enabled: true };
+    webhookError = '';
+    showWebhookModal = true;
+  }
+
+  function openEditWebhook(h: Webhook) {
+    editingWebhook = h;
+    webhookForm = { url: h.url, secret: h.secret, description: h.description, events: [...h.events], enabled: h.enabled };
+    webhookError = '';
+    showWebhookModal = true;
+  }
+
+  function toggleWebhookEvent(ev: string) {
+    if (webhookForm.events.includes(ev)) {
+      webhookForm.events = webhookForm.events.filter(e => e !== ev);
+    } else {
+      webhookForm.events = [...webhookForm.events, ev];
+    }
+  }
+
+  async function saveWebhook() {
+    if (!webhookForm.url.trim()) { webhookError = 'URL is required'; return; }
+    webhookSaving = true; webhookError = '';
+    try {
+      if (editingWebhook) {
+        const updated = await adminApi.updateWebhook(editingWebhook.id, {
+          url: webhookForm.url, secret: webhookForm.secret,
+          description: webhookForm.description, events: webhookForm.events,
+          enabled: webhookForm.enabled
+        });
+        webhooks = webhooks.map(h => h.id === updated.id ? updated : h);
+      } else {
+        const created = await adminApi.createWebhook({
+          url: webhookForm.url, secret: webhookForm.secret,
+          description: webhookForm.description, events: webhookForm.events
+        });
+        webhooks = [created, ...webhooks];
+      }
+      showWebhookModal = false;
+    } catch (e: unknown) {
+      webhookError = (e as Error).message ?? 'Failed';
+    } finally { webhookSaving = false; }
+  }
+
+  async function deleteWebhook(h: Webhook) {
+    if (!confirm(`Delete webhook for ${h.url}?`)) return;
+    try {
+      await adminApi.deleteWebhook(h.id);
+      webhooks = webhooks.filter(x => x.id !== h.id);
+      if (deliveriesWebhookId === h.id) { showDeliveries = false; }
+    } catch (e: unknown) { alert((e as Error).message); }
+  }
+
+  async function testWebhook(h: Webhook) {
+    webhookTesting = { ...webhookTesting, [h.id]: true };
+    try { await adminApi.testWebhook(h.id); }
+    catch (e: unknown) { alert((e as Error).message); }
+    finally { webhookTesting = { ...webhookTesting, [h.id]: false }; }
+  }
+
+  async function viewDeliveries(h: Webhook) {
+    deliveriesWebhookId = h.id;
+    showDeliveries = true;
+    webhookDeliveries = await adminApi.listWebhookDeliveries(h.id).catch(() => []);
+  }
 </script>
 
 <svelte:head><title>Admin — Orb</title></svelte:head>
@@ -238,10 +325,11 @@
     <h1>Admin</h1>
     <div class="tabs-scroll">
       <nav class="tabs">
-        {#each (['dashboard','users','library','settings','audit'] as const) as tab}
+        {#each (['dashboard','users','library','settings','audit','integrations'] as const) as tab}
           <button class="tab" class:active={activeTab === tab} on:click={() => switchTab(tab)}>
             {tab === 'dashboard' ? 'Dashboard' : tab === 'users' ? 'Users' :
-             tab === 'library' ? 'Library & Jobs' : tab === 'settings' ? 'Settings' : 'Audit Log'}
+             tab === 'library' ? 'Library & Jobs' : tab === 'settings' ? 'Settings' :
+             tab === 'audit' ? 'Audit Log' : 'Integrations'}
           </button>
         {/each}
       </nav>
@@ -513,10 +601,122 @@
         </div>
       {/if}
     </section>
+
+  {:else if activeTab === 'integrations'}
+    <section class="panel">
+      <div class="section-header">
+        <h2>Webhooks ({webhooks.length})</h2>
+        <button class="btn-accent" on:click={openCreateWebhook}>+ Add Webhook</button>
+      </div>
+      <p class="muted" style="font-size:0.82rem;margin-bottom:1rem">
+        Orb will POST a signed JSON payload to each URL when the subscribed events occur.
+        Verify deliveries using the <code>X-Orb-Signature</code> header (HMAC-SHA256).
+      </p>
+      {#if webhooks.length === 0}
+        <p class="muted">No webhooks configured.</p>
+      {:else}
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>URL</th><th>Description</th><th>Events</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {#each webhooks as h}
+              <tr>
+                <td class="wh-url">{h.url}</td>
+                <td class="muted">{h.description || '—'}</td>
+                <td class="muted" style="font-size:0.75rem">{h.events.length > 0 ? h.events.join(', ') : 'none'}</td>
+                <td>
+                  <span class="badge" class:accent={h.enabled}>{h.enabled ? 'Active' : 'Disabled'}</span>
+                </td>
+                <td>
+                  <span class="row-actions">
+                    <button class="btn-xs" on:click={() => testWebhook(h)} disabled={webhookTesting[h.id]}>
+                      {webhookTesting[h.id] ? '…' : 'Test'}
+                    </button>
+                    <button class="btn-xs" on:click={() => viewDeliveries(h)}>Deliveries</button>
+                    <button class="btn-xs" on:click={() => openEditWebhook(h)}>Edit</button>
+                    <button class="btn-xs danger" on:click={() => deleteWebhook(h)}>✕</button>
+                  </span>
+                </td>
+              </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </section>
+
+    {#if showDeliveries}
+    <section class="panel">
+      <div class="section-header">
+        <h2>Recent Deliveries</h2>
+        <button class="btn-xs" on:click={() => showDeliveries = false}>Close</button>
+      </div>
+      {#if webhookDeliveries.length === 0}
+        <p class="muted">No deliveries recorded yet.</p>
+      {:else}
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Time</th><th>Event</th><th>Status</th><th>Error</th></tr></thead>
+            <tbody>
+              {#each webhookDeliveries as d}
+              <tr>
+                <td class="muted nowrap">{new Date(d.delivered_at).toLocaleString()}</td>
+                <td><code>{d.event}</code></td>
+                <td>
+                  {#if d.status_code}
+                    <span class:success-text={d.status_code < 300} class:error={d.status_code >= 400}>{d.status_code}</span>
+                  {:else}
+                    <span class="muted">—</span>
+                  {/if}
+                </td>
+                <td class="muted detail">{d.error ?? ''}</td>
+              </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </section>
+    {/if}
   {/if}
 
   {/if}
 </main>
+
+{#if showWebhookModal}
+<div class="modal-backdrop" on:click|self={() => showWebhookModal = false} role="dialog" aria-modal="true">
+  <div class="modal webhook-modal">
+    <h2>{editingWebhook ? 'Edit Webhook' : 'Add Webhook'}</h2>
+    <form on:submit|preventDefault={saveWebhook}>
+      <div class="form-row"><label for="wh-url">URL</label><input id="wh-url" bind:value={webhookForm.url} placeholder="https://example.com/hook" required /></div>
+      <div class="form-row"><label for="wh-secret">Secret</label><input id="wh-secret" bind:value={webhookForm.secret} placeholder="Optional signing secret" /></div>
+      <div class="form-row"><label for="wh-desc">Description</label><input id="wh-desc" bind:value={webhookForm.description} placeholder="Optional description" /></div>
+      {#if editingWebhook}
+      <div class="form-row">
+        <label>Enabled</label>
+        <input type="checkbox" bind:checked={webhookForm.enabled} />
+      </div>
+      {/if}
+      <div style="margin-top:0.75rem">
+        <label class="form-label">Events</label>
+        <div class="events-grid">
+          {#each webhookEvents as ev}
+            <label class="event-check">
+              <input type="checkbox" checked={webhookForm.events.includes(ev)} on:change={() => toggleWebhookEvent(ev)} />
+              <code>{ev}</code>
+            </label>
+          {/each}
+        </div>
+      </div>
+      {#if webhookError}<p class="error" style="margin-top:0.5rem">{webhookError}</p>{/if}
+      <div class="modal-actions">
+        <button type="button" class="btn-xs" on:click={() => showWebhookModal = false}>Cancel</button>
+        <button type="submit" class="btn-accent" disabled={webhookSaving}>{webhookSaving ? 'Saving…' : 'Save'}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{/if}
 
 {#if showInviteModal}
 <div class="modal-backdrop" on:click|self={() => showInviteModal = false} role="dialog" aria-modal="true">
@@ -638,7 +838,15 @@
 
   .error { color: #f87171; font-size: 0.85rem; }
   .success { color: #34d399; font-size: 0.85rem; }
+  .success-text { color: #34d399; }
   code { font-family: monospace; font-size: 0.8rem; background: var(--surface-hover, #2a2a3a); padding: 1px 5px; border-radius: 3px; }
+
+  .wh-url { font-family: monospace; font-size: 0.78rem; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-actions { display: flex; gap: 0.3rem; flex-wrap: nowrap; }
+  .events-grid { display: flex; flex-direction: column; gap: 0.4rem; max-height: 220px; overflow-y: auto; padding: 0.5rem; background: var(--surface-hover, #2a2a3a); border-radius: 6px; }
+  .event-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.82rem; color: var(--text-secondary, #888); }
+  .event-check input { accent-color: var(--accent, #a78bfa); }
+  .webhook-modal { width: min(540px, 100%); }
 
   @media (max-width: 640px) {
     .admin-page { padding: 1rem; }

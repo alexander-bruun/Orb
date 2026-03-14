@@ -111,6 +111,42 @@ export interface IngestProgressEvent {
 	message?: string;
 }
 
+export interface Webhook {
+	id: string;
+	url: string;
+	secret: string;
+	events: string[];
+	enabled: boolean;
+	description: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface WebhookDelivery {
+	id: number;
+	webhook_id: string;
+	event: string;
+	payload: Record<string, unknown>;
+	status_code?: number;
+	error?: string;
+	delivered_at: string;
+}
+
+export interface CreateWebhookBody {
+	url: string;
+	secret: string;
+	events: string[];
+	description: string;
+}
+
+export interface UpdateWebhookBody {
+	url: string;
+	secret: string;
+	events: string[];
+	enabled: boolean;
+	description: string;
+}
+
 // ── API ─────────────────────────────────────────────────────────────────────
 
 export const admin = {
@@ -179,6 +215,21 @@ export const admin = {
 		apiFetch('/admin/settings/smtp', { method: 'PUT', body: JSON.stringify(cfg) }),
 	testSmtp: (to: string): Promise<void> =>
 		apiFetch('/admin/settings/smtp/test', { method: 'POST', body: JSON.stringify({ to }) }),
+
+	// Webhooks
+	listWebhookEvents: (): Promise<string[]> => apiFetch('/admin/webhooks/events'),
+	listWebhooks: (): Promise<Webhook[]> => apiFetch('/admin/webhooks'),
+	createWebhook: (body: CreateWebhookBody): Promise<Webhook> =>
+		apiFetch('/admin/webhooks', { method: 'POST', body: JSON.stringify(body) }),
+	getWebhook: (id: string): Promise<Webhook> => apiFetch(`/admin/webhooks/${id}`),
+	updateWebhook: (id: string, body: UpdateWebhookBody): Promise<Webhook> =>
+		apiFetch(`/admin/webhooks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+	deleteWebhook: (id: string): Promise<void> =>
+		apiFetch(`/admin/webhooks/${id}`, { method: 'DELETE' }),
+	listWebhookDeliveries: (id: string, limit = 50): Promise<WebhookDelivery[]> =>
+		apiFetch(`/admin/webhooks/${id}/deliveries?limit=${limit}`),
+	testWebhook: (id: string): Promise<void> =>
+		apiFetch(`/admin/webhooks/${id}/test`, { method: 'POST' }),
 
 	// SSE: real-time ingest progress
 	openIngestStream(onEvent: (e: IngestProgressEvent) => void): EventSource {

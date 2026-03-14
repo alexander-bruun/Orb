@@ -571,3 +571,54 @@ type DailyPlayCount struct {
 	Date  string `json:"date"` // YYYY-MM-DD
 	Plays int    `json:"plays"`
 }
+
+// Webhook represents a registered outbound webhook endpoint.
+type Webhook struct {
+	ID          string    `json:"id"`
+	URL         string    `json:"url"`
+	Secret      string    `json:"secret"`
+	Events      []string  `json:"events"`
+	Enabled     bool      `json:"enabled"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// WebhookDelivery records a single outbound webhook delivery attempt.
+type WebhookDelivery struct {
+	ID          int64           `json:"id"`
+	WebhookID   string          `json:"webhook_id"`
+	Event       string          `json:"event"`
+	Payload     json.RawMessage `json:"payload"`
+	StatusCode  *int            `json:"status_code,omitempty"`
+	Error       *string         `json:"error,omitempty"`
+	DeliveredAt time.Time       `json:"delivered_at"`
+}
+
+// CreateWebhookParams for creating a new webhook.
+type CreateWebhookParams struct {
+	ID          string
+	URL         string
+	Secret      string
+	Events      []string
+	Description string
+}
+
+// UpdateWebhookParams for updating an existing webhook.
+type UpdateWebhookParams struct {
+	ID          string
+	URL         string
+	Secret      string
+	Events      []string
+	Enabled     bool
+	Description string
+}
+
+// CreateWebhookDeliveryParams for recording a webhook delivery attempt.
+type CreateWebhookDeliveryParams struct {
+	WebhookID  string
+	Event      string
+	Payload    []byte
+	StatusCode *int
+	Error      *string
+}

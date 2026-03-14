@@ -23,22 +23,27 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
 	"github.com/alexander-bruun/orb/services/internal/store"
+	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
 
 // Service handles admin HTTP routes.
 type Service struct {
-	db  *store.Store
-	obj objstore.ObjectStore
-	mb  *musicbrainz.Client
-	kv  *redis.Client // optional; used to invalidate sessions on deactivation
+	db         *store.Store
+	obj        objstore.ObjectStore
+	mb         *musicbrainz.Client
+	kv         *redis.Client // optional; used to invalidate sessions on deactivation
+	dispatcher *webhook.Dispatcher
 }
 
 // New returns a new admin Service.
 func New(db *store.Store, obj objstore.ObjectStore, mb *musicbrainz.Client, kv *redis.Client) *Service {
 	return &Service{db: db, obj: obj, mb: mb, kv: kv}
 }
+
+// SetDispatcher attaches a webhook dispatcher. Must be called before serving requests.
+func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
 
 // AdminMiddleware rejects requests from non-admin users and inactive users.
 func (s *Service) AdminMiddleware(next http.Handler) http.Handler {
@@ -89,6 +94,16 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/settings", s.getSettings)
 	r.Put("/settings/smtp", s.updateSmtpSettings)
 	r.Post("/settings/smtp/test", s.testSmtp)
+
+	// Webhooks
+	r.Get("/webhooks", s.listWebhooks)
+	r.Post("/webhooks", s.createWebhook)
+	r.Get("/webhooks/{id}", s.getWebhook)
+	r.Put("/webhooks/{id}", s.updateWebhook)
+	r.Delete("/webhooks/{id}", s.deleteWebhook)
+	r.Get("/webhooks/{id}/deliveries", s.listWebhookDeliveries)
+	r.Post("/webhooks/{id}/test", s.testWebhook)
+	r.Get("/webhooks/events", s.listWebhookEvents)
 }
 
 // ── Analytics ────────────────────────────────────────────────────────────────
@@ -175,6 +190,11 @@ func (s *Service) setUserAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.db.InsertAuditLog(r.Context(), actorID, "set_admin", "user", targetID,
 		map[string]any{"is_admin": body.IsAdmin})
+	event := webhook.EventUserAdminGranted
+	if !body.IsAdmin {
+		event = webhook.EventUserAdminRevoked
+	}
+	s.dispatch(r.Context(), event, map[string]any{"user_id": targetID, "is_admin": body.IsAdmin})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -199,6 +219,11 @@ func (s *Service) setUserActive(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.db.InsertAuditLog(r.Context(), actorID, "set_active", "user", targetID,
 		map[string]any{"active": body.Active})
+	event := webhook.EventUserActivated
+	if !body.Active {
+		event = webhook.EventUserDeactivated
+	}
+	s.dispatch(r.Context(), event, map[string]any{"user_id": targetID, "is_active": body.Active})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -235,6 +260,7 @@ func (s *Service) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.db.InsertAuditLog(r.Context(), actorID, "delete_user", "user", targetID, nil)
+	s.dispatch(r.Context(), webhook.EventUserDeleted, map[string]any{"user_id": targetID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -520,6 +546,154 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// ── Webhooks ─────────────────────────────────────────────────────────────────
+
+// GET /admin/webhooks/events — list all supported event types.
+func (s *Service) listWebhookEvents(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, webhook.AllEvents)
+}
+
+// GET /admin/webhooks
+func (s *Service) listWebhooks(w http.ResponseWriter, r *http.Request) {
+	hooks, err := s.db.ListWebhooks(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, hooks)
+}
+
+// POST /admin/webhooks — body: {url, secret, events, description}
+func (s *Service) createWebhook(w http.ResponseWriter, r *http.Request) {
+	actorID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		URL         string   `json:"url"`
+		Secret      string   `json:"secret"`
+		Events      []string `json:"events"`
+		Description string   `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.URL == "" {
+		http.Error(w, "url required", http.StatusBadRequest)
+		return
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		http.Error(w, "failed to generate id", http.StatusInternalServerError)
+		return
+	}
+	id := hex.EncodeToString(raw)
+	hook, err := s.db.CreateWebhook(r.Context(), store.CreateWebhookParams{
+		ID:          id,
+		URL:         body.URL,
+		Secret:      body.Secret,
+		Events:      body.Events,
+		Description: body.Description,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "create_webhook", "webhook", id,
+		map[string]any{"url": body.URL, "events": body.Events})
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, hook)
+}
+
+// GET /admin/webhooks/{id}
+func (s *Service) getWebhook(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	hook, err := s.db.GetWebhook(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, hook)
+}
+
+// PUT /admin/webhooks/{id} — body: {url, secret, events, enabled, description}
+func (s *Service) updateWebhook(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		URL         string   `json:"url"`
+		Secret      string   `json:"secret"`
+		Events      []string `json:"events"`
+		Enabled     bool     `json:"enabled"`
+		Description string   `json:"description"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	hook, err := s.db.UpdateWebhook(r.Context(), store.UpdateWebhookParams{
+		ID:          id,
+		URL:         body.URL,
+		Secret:      body.Secret,
+		Events:      body.Events,
+		Enabled:     body.Enabled,
+		Description: body.Description,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_webhook", "webhook", id,
+		map[string]any{"url": body.URL, "enabled": body.Enabled})
+	writeJSON(w, hook)
+}
+
+// DELETE /admin/webhooks/{id}
+func (s *Service) deleteWebhook(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+	if err := s.db.DeleteWebhook(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "delete_webhook", "webhook", id, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GET /admin/webhooks/{id}/deliveries?limit=50
+func (s *Service) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	limit := intQuery(r, "limit", 50)
+	deliveries, err := s.db.ListWebhookDeliveries(r.Context(), id, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, deliveries)
+}
+
+// POST /admin/webhooks/{id}/test — sends a test event immediately.
+func (s *Service) testWebhook(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	hook, err := s.db.GetWebhook(r.Context(), id)
+	if err != nil {
+		http.Error(w, "webhook not found", http.StatusNotFound)
+		return
+	}
+	if s.dispatcher != nil {
+		// Deliver directly to this specific webhook (bypass enabled/event filter).
+		s.dispatcher.DispatchTo(r.Context(), hook, webhook.EventTest, map[string]any{
+			"message": "Test event from Orb",
+		})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// dispatch fires an event if a dispatcher is configured.
+func (s *Service) dispatch(ctx context.Context, event string, data any) {
+	if s.dispatcher != nil {
+		s.dispatcher.Dispatch(ctx, event, data)
 	}
 }
 
