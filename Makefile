@@ -2,9 +2,9 @@
 web-install:
 	cd web && bun install
 
-# Tauri desktop build (installs frontend deps first)
+# Tauri desktop build (installs frontend deps first, native target)
 tauri-build: web-install
-	cd web && cargo tauri build
+	cd web && bunx tauri build
 
 # Docker targets
 docker-build:
@@ -17,10 +17,28 @@ docker-down:
 	sudo docker compose down -v
 
 # Tauri Windows targets (local)
+windows-build: web-install
+	cd web && bunx tauri build --target x86_64-pc-windows-msvc
+
+windows-build-arm: web-install
+	cd web && bunx tauri build --target aarch64-pc-windows-msvc
 
 # Tauri Linux targets (local)
+linux-build: web-install
+	cd web && bunx tauri build --target x86_64-unknown-linux-gnu
+
+linux-build-arm: web-install
+	cd web && bunx tauri build --target aarch64-unknown-linux-gnu
 
 # Tauri Mac targets (local)
+macos-build: web-install
+	cd web && bunx tauri build --target x86_64-apple-darwin
+
+macos-build-arm: web-install
+	cd web && bunx tauri build --target aarch64-apple-darwin
+
+macos-build-universal: web-install
+	cd web && bunx tauri build --target universal-apple-darwin
 
 # Tauri Android targets (local)
 android-init:
