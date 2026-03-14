@@ -6,7 +6,6 @@
 - Create a script that cleans up build artifacts - maybe the files that fall under .gitignore?
 - Integrations: webhooks for events & notifications, add a new tab to the admin ui where they can be configured and setup.
 - iOS Support: Start developing iOS app using Tauri v2
-- Make the admin UI responsive and good looking on mobile.
 - On-the-fly transcoding / bitrate limiting for bandwidth-constrained devices based on the users settings.
 - Playlist collaboration — allow other users on the same instance to add/remove tracks from a shared playlist (extends the existing listen party infrastructure). Collaborative playlists and shareable invite links with permissions
 - Rework web browser tab titles, the tab title doesnt update based on what page the user is on.

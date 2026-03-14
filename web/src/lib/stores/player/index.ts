@@ -137,6 +137,13 @@ const isAndroidNative = typeof window !== 'undefined' && nativePlatform() === 'a
 /** Position polling timer for native Android playback. */
 let nativePositionTimer: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * True once ExoPlayer has been loaded with a media item in this app session.
+ * Stays false after a force-close + relaunch until play_music is called again.
+ * Used to distinguish "paused normally" from "app killed, no media loaded".
+ */
+let nativePlayerReady = false;
+
 function startNativePositionPolling() {
 	stopNativePositionPolling();
 	nativePositionTimer = setInterval(async () => {
@@ -321,6 +328,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 			if (startSeconds > 0) {
 				await invoke('seek_music', { positionMs: Math.round(startSeconds * 1000) });
 			}
+			nativePlayerReady = true;
 			startNativePositionPolling();
 		} else {
 			// Browser audio engine path (desktop + web).
@@ -389,7 +397,14 @@ export function togglePlayPause() {
 		sendHeartbeat().catch(() => {});
 	} else if (state === 'paused') {
 		if (isAndroidNative) {
-			// On Android, resume the paused ExoPlayer instance.
+			if (!nativePlayerReady) {
+				// Force-close restore scenario: ExoPlayer has no loaded media.
+				// Re-initialize by calling playTrack from the saved position.
+				const track = get(currentTrack);
+				if (track) playTrack(track, undefined, get(positionMs) / 1000);
+				return;
+			}
+			// Normal resume: ExoPlayer is loaded and paused this session.
 			invoke('resume_music').catch(() => {});
 			startNativePositionPolling();
 			playbackState.set('playing');
@@ -1125,9 +1140,13 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 			try {
 				const playing = await invoke<boolean>('get_is_playing');
 				if (playing) {
+					nativePlayerReady = true;
 					playbackState.set('playing');
 					startNativePositionPolling();
 				} else {
+					// ExoPlayer is not playing — could be a normal pause OR the process
+					// was killed (force-close). nativePlayerReady stays false so that
+					// pressing play will call play_music instead of resume_music.
 					playbackState.set('paused');
 				}
 			} catch {
