@@ -248,6 +248,11 @@ ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_bit_depth    
 ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_bitrate_kbps INT;
 ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_sample_rate  INT;
 ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_bit_depth    INT;
+-- On-the-fly transcode target format per network tier. NULL = no transcoding (pass-through + throttle).
+-- Supported values: "mp3", "aac", "opus".
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS transcode_format        TEXT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_transcode_format   TEXT;
+ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_transcode_format TEXT;
 
 -- Equalizer profiles.
 -- bands is a JSONB array of {frequency: number, gain: number, type: string}.

@@ -70,17 +70,20 @@ func (s *Service) getStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 // override them when the client reports it is on that specific network type.
 type updateStreamingPrefsReq struct {
 	// Any-network defaults
-	MaxBitrateKbps *int `json:"max_bitrate_kbps"` // kbps, null = unlimited
-	MaxSampleRate  *int `json:"max_sample_rate"`  // Hz, null = unlimited (advisory)
-	MaxBitDepth    *int `json:"max_bit_depth"`    // e.g. 16/24, null = unlimited (advisory)
+	MaxBitrateKbps  *int    `json:"max_bitrate_kbps"`  // kbps, null = unlimited
+	MaxSampleRate   *int    `json:"max_sample_rate"`   // Hz, null = unlimited (advisory)
+	MaxBitDepth     *int    `json:"max_bit_depth"`     // e.g. 16/24, null = unlimited (advisory)
+	TranscodeFormat *string `json:"transcode_format"`  // null = no transcoding; "mp3"/"aac"/"opus"
 	// Wi-Fi specific overrides (nil = inherit default)
-	WifiMaxBitrateKbps *int `json:"wifi_max_bitrate_kbps"`
-	WifiMaxSampleRate  *int `json:"wifi_max_sample_rate"`
-	WifiMaxBitDepth    *int `json:"wifi_max_bit_depth"`
+	WifiMaxBitrateKbps  *int    `json:"wifi_max_bitrate_kbps"`
+	WifiMaxSampleRate   *int    `json:"wifi_max_sample_rate"`
+	WifiMaxBitDepth     *int    `json:"wifi_max_bit_depth"`
+	WifiTranscodeFormat *string `json:"wifi_transcode_format"`
 	// Mobile/cellular specific overrides (nil = inherit default)
-	MobileMaxBitrateKbps *int `json:"mobile_max_bitrate_kbps"`
-	MobileMaxSampleRate  *int `json:"mobile_max_sample_rate"`
-	MobileMaxBitDepth    *int `json:"mobile_max_bit_depth"`
+	MobileMaxBitrateKbps  *int    `json:"mobile_max_bitrate_kbps"`
+	MobileMaxSampleRate   *int    `json:"mobile_max_sample_rate"`
+	MobileMaxBitDepth     *int    `json:"mobile_max_bit_depth"`
+	MobileTranscodeFormat *string `json:"mobile_transcode_format"`
 }
 
 // putStreamingPrefs upserts streaming quality preferences for the authenticated user.
@@ -97,7 +100,7 @@ func (s *Service) putStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate that all non-nil values are positive.
+	// Validate that all non-nil int values are positive.
 	type check struct {
 		v    *int
 		name string
@@ -120,17 +123,29 @@ func (s *Service) putStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate transcode format values.
+	validTranscodeFormats := map[string]bool{"mp3": true, "aac": true, "opus": true}
+	for _, f := range []*string{req.TranscodeFormat, req.WifiTranscodeFormat, req.MobileTranscodeFormat} {
+		if f != nil && !validTranscodeFormats[*f] {
+			writeErr(w, http.StatusBadRequest, "transcode_format must be one of: mp3, aac, opus (or null)")
+			return
+		}
+	}
+
 	prefs, err := s.db.UpsertUserStreamingPrefs(r.Context(), store.UpsertUserStreamingPrefsParams{
-		UserID:               userID,
-		MaxBitrateKbps:       req.MaxBitrateKbps,
-		MaxSampleRate:        req.MaxSampleRate,
-		MaxBitDepth:          req.MaxBitDepth,
-		WifiMaxBitrateKbps:   req.WifiMaxBitrateKbps,
-		WifiMaxSampleRate:    req.WifiMaxSampleRate,
-		WifiMaxBitDepth:      req.WifiMaxBitDepth,
-		MobileMaxBitrateKbps: req.MobileMaxBitrateKbps,
-		MobileMaxSampleRate:  req.MobileMaxSampleRate,
-		MobileMaxBitDepth:    req.MobileMaxBitDepth,
+		UserID:                userID,
+		MaxBitrateKbps:        req.MaxBitrateKbps,
+		MaxSampleRate:         req.MaxSampleRate,
+		MaxBitDepth:           req.MaxBitDepth,
+		WifiMaxBitrateKbps:    req.WifiMaxBitrateKbps,
+		WifiMaxSampleRate:     req.WifiMaxSampleRate,
+		WifiMaxBitDepth:       req.WifiMaxBitDepth,
+		MobileMaxBitrateKbps:  req.MobileMaxBitrateKbps,
+		MobileMaxSampleRate:   req.MobileMaxSampleRate,
+		MobileMaxBitDepth:     req.MobileMaxBitDepth,
+		TranscodeFormat:       req.TranscodeFormat,
+		WifiTranscodeFormat:   req.WifiTranscodeFormat,
+		MobileTranscodeFormat: req.MobileTranscodeFormat,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "db error")

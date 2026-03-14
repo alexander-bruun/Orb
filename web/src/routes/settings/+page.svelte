@@ -308,12 +308,15 @@
   let sqMaxBitrate = '';
   let sqMaxSampleRate = '';
   let sqMaxBitDepth = '';
+  let sqTranscodeFormat: string | null = null;
   let sqWifiMaxBitrate = '';
   let sqWifiMaxSampleRate = '';
   let sqWifiMaxBitDepth = '';
+  let sqWifiTranscodeFormat: string | null = null;
   let sqMobileMaxBitrate = '';
   let sqMobileMaxSampleRate = '';
   let sqMobileMaxBitDepth = '';
+  let sqMobileTranscodeFormat: string | null = null;
 
   const SQ_PRESETS = [
     {
@@ -415,22 +418,28 @@
         max_bitrate_kbps:        number | null;
         max_sample_rate:         number | null;
         max_bit_depth:           number | null;
+        transcode_format:        string | null;
         wifi_max_bitrate_kbps:   number | null;
         wifi_max_sample_rate:    number | null;
         wifi_max_bit_depth:      number | null;
+        wifi_transcode_format:   string | null;
         mobile_max_bitrate_kbps: number | null;
         mobile_max_sample_rate:  number | null;
         mobile_max_bit_depth:    number | null;
+        mobile_transcode_format: string | null;
       }>('/user/streaming-prefs');
-      sqMaxBitrate          = res.max_bitrate_kbps        != null ? String(res.max_bitrate_kbps)        : '';
-      sqMaxSampleRate       = res.max_sample_rate          != null ? String(res.max_sample_rate)          : '';
-      sqMaxBitDepth         = res.max_bit_depth            != null ? String(res.max_bit_depth)            : '';
-      sqWifiMaxBitrate      = res.wifi_max_bitrate_kbps    != null ? String(res.wifi_max_bitrate_kbps)    : '';
-      sqWifiMaxSampleRate   = res.wifi_max_sample_rate     != null ? String(res.wifi_max_sample_rate)     : '';
-      sqWifiMaxBitDepth     = res.wifi_max_bit_depth       != null ? String(res.wifi_max_bit_depth)       : '';
-      sqMobileMaxBitrate    = res.mobile_max_bitrate_kbps  != null ? String(res.mobile_max_bitrate_kbps)  : '';
-      sqMobileMaxSampleRate = res.mobile_max_sample_rate   != null ? String(res.mobile_max_sample_rate)   : '';
-      sqMobileMaxBitDepth   = res.mobile_max_bit_depth     != null ? String(res.mobile_max_bit_depth)     : '';
+      sqMaxBitrate            = res.max_bitrate_kbps        != null ? String(res.max_bitrate_kbps)        : '';
+      sqMaxSampleRate         = res.max_sample_rate          != null ? String(res.max_sample_rate)          : '';
+      sqMaxBitDepth           = res.max_bit_depth            != null ? String(res.max_bit_depth)            : '';
+      sqTranscodeFormat       = res.transcode_format         ?? null;
+      sqWifiMaxBitrate        = res.wifi_max_bitrate_kbps    != null ? String(res.wifi_max_bitrate_kbps)    : '';
+      sqWifiMaxSampleRate     = res.wifi_max_sample_rate     != null ? String(res.wifi_max_sample_rate)     : '';
+      sqWifiMaxBitDepth       = res.wifi_max_bit_depth       != null ? String(res.wifi_max_bit_depth)       : '';
+      sqWifiTranscodeFormat   = res.wifi_transcode_format    ?? null;
+      sqMobileMaxBitrate      = res.mobile_max_bitrate_kbps  != null ? String(res.mobile_max_bitrate_kbps)  : '';
+      sqMobileMaxSampleRate   = res.mobile_max_sample_rate   != null ? String(res.mobile_max_sample_rate)   : '';
+      sqMobileMaxBitDepth     = res.mobile_max_bit_depth     != null ? String(res.mobile_max_bit_depth)     : '';
+      sqMobileTranscodeFormat = res.mobile_transcode_format  ?? null;
     } catch (e) {
       console.error('loadStreamingPrefs error:', e);
     } finally {
@@ -451,12 +460,15 @@
           max_bitrate_kbps:        parseOptInt(sqMaxBitrate),
           max_sample_rate:         parseOptInt(sqMaxSampleRate),
           max_bit_depth:           parseOptInt(sqMaxBitDepth),
+          transcode_format:        sqTranscodeFormat,
           wifi_max_bitrate_kbps:   parseOptInt(sqWifiMaxBitrate),
           wifi_max_sample_rate:    parseOptInt(sqWifiMaxSampleRate),
           wifi_max_bit_depth:      parseOptInt(sqWifiMaxBitDepth),
+          wifi_transcode_format:   sqWifiTranscodeFormat,
           mobile_max_bitrate_kbps: parseOptInt(sqMobileMaxBitrate),
           mobile_max_sample_rate:  parseOptInt(sqMobileMaxSampleRate),
           mobile_max_bit_depth:    parseOptInt(sqMobileMaxBitDepth),
+          mobile_transcode_format: sqMobileTranscodeFormat,
         })
       });
       sqSuccess = true;
@@ -1020,6 +1032,20 @@
           </div>
         {/if}
 
+        <!-- Transcode format -->
+        <div class="sq-transcode-row">
+          <div class="sq-custom-info">
+            <span class="sq-custom-label">Transcode format</span>
+            <span class="sq-custom-sub">Re-encode on the server before delivery. Enables real bitrate reduction. Requires ffmpeg. Seeking may be limited.</span>
+          </div>
+          <select class="form-input sq-transcode-select" bind:value={sqTranscodeFormat} disabled={sqSaving}>
+            <option value={null}>Off — pass-through</option>
+            <option value="mp3">MP3</option>
+            <option value="aac">AAC</option>
+            <option value="opus">Opus (Ogg)</option>
+          </select>
+        </div>
+
       <!-- ── Wi-Fi tab ── -->
       {:else if sqTab === 'wifi'}
         <p class="sq-tab-note">Overrides Default when your device is on Wi-Fi. Leave at "No Limit" to simply use your Default setting.</p>
@@ -1099,6 +1125,20 @@
             </div>
           </div>
         {/if}
+
+        <!-- Transcode format -->
+        <div class="sq-transcode-row">
+          <div class="sq-custom-info">
+            <span class="sq-custom-label">Transcode format</span>
+            <span class="sq-custom-sub">Override transcode format on Wi-Fi. Null inherits from Default.</span>
+          </div>
+          <select class="form-input sq-transcode-select" bind:value={sqWifiTranscodeFormat} disabled={sqSaving}>
+            <option value={null}>Inherit default</option>
+            <option value="mp3">MP3</option>
+            <option value="aac">AAC</option>
+            <option value="opus">Opus (Ogg)</option>
+          </select>
+        </div>
 
       <!-- ── Mobile Data tab ── -->
       {:else if sqTab === 'mobile'}
@@ -1182,6 +1222,20 @@
             </div>
           </div>
         {/if}
+
+        <!-- Transcode format -->
+        <div class="sq-transcode-row">
+          <div class="sq-custom-info">
+            <span class="sq-custom-label">Transcode format</span>
+            <span class="sq-custom-sub">Override transcode format on mobile data. Null inherits from Default.</span>
+          </div>
+          <select class="form-input sq-transcode-select" bind:value={sqMobileTranscodeFormat} disabled={sqSaving}>
+            <option value={null}>Inherit default</option>
+            <option value="mp3">MP3</option>
+            <option value="aac">AAC</option>
+            <option value="opus">Opus (Ogg)</option>
+          </select>
+        </div>
       {/if}
 
       {#if sqError}<p class="msg msg--error">{sqError}</p>{/if}
@@ -2291,6 +2345,19 @@
     flex-shrink: 0;
     text-align: right;
     font-family: 'DM Mono', monospace;
+  }
+
+  .sq-transcode-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+  }
+  .sq-transcode-select {
+    width: 140px;
+    flex-shrink: 0;
   }
 
   /* ── Mobile ─────────────────────────────────────────────── */

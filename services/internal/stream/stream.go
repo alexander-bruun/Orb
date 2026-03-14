@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -38,9 +39,10 @@ type cachedUserPrefs struct {
 // networkPrefs holds quality limits for a single network tier.
 // A nil field means "inherit from the default (any) tier or no limit".
 type networkPrefs struct {
-	MaxBitrateKbps *int `json:"max_bitrate_kbps,omitempty"`
-	MaxSampleRate  *int `json:"max_sample_rate,omitempty"`
-	MaxBitDepth    *int `json:"max_bit_depth,omitempty"`
+	MaxBitrateKbps *int    `json:"max_bitrate_kbps,omitempty"`
+	MaxSampleRate  *int    `json:"max_sample_rate,omitempty"`
+	MaxBitDepth    *int    `json:"max_bit_depth,omitempty"`
+	TranscodeFormat *string `json:"transcode_format,omitempty"`
 }
 
 // effectivePrefs returns the resolved quality limits for a given network type by
@@ -63,6 +65,9 @@ func effectivePrefs(p *cachedUserPrefs, netType string) networkPrefs {
 	}
 	if override.MaxBitDepth != nil {
 		result.MaxBitDepth = override.MaxBitDepth
+	}
+	if override.TranscodeFormat != nil {
+		result.TranscodeFormat = override.TranscodeFormat
 	}
 	return result
 }
@@ -156,6 +161,17 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 		length = fileSize
 	}
 
+	// When a transcode format is configured, pipe through ffmpeg instead of
+	// serving the raw file. Range requests are not supported for transcoded
+	// streams (output size is unknown), so we serve from the beginning.
+	if prefs.TranscodeFormat != nil {
+		if netType != "" {
+			w.Header().Set("X-Orb-Network-Tier", netType)
+		}
+		s.transcodeAndStream(w, r, meta, prefs)
+		return
+	}
+
 	rc, err := s.obj.GetRange(r.Context(), meta.FileKey, offset, length)
 	if err != nil {
 		http.Error(w, "storage error", http.StatusInternalServerError)
@@ -213,6 +229,87 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 	// Stream in 64KB chunks — never buffer the whole file.
 	buf := make([]byte, 64*1024)
 	_, _ = io.CopyBuffer(w, src, buf)
+}
+
+// transcodeAndStream pipes the source file through ffmpeg and writes the
+// transcoded output directly to the HTTP response. Content-Length is not set
+// because the output size is unknown; Accept-Ranges is omitted so clients
+// don't attempt byte-range seeks on the transcoded stream.
+func (s *Service) transcodeAndStream(w http.ResponseWriter, r *http.Request, meta *trackMeta, prefs networkPrefs) {
+	targetFmt := *prefs.TranscodeFormat
+
+	// Build ffmpeg argument list.
+	args := []string{
+		"-hide_banner", "-loglevel", "error",
+		"-i", "pipe:0",
+		"-vn", // strip embedded cover art / video
+	}
+
+	// Downsample if the source exceeds the configured ceiling.
+	if prefs.MaxSampleRate != nil && int(meta.SampleRate) > *prefs.MaxSampleRate {
+		args = append(args, "-ar", strconv.Itoa(*prefs.MaxSampleRate))
+	}
+
+	switch targetFmt {
+	case "mp3":
+		args = append(args, "-f", "mp3", "-c:a", "libmp3lame")
+		if prefs.MaxBitrateKbps != nil {
+			args = append(args, "-b:a", fmt.Sprintf("%dk", *prefs.MaxBitrateKbps))
+		}
+	case "aac":
+		args = append(args, "-f", "adts", "-c:a", "aac")
+		if prefs.MaxBitrateKbps != nil {
+			args = append(args, "-b:a", fmt.Sprintf("%dk", *prefs.MaxBitrateKbps))
+		}
+	case "opus":
+		args = append(args, "-f", "ogg", "-c:a", "libopus")
+		if prefs.MaxBitrateKbps != nil {
+			args = append(args, "-b:a", fmt.Sprintf("%dk", *prefs.MaxBitrateKbps))
+		}
+	default:
+		http.Error(w, "unsupported transcode format", http.StatusBadRequest)
+		return
+	}
+	args = append(args, "pipe:1")
+
+	// Open the full source file from object storage.
+	src, err := s.obj.GetRange(r.Context(), meta.FileKey, 0, meta.FileSize)
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	defer src.Close()
+
+	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
+	cmd.Stdin = src
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		http.Error(w, "transcode error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		// ffmpeg is not installed or failed to start — fall back to raw stream.
+		stdout.Close()
+		http.Error(w, "transcoding unavailable: ffmpeg not found", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", mimeForTranscodeFormat(targetFmt))
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Orb-Bit-Depth", strconv.Itoa(int(meta.BitDepth)))
+	w.Header().Set("X-Orb-Sample-Rate", strconv.Itoa(int(meta.SampleRate)))
+	w.Header().Set("X-Orb-Transcoded", "true")
+	w.Header().Set("X-Orb-Transcode-Format", targetFmt)
+	if prefs.MaxBitrateKbps != nil {
+		w.Header().Set("X-Orb-Max-Bitrate", strconv.Itoa(*prefs.MaxBitrateKbps))
+	}
+
+	buf := make([]byte, 64*1024)
+	_, _ = io.CopyBuffer(w, stdout, buf)
+
+	_ = cmd.Wait()
 }
 
 // ServeByTrackID serves an audio track by its ID without relying on a chi URL
@@ -365,19 +462,22 @@ func (s *Service) resolveUserPrefs(r *http.Request, userID string) (*cachedUserP
 	}
 	out := &cachedUserPrefs{
 		Any: networkPrefs{
-			MaxBitrateKbps: dbPrefs.MaxBitrateKbps,
-			MaxSampleRate:  dbPrefs.MaxSampleRate,
-			MaxBitDepth:    dbPrefs.MaxBitDepth,
+			MaxBitrateKbps:  dbPrefs.MaxBitrateKbps,
+			MaxSampleRate:   dbPrefs.MaxSampleRate,
+			MaxBitDepth:     dbPrefs.MaxBitDepth,
+			TranscodeFormat: dbPrefs.TranscodeFormat,
 		},
 		Wifi: networkPrefs{
-			MaxBitrateKbps: dbPrefs.WifiMaxBitrateKbps,
-			MaxSampleRate:  dbPrefs.WifiMaxSampleRate,
-			MaxBitDepth:    dbPrefs.WifiMaxBitDepth,
+			MaxBitrateKbps:  dbPrefs.WifiMaxBitrateKbps,
+			MaxSampleRate:   dbPrefs.WifiMaxSampleRate,
+			MaxBitDepth:     dbPrefs.WifiMaxBitDepth,
+			TranscodeFormat: dbPrefs.WifiTranscodeFormat,
 		},
 		Mobile: networkPrefs{
-			MaxBitrateKbps: dbPrefs.MobileMaxBitrateKbps,
-			MaxSampleRate:  dbPrefs.MobileMaxSampleRate,
-			MaxBitDepth:    dbPrefs.MobileMaxBitDepth,
+			MaxBitrateKbps:  dbPrefs.MobileMaxBitrateKbps,
+			MaxSampleRate:   dbPrefs.MobileMaxSampleRate,
+			MaxBitDepth:     dbPrefs.MobileMaxBitDepth,
+			TranscodeFormat: dbPrefs.MobileTranscodeFormat,
 		},
 	}
 	if b, err := json.Marshal(out); err == nil {
@@ -532,6 +632,18 @@ func parseRange(rangeHeader string, size int64) (start, end int64, err error) {
 		return 0, 0, fmt.Errorf("range out of bounds")
 	}
 	return start, end, nil
+}
+
+func mimeForTranscodeFormat(format string) string {
+	switch format {
+	case "mp3":
+		return "audio/mpeg"
+	case "aac":
+		return "audio/aac"
+	case "opus":
+		return "audio/ogg"
+	}
+	return "application/octet-stream"
 }
 
 func mimeForFormat(format string) string {

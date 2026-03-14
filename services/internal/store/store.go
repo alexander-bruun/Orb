@@ -2392,18 +2392,21 @@ func (s *Store) GetUserStreamingPrefs(ctx context.Context, userID string) (UserS
 		`SELECT max_bitrate_kbps, max_sample_rate, max_bit_depth,
 		        wifi_max_bitrate_kbps, wifi_max_sample_rate, wifi_max_bit_depth,
 		        mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth,
+		        transcode_format, wifi_transcode_format, mobile_transcode_format,
 		        updated_at
 		   FROM user_streaming_prefs WHERE user_id = $1`, userID)
 	var (
 		maxBitrate, maxSR, maxBD                   sql.NullInt64
 		wifiMaxBitrate, wifiMaxSR, wifiMaxBD       sql.NullInt64
 		mobileMaxBitrate, mobileMaxSR, mobileMaxBD sql.NullInt64
+		transcodeFmt, wifiTranscodeFmt, mobileTranscodeFmt sql.NullString
 		updatedAt                                  time.Time
 	)
 	err := row.Scan(
 		&maxBitrate, &maxSR, &maxBD,
 		&wifiMaxBitrate, &wifiMaxSR, &wifiMaxBD,
 		&mobileMaxBitrate, &mobileMaxSR, &mobileMaxBD,
+		&transcodeFmt, &wifiTranscodeFmt, &mobileTranscodeFmt,
 		&updatedAt,
 	)
 	if err != nil {
@@ -2419,6 +2422,12 @@ func (s *Store) GetUserStreamingPrefs(ctx context.Context, userID string) (UserS
 		v := int(n.Int64)
 		return &v
 	}
+	nullStrToPtr := func(n sql.NullString) *string {
+		if !n.Valid {
+			return nil
+		}
+		return &n.String
+	}
 	p.MaxBitrateKbps = nullIntToPtr(maxBitrate)
 	p.MaxSampleRate = nullIntToPtr(maxSR)
 	p.MaxBitDepth = nullIntToPtr(maxBD)
@@ -2428,6 +2437,9 @@ func (s *Store) GetUserStreamingPrefs(ctx context.Context, userID string) (UserS
 	p.MobileMaxBitrateKbps = nullIntToPtr(mobileMaxBitrate)
 	p.MobileMaxSampleRate = nullIntToPtr(mobileMaxSR)
 	p.MobileMaxBitDepth = nullIntToPtr(mobileMaxBD)
+	p.TranscodeFormat = nullStrToPtr(transcodeFmt)
+	p.WifiTranscodeFormat = nullStrToPtr(wifiTranscodeFmt)
+	p.MobileTranscodeFormat = nullStrToPtr(mobileTranscodeFmt)
 	p.UpdatedAt = updatedAt
 	return p, nil
 }
@@ -2438,8 +2450,10 @@ func (s *Store) UpsertUserStreamingPrefs(ctx context.Context, p UpsertUserStream
 		`INSERT INTO user_streaming_prefs
 		     (user_id, max_bitrate_kbps, max_sample_rate, max_bit_depth,
 		      wifi_max_bitrate_kbps, wifi_max_sample_rate, wifi_max_bit_depth,
-		      mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+		      mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth,
+		      transcode_format, wifi_transcode_format, mobile_transcode_format,
+		      updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
 		 ON CONFLICT (user_id) DO UPDATE SET
 		     max_bitrate_kbps        = EXCLUDED.max_bitrate_kbps,
 		     max_sample_rate         = EXCLUDED.max_sample_rate,
@@ -2450,24 +2464,31 @@ func (s *Store) UpsertUserStreamingPrefs(ctx context.Context, p UpsertUserStream
 		     mobile_max_bitrate_kbps = EXCLUDED.mobile_max_bitrate_kbps,
 		     mobile_max_sample_rate  = EXCLUDED.mobile_max_sample_rate,
 		     mobile_max_bit_depth    = EXCLUDED.mobile_max_bit_depth,
+		     transcode_format        = EXCLUDED.transcode_format,
+		     wifi_transcode_format   = EXCLUDED.wifi_transcode_format,
+		     mobile_transcode_format = EXCLUDED.mobile_transcode_format,
 		     updated_at              = now()
 		 RETURNING max_bitrate_kbps, max_sample_rate, max_bit_depth,
 		           wifi_max_bitrate_kbps, wifi_max_sample_rate, wifi_max_bit_depth,
 		           mobile_max_bitrate_kbps, mobile_max_sample_rate, mobile_max_bit_depth,
+		           transcode_format, wifi_transcode_format, mobile_transcode_format,
 		           updated_at`,
 		p.UserID, p.MaxBitrateKbps, p.MaxSampleRate, p.MaxBitDepth,
 		p.WifiMaxBitrateKbps, p.WifiMaxSampleRate, p.WifiMaxBitDepth,
-		p.MobileMaxBitrateKbps, p.MobileMaxSampleRate, p.MobileMaxBitDepth)
+		p.MobileMaxBitrateKbps, p.MobileMaxSampleRate, p.MobileMaxBitDepth,
+		p.TranscodeFormat, p.WifiTranscodeFormat, p.MobileTranscodeFormat)
 	var (
 		maxBitrate, maxSR, maxBD                   sql.NullInt64
 		wifiMaxBitrate, wifiMaxSR, wifiMaxBD       sql.NullInt64
 		mobileMaxBitrate, mobileMaxSR, mobileMaxBD sql.NullInt64
+		transcodeFmt, wifiTranscodeFmt, mobileTranscodeFmt sql.NullString
 		updatedAt                                  time.Time
 	)
 	if err := row.Scan(
 		&maxBitrate, &maxSR, &maxBD,
 		&wifiMaxBitrate, &wifiMaxSR, &wifiMaxBD,
 		&mobileMaxBitrate, &mobileMaxSR, &mobileMaxBD,
+		&transcodeFmt, &wifiTranscodeFmt, &mobileTranscodeFmt,
 		&updatedAt,
 	); err != nil {
 		return UserStreamingPrefs{}, err
@@ -2479,6 +2500,12 @@ func (s *Store) UpsertUserStreamingPrefs(ctx context.Context, p UpsertUserStream
 		v := int(n.Int64)
 		return &v
 	}
+	nullStrToPtr := func(n sql.NullString) *string {
+		if !n.Valid {
+			return nil
+		}
+		return &n.String
+	}
 	out := UserStreamingPrefs{UserID: p.UserID, UpdatedAt: updatedAt}
 	out.MaxBitrateKbps = nullIntToPtr(maxBitrate)
 	out.MaxSampleRate = nullIntToPtr(maxSR)
@@ -2489,6 +2516,9 @@ func (s *Store) UpsertUserStreamingPrefs(ctx context.Context, p UpsertUserStream
 	out.MobileMaxBitrateKbps = nullIntToPtr(mobileMaxBitrate)
 	out.MobileMaxSampleRate = nullIntToPtr(mobileMaxSR)
 	out.MobileMaxBitDepth = nullIntToPtr(mobileMaxBD)
+	out.TranscodeFormat = nullStrToPtr(transcodeFmt)
+	out.WifiTranscodeFormat = nullStrToPtr(wifiTranscodeFmt)
+	out.MobileTranscodeFormat = nullStrToPtr(mobileTranscodeFmt)
 	return out, nil
 }
 

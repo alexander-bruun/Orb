@@ -432,22 +432,30 @@ type UserStreamingPrefs struct {
 	MobileMaxBitrateKbps *int      `json:"mobile_max_bitrate_kbps"` // NULL = inherit default
 	MobileMaxSampleRate  *int      `json:"mobile_max_sample_rate"`  // NULL = inherit default
 	MobileMaxBitDepth    *int      `json:"mobile_max_bit_depth"`    // NULL = inherit default
-	UpdatedAt            time.Time `json:"updated_at"`
+	// TranscodeFormat enables server-side transcoding for each network tier.
+	// NULL = no transcoding (pass-through + throttle). Supported: "mp3", "aac", "opus".
+	TranscodeFormat       *string   `json:"transcode_format"`        // NULL = pass-through (any network default)
+	WifiTranscodeFormat   *string   `json:"wifi_transcode_format"`   // NULL = inherit default
+	MobileTranscodeFormat *string   `json:"mobile_transcode_format"` // NULL = inherit default
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 // UpsertUserStreamingPrefsParams holds the parameters for upserting streaming prefs.
 
 type UpsertUserStreamingPrefsParams struct {
-	UserID               string
-	MaxBitrateKbps       *int
-	MaxSampleRate        *int
-	MaxBitDepth          *int
-	WifiMaxBitrateKbps   *int
-	WifiMaxSampleRate    *int
-	WifiMaxBitDepth      *int
-	MobileMaxBitrateKbps *int
-	MobileMaxSampleRate  *int
-	MobileMaxBitDepth    *int
+	UserID                string
+	MaxBitrateKbps        *int
+	MaxSampleRate         *int
+	MaxBitDepth           *int
+	WifiMaxBitrateKbps    *int
+	WifiMaxSampleRate     *int
+	WifiMaxBitDepth       *int
+	MobileMaxBitrateKbps  *int
+	MobileMaxSampleRate   *int
+	MobileMaxBitDepth     *int
+	TranscodeFormat       *string
+	WifiTranscodeFormat   *string
+	MobileTranscodeFormat *string
 }
 
 // EQBand represents a single band in a parametric equalizer.
