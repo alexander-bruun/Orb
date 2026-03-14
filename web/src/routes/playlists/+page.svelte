@@ -61,6 +61,8 @@
   {/if}
 </div>
 
+<svelte:head><title>Playlists – Orb</title></svelte:head>
+
 <style>
   .title { font-size: 1.25rem; font-weight: 600; margin-bottom: 20px; }
   .create-form { display: flex; gap: 8px; margin-bottom: 24px; }

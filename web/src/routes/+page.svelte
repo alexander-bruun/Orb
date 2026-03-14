@@ -375,6 +375,8 @@
   {/if}
 {/if}
 
+<svelte:head><title>Home – Orb</title></svelte:head>
+
 <style>
   /* ── Offline view ── */
   .offline-view { padding-top: 4px; }

@@ -346,6 +346,10 @@
   </div>
 </div>
 
+<svelte:head>
+  <title>{$searchQuery ? `"${$searchQuery}" – Search – Orb` : 'Search – Orb'}</title>
+</svelte:head>
+
 <style>
   .search-page {
     display: flex;

@@ -57,6 +57,10 @@
   <p class="muted">Genre not found.</p>
 {/if}
 
+<svelte:head>
+  <title>{genre ? `${genre.name} – Orb` : 'Genre – Orb'}</title>
+</svelte:head>
+
 <style>
   .title { font-size: 2rem; font-weight: 700; margin-bottom: 24px; text-transform: capitalize; }
   .section { font-size: 1rem; font-weight: 600; color: var(--text-muted); margin-bottom: 16px; }

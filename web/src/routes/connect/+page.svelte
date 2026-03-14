@@ -175,6 +175,8 @@
   </div>
 </div>
 
+<svelte:head><title>Connect – Orb</title></svelte:head>
+
 <style>
   .connect-page {
     min-height: 100dvh;

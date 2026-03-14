@@ -162,6 +162,8 @@
   {/if}
 </div>
 
+<svelte:head><title>Favorites – Orb</title></svelte:head>
+
 <style>
   .header {
     display: flex;

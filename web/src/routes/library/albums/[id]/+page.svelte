@@ -161,6 +161,10 @@
   <TrackList {tracks} />
 {/if}
 
+<svelte:head>
+  <title>{album ? `${album.title} – Orb` : 'Album – Orb'}</title>
+</svelte:head>
+
 <style>
   .header { display: flex; gap: 24px; align-items: flex-end; margin-bottom: 32px; }
   .cover {

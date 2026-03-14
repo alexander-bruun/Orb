@@ -8,7 +8,6 @@
 - iOS Support: Start developing iOS app using Tauri v2
 - On-the-fly transcoding / bitrate limiting for bandwidth-constrained devices based on the users settings.
 - Playlist collaboration — allow other users on the same instance to add/remove tracks from a shared playlist (extends the existing listen party infrastructure). Collaborative playlists and shareable invite links with permissions
-- Rework web browser tab titles, the tab title doesnt update based on what page the user is on.
 - Track ratings (1–5 stars) — finer-grained than a binary favorite; enables weighted recommendations. Add a star in addition to favorite button, that shows 5 stars popping out of the star around it, then the user can put a rating from 1-5.
 - Rework the admin settings base url depending on the platform, if on mobile it is aware of this due to the setup. On the website it should use the domain of the website. This way the register url that is sent out should work properly.
 - Favorites track numbers should not be from the album index, but the position in the favorite list.

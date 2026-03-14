@@ -235,6 +235,8 @@
 
 <AlphaScrollbar {keys} {activeKey} {scrollEl} />
 
+<svelte:head><title>Library – Orb</title></svelte:head>
+
 <style>
   .page {
     padding-right: 40px; /* clear room for the alpha scrollbar */

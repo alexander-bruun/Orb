@@ -195,6 +195,10 @@
   {/if}
 {/if}
 
+<svelte:head>
+  <title>{artist ? `${artist.name} – Orb` : 'Artist – Orb'}</title>
+</svelte:head>
+
 <style>
   .header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 32px; }
   .artist-photo {

@@ -93,6 +93,8 @@
   </div>
 </div>
 
+<svelte:head><title>Setup – Orb</title></svelte:head>
+
 <style>
   .setup-page {
     min-height: 100dvh;

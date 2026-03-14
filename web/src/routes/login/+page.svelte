@@ -144,6 +144,8 @@
   </div>
 </div>
 
+<svelte:head><title>Sign In – Orb</title></svelte:head>
+
 <style>
   .login-page {
     min-height: 100dvh;

@@ -112,6 +112,8 @@
   </div>
 {/if}
 
+<svelte:head><title>Error – Orb</title></svelte:head>
+
 <style>
   .error-page {
     display: flex;

@@ -1627,6 +1627,8 @@
   </section>
 </div>
 
+<svelte:head><title>Settings – Orb</title></svelte:head>
+
 <style>
   .page {
     max-width: 560px;

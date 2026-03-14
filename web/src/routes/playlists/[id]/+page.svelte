@@ -105,6 +105,10 @@
   <TrackList {tracks} showCover={true} />
 {/if}
 
+<svelte:head>
+  <title>{playlist ? `${playlist.name} – Orb` : 'Playlist – Orb'}</title>
+</svelte:head>
+
 <style>
   .cover-grid {
     position: relative;
