@@ -236,14 +236,16 @@
 <main class="admin-page">
   <div class="admin-header">
     <h1>Admin</h1>
-    <nav class="tabs">
-      {#each (['dashboard','users','library','settings','audit'] as const) as tab}
-        <button class="tab" class:active={activeTab === tab} on:click={() => switchTab(tab)}>
-          {tab === 'dashboard' ? 'Dashboard' : tab === 'users' ? 'Users' :
-           tab === 'library' ? 'Library & Jobs' : tab === 'settings' ? 'Settings' : 'Audit Log'}
-        </button>
-      {/each}
-    </nav>
+    <div class="tabs-scroll">
+      <nav class="tabs">
+        {#each (['dashboard','users','library','settings','audit'] as const) as tab}
+          <button class="tab" class:active={activeTab === tab} on:click={() => switchTab(tab)}>
+            {tab === 'dashboard' ? 'Dashboard' : tab === 'users' ? 'Users' :
+             tab === 'library' ? 'Library & Jobs' : tab === 'settings' ? 'Settings' : 'Audit Log'}
+          </button>
+        {/each}
+      </nav>
+    </div>
   </div>
 
   {#if loading}
@@ -285,33 +287,39 @@
     <div class="two-col">
       <section class="panel">
         <h2>Top Tracks</h2>
-        <table>
-          <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Plays</th></tr></thead>
-          <tbody>{#each topTracks as t, i}
-            <tr><td class="muted">{i+1}</td><td>{t.title}</td><td class="muted">{t.artist_name ?? '—'}</td><td class="plays">{t.plays}</td></tr>
-          {/each}</tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Title</th><th>Artist</th><th>Plays</th></tr></thead>
+            <tbody>{#each topTracks as t, i}
+              <tr><td class="muted">{i+1}</td><td>{t.title}</td><td class="muted">{t.artist_name ?? '—'}</td><td class="plays">{t.plays}</td></tr>
+            {/each}</tbody>
+          </table>
+        </div>
       </section>
       <section class="panel">
         <h2>Top Artists</h2>
-        <table>
-          <thead><tr><th>#</th><th>Artist</th><th>Plays</th></tr></thead>
-          <tbody>{#each topArtists as a, i}
-            <tr><td class="muted">{i+1}</td><td>{a.name}</td><td class="plays">{a.plays}</td></tr>
-          {/each}</tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Artist</th><th>Plays</th></tr></thead>
+            <tbody>{#each topArtists as a, i}
+              <tr><td class="muted">{i+1}</td><td>{a.name}</td><td class="plays">{a.plays}</td></tr>
+            {/each}</tbody>
+          </table>
+        </div>
       </section>
     </div>
 
     {#if storage}
     <section class="panel">
       <h2>Storage by Format</h2>
-      <table>
-        <thead><tr><th>Format</th><th>Tracks</th><th>Size</th></tr></thead>
-        <tbody>{#each storage.by_format as f}
-          <tr><td>{f.format.toUpperCase()}</td><td class="plays">{f.count.toLocaleString()}</td><td class="plays">{fmtBytes(f.size_bytes)}</td></tr>
-        {/each}</tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Format</th><th>Tracks</th><th>Size</th></tr></thead>
+          <tbody>{#each storage.by_format as f}
+            <tr><td>{f.format.toUpperCase()}</td><td class="plays">{f.count.toLocaleString()}</td><td class="plays">{fmtBytes(f.size_bytes)}</td></tr>
+          {/each}</tbody>
+        </table>
+      </div>
     </section>
     {/if}
 
@@ -321,54 +329,56 @@
       <button class="btn-accent" on:click={() => { showInviteModal = true; inviteEmail = ''; inviteResult = null; inviteError = ''; }}>+ Invite</button>
     </div>
     <section class="panel">
-      <table>
-        <thead><tr><th>Username</th><th>Email</th><th>Plays</th><th>Joined</th><th>Quota</th><th>Active</th><th>Role</th><th></th></tr></thead>
-        <tbody>
-          {#each users as u}
-          <tr class:inactive={!u.is_active}>
-            <td>{u.username}</td>
-            <td class="muted">{u.email}</td>
-            <td class="plays">{u.play_count}</td>
-            <td class="muted">{new Date(u.created_at).toLocaleDateString()}</td>
-            <td>
-              {#if quotaEditUser === u.user_id}
-                <span class="quota-edit">
-                  <input type="number" bind:value={quotaInputGB} placeholder="GB" class="quota-input" />
-                  <button class="btn-xs" on:click={() => saveQuota(u)}>✓</button>
-                  <button class="btn-xs" on:click={() => quotaEditUser = ''}>✕</button>
-                </span>
-              {:else}
-                <button class="btn-xs muted" on:click={() => { quotaEditUser = u.user_id; quotaInputGB = u.storage_quota_bytes ? String((u.storage_quota_bytes / 1e9).toFixed(0)) : ''; }}>
-                  {u.storage_quota_bytes ? fmtBytes(u.storage_quota_bytes) : '∞'}
-                </button>
-              {/if}
-            </td>
-            <td>
-              {#if u.user_id !== $authStore.user?.id}
-                <button class="toggle-btn" class:active={u.is_active} on:click={() => toggleActive(u)}>{u.is_active ? 'Active' : 'Off'}</button>
-              {:else}<span class="badge">You</span>{/if}
-            </td>
-            <td>
-              {#if u.user_id !== $authStore.user?.id}
-                <button class="toggle-btn" class:active={u.is_admin} on:click={() => toggleAdmin(u)}>{u.is_admin ? 'Admin' : 'User'}</button>
-              {:else}<span class="badge accent">Admin</span>{/if}
-            </td>
-            <td>
-              {#if u.user_id !== $authStore.user?.id}
-                {#if showDeleteConfirm === u.user_id}
-                  <span class="delete-confirm">
-                    <button class="btn-xs danger" on:click={() => confirmDelete(u.user_id)}>Delete</button>
-                    <button class="btn-xs" on:click={() => showDeleteConfirm = ''}>Cancel</button>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Username</th><th>Email</th><th>Plays</th><th>Joined</th><th>Quota</th><th>Active</th><th>Role</th><th></th></tr></thead>
+          <tbody>
+            {#each users as u}
+            <tr class:inactive={!u.is_active}>
+              <td>{u.username}</td>
+              <td class="muted">{u.email}</td>
+              <td class="plays">{u.play_count}</td>
+              <td class="muted nowrap">{new Date(u.created_at).toLocaleDateString()}</td>
+              <td>
+                {#if quotaEditUser === u.user_id}
+                  <span class="quota-edit">
+                    <input type="number" bind:value={quotaInputGB} placeholder="GB" class="quota-input" />
+                    <button class="btn-xs" on:click={() => saveQuota(u)}>✓</button>
+                    <button class="btn-xs" on:click={() => quotaEditUser = ''}>✕</button>
                   </span>
                 {:else}
-                  <button class="btn-xs muted" on:click={() => showDeleteConfirm = u.user_id}>✕</button>
+                  <button class="btn-xs muted" on:click={() => { quotaEditUser = u.user_id; quotaInputGB = u.storage_quota_bytes ? String((u.storage_quota_bytes / 1e9).toFixed(0)) : ''; }}>
+                    {u.storage_quota_bytes ? fmtBytes(u.storage_quota_bytes) : '∞'}
+                  </button>
                 {/if}
-              {/if}
-            </td>
-          </tr>
-          {/each}
-        </tbody>
-      </table>
+              </td>
+              <td>
+                {#if u.user_id !== $authStore.user?.id}
+                  <button class="toggle-btn" class:active={u.is_active} on:click={() => toggleActive(u)}>{u.is_active ? 'Active' : 'Off'}</button>
+                {:else}<span class="badge">You</span>{/if}
+              </td>
+              <td>
+                {#if u.user_id !== $authStore.user?.id}
+                  <button class="toggle-btn" class:active={u.is_admin} on:click={() => toggleAdmin(u)}>{u.is_admin ? 'Admin' : 'User'}</button>
+                {:else}<span class="badge accent">Admin</span>{/if}
+              </td>
+              <td>
+                {#if u.user_id !== $authStore.user?.id}
+                  {#if showDeleteConfirm === u.user_id}
+                    <span class="delete-confirm">
+                      <button class="btn-xs danger" on:click={() => confirmDelete(u.user_id)}>Delete</button>
+                      <button class="btn-xs" on:click={() => showDeleteConfirm = ''}>Cancel</button>
+                    </span>
+                  {:else}
+                    <button class="btn-xs muted" on:click={() => showDeleteConfirm = u.user_id}>✕</button>
+                  {/if}
+                {/if}
+              </td>
+            </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <div class="section-header" style="margin-top:1.5rem">
@@ -378,17 +388,19 @@
       <p class="muted" style="padding:0 0.25rem;font-size:0.85rem">No pending invites.</p>
     {:else}
     <section class="panel">
-      <table>
-        <thead><tr><th>Email</th><th>Expires</th><th>Status</th><th></th></tr></thead>
-        <tbody>{#each invites as inv}
-          <tr>
-            <td>{inv.email}</td>
-            <td class="muted">{new Date(inv.expires_at).toLocaleDateString()}</td>
-            <td><span class="badge" class:accent={!inv.used_at}>{inv.used_at ? 'Used' : 'Pending'}</span></td>
-            <td>{#if !inv.used_at}<button class="btn-xs muted" on:click={() => revokeInvite(inv.token)}>Revoke</button>{/if}</td>
-          </tr>
-        {/each}</tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Email</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+          <tbody>{#each invites as inv}
+            <tr>
+              <td>{inv.email}</td>
+              <td class="muted nowrap">{new Date(inv.expires_at).toLocaleDateString()}</td>
+              <td><span class="badge" class:accent={!inv.used_at}>{inv.used_at ? 'Used' : 'Pending'}</span></td>
+              <td>{#if !inv.used_at}<button class="btn-xs muted" on:click={() => revokeInvite(inv.token)}>Revoke</button>{/if}</td>
+            </tr>
+          {/each}</tbody>
+        </table>
+      </div>
     </section>
     {/if}
 
@@ -424,16 +436,18 @@
       {:else if artworkAlbums.length === 0}
         <p class="muted">All albums have artwork.</p>
       {:else}
-        <table>
-          <thead><tr><th>Album</th><th>Artist</th><th></th></tr></thead>
-          <tbody>{#each artworkAlbums as a}
-            <tr>
-              <td>{a.title}</td>
-              <td class="muted">{a.artist_name ?? '—'}</td>
-              <td><button class="btn-xs" disabled={artworkRefetching[a.id]} on:click={() => refetchCover(a.id)}>{artworkRefetching[a.id] ? '…' : 'Re-fetch'}</button></td>
-            </tr>
-          {/each}</tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Album</th><th>Artist</th><th></th></tr></thead>
+            <tbody>{#each artworkAlbums as a}
+              <tr>
+                <td>{a.title}</td>
+                <td class="muted">{a.artist_name ?? '—'}</td>
+                <td><button class="btn-xs" disabled={artworkRefetching[a.id]} on:click={() => refetchCover(a.id)}>{artworkRefetching[a.id] ? '…' : 'Re-fetch'}</button></td>
+              </tr>
+            {/each}</tbody>
+          </table>
+        </div>
         {#if artworkTotal > 50}
           <div class="pagination">
             <button disabled={artworkOffset === 0} on:click={() => { artworkOffset -= 50; loadArtworkPage(); }}>← Prev</button>
@@ -477,18 +491,20 @@
         <h2>Audit Log ({auditTotal})</h2>
         <button class="btn-xs" on:click={() => loadAuditPage(0)}>Refresh</button>
       </div>
-      <table>
-        <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
-        <tbody>{#each auditLogs as l}
-          <tr>
-            <td class="muted nowrap">{new Date(l.created_at).toLocaleString()}</td>
-            <td>{l.actor_name ?? l.actor_id ?? 'system'}</td>
-            <td><code>{l.action}</code></td>
-            <td class="muted">{[l.target_type, l.target_id?.slice(0,8)].filter(Boolean).join(' #')}</td>
-            <td class="muted detail">{l.detail ? JSON.stringify(l.detail) : ''}</td>
-          </tr>
-        {/each}</tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+          <tbody>{#each auditLogs as l}
+            <tr>
+              <td class="muted nowrap">{new Date(l.created_at).toLocaleString()}</td>
+              <td>{l.actor_name ?? l.actor_id ?? 'system'}</td>
+              <td><code>{l.action}</code></td>
+              <td class="muted">{[l.target_type, l.target_id?.slice(0,8)].filter(Boolean).join(' #')}</td>
+              <td class="muted detail">{l.detail ? JSON.stringify(l.detail) : ''}</td>
+            </tr>
+          {/each}</tbody>
+        </table>
+      </div>
       {#if auditTotal > 50}
         <div class="pagination">
           <button disabled={auditOffset === 0} on:click={() => loadAuditPage(auditOffset-50)}>← Prev</button>
@@ -532,17 +548,19 @@
 
 <style>
   .admin-page { padding: 1.5rem 2rem; max-width: 1300px; margin: 0 auto; }
-  .admin-header { display: flex; align-items: center; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-  h1 { font-size: 1.4rem; font-weight: 700; color: var(--text-primary, #fff); margin: 0; }
+  .admin-header { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  h1 { font-size: 1.4rem; font-weight: 700; color: var(--text-primary, #fff); margin: 0; flex-shrink: 0; }
   h2 { font-size: 1rem; font-weight: 600; margin: 0 0 1rem; color: var(--text-primary, #fff); }
   h3 { font-size: 0.875rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--text-primary, #fff); }
 
-  .tabs { display: flex; gap: 0.25rem; background: var(--surface, #1e1e2e); border-radius: 8px; padding: 3px; }
-  .tab { background: transparent; border: none; color: var(--text-secondary, #888); padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+  .tabs-scroll { flex: 1; min-width: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs-scroll::-webkit-scrollbar { display: none; }
+  .tabs { display: flex; gap: 0.25rem; background: var(--surface, #1e1e2e); border-radius: 8px; padding: 3px; width: max-content; min-width: 100%; }
+  .tab { background: transparent; border: none; color: var(--text-secondary, #888); padding: 0.4rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; transition: background 0.15s, color 0.15s; white-space: nowrap; }
   .tab:hover { background: var(--surface-hover, #2a2a3a); color: var(--text-primary, #fff); }
   .tab.active { background: var(--accent, #a78bfa); color: #fff; }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
   .card { background: var(--surface, #1e1e2e); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
   .cv { font-size: 1.35rem; font-weight: 700; color: var(--accent, #a78bfa); }
   .cl { font-size: 0.68rem; color: var(--text-secondary, #888); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -551,7 +569,7 @@
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
   @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
 
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: 0.75rem; flex-wrap: wrap; }
   .section-header h2 { margin: 0; }
 
   .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 100px; padding-bottom: 1.4rem; }
@@ -559,8 +577,9 @@
   .bar { width: 100%; background: var(--accent, #a78bfa); border-radius: 3px 3px 0 0; min-height: 2px; }
   .bar-date { position: absolute; bottom: -1.2rem; font-size: 0.6rem; color: var(--text-secondary, #888); white-space: nowrap; }
 
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -0.25rem; padding: 0 0.25rem; }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary, #888); padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border, #333); }
+  th { text-align: left; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary, #888); padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border, #333); white-space: nowrap; }
   td { padding: 0.42rem 0.5rem; border-bottom: 1px solid var(--border, #2a2a3a); color: var(--text-primary, #fff); }
   tr:last-child td { border-bottom: none; }
   tr.inactive td { opacity: 0.5; }
@@ -578,7 +597,7 @@
   .btn-xs.danger { border-color: #f87171; color: #f87171; }
   .btn-xs.muted { color: var(--text-secondary, #666); }
 
-  .toggle-btn { border: 1px solid var(--border, #444); background: transparent; color: var(--text-secondary, #888); border-radius: 6px; padding: 0.15rem 0.55rem; font-size: 0.75rem; cursor: pointer; transition: background 0.15s, color 0.15s; }
+  .toggle-btn { border: 1px solid var(--border, #444); background: transparent; color: var(--text-secondary, #888); border-radius: 6px; padding: 0.15rem 0.55rem; font-size: 0.75rem; cursor: pointer; transition: background 0.15s, color 0.15s; white-space: nowrap; }
   .toggle-btn:hover { background: var(--surface-hover, #2a2a3a); }
   .toggle-btn.active { background: var(--accent, #a78bfa); color: #fff; border-color: transparent; }
 
@@ -600,16 +619,16 @@
   .form-row input:not([type="checkbox"]) { padding: 0.4rem 0.6rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 6px; color: var(--text-primary, #fff); font-size: 0.85rem; }
   .form-row input:focus { outline: none; border-color: var(--accent, #a78bfa); }
   .form-label { font-size: 0.82rem; color: var(--text-secondary, #888); margin-bottom: 0.3rem; display: block; }
-  .test-row { display: flex; gap: 0.5rem; }
-  .test-row input { flex: 1; padding: 0.4rem 0.6rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 6px; color: var(--text-primary, #fff); font-size: 0.85rem; }
+  .test-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .test-row input { flex: 1; min-width: 180px; padding: 0.4rem 0.6rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 6px; color: var(--text-primary, #fff); font-size: 0.85rem; }
   .test-row input:focus { outline: none; border-color: var(--accent, #a78bfa); }
 
-  .pagination { display: flex; align-items: center; gap: 1rem; justify-content: center; margin-top: 1rem; font-size: 0.82rem; }
+  .pagination { display: flex; align-items: center; gap: 1rem; justify-content: center; margin-top: 1rem; font-size: 0.82rem; flex-wrap: wrap; }
   .pagination button { background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); color: var(--text-primary, #fff); border-radius: 5px; padding: 0.3rem 0.75rem; cursor: pointer; }
   .pagination button:disabled { opacity: 0.35; cursor: default; }
 
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
-  .modal { background: var(--surface, #1e1e2e); border-radius: 12px; padding: 1.75rem; min-width: 360px; max-width: 90vw; }
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+  .modal { background: var(--surface, #1e1e2e); border-radius: 12px; padding: 1.5rem; width: min(420px, 100%); box-sizing: border-box; }
   .modal h2 { margin: 0 0 1.25rem; font-size: 1.1rem; color: var(--text-primary, #fff); }
   .modal input[type="email"] { width: 100%; padding: 0.45rem 0.7rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 6px; color: var(--text-primary, #fff); font-size: 0.9rem; box-sizing: border-box; }
   .modal input[type="email"]:focus { outline: none; border-color: var(--accent, #a78bfa); }
@@ -620,4 +639,13 @@
   .error { color: #f87171; font-size: 0.85rem; }
   .success { color: #34d399; font-size: 0.85rem; }
   code { font-family: monospace; font-size: 0.8rem; background: var(--surface-hover, #2a2a3a); padding: 1px 5px; border-radius: 3px; }
+
+  @media (max-width: 640px) {
+    .admin-page { padding: 1rem; }
+    .admin-header { gap: 0.75rem; margin-bottom: 1.25rem; }
+    .panel { padding: 1rem; }
+    .form-row { grid-template-columns: 1fr; gap: 0.25rem; }
+    .form-row label { font-size: 0.78rem; }
+    .settings-form { max-width: 100%; }
+  }
 </style>
