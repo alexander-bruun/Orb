@@ -16,12 +16,21 @@
   import SpectrumAnalyzer from './SpectrumAnalyzer.svelte';
   import WaveformWidget from './WaveformWidget.svelte';
   import TrackWaveform from './TrackWaveform.svelte';
+  import Spectrogram from './Spectrogram.svelte';
   import { visualizerStore } from '$lib/stores/player/visualizer';
   import type { VisualizerPosition, VisualizerColorScheme, VisualizerType } from '$lib/stores/player/visualizer';
 
   // ---- dimensions -----------------------------------------------------------
   const WIDGET_W = 300;
-  const WIDGET_H = 110; // canvas + controls row
+  // Canvas heights per type; total widget height = canvas + drag handle (20) + controls (28)
+  const CANVAS_HEIGHTS: Record<VisualizerType, number> = {
+    spectrum:         72,
+    waveform:         72,
+    'track-waveform': 80,
+    spectrogram:      140,
+  };
+  $: canvasH  = CANVAS_HEIGHTS[state.type] ?? 72;
+  $: WIDGET_H = canvasH + 20 + 28;
 
   // ---- position helpers -----------------------------------------------------
   /**
@@ -32,7 +41,8 @@
     preset: VisualizerPosition,
     ww: number,
     wh: number,
-    margin: number
+    margin: number,
+    widgetH: number
   ): { left: number; top: number } {
     // Reserve bottom-bar height (CSS var fallback to 64px) so the widget
     // doesn't overlap the playback bar.
@@ -44,10 +54,10 @@
       case 'top-left':    return { left: margin, top: margin };
       case 'top-center':  return { left: (ww - WIDGET_W) / 2, top: margin };
       case 'top-right':   return { left: ww - WIDGET_W - margin, top: margin };
-      case 'bottom-left': return { left: margin, top: wh - barH - WIDGET_H - margin };
-      case 'bottom-center': return { left: (ww - WIDGET_W) / 2, top: wh - barH - WIDGET_H - margin };
+      case 'bottom-left': return { left: margin, top: wh - barH - widgetH - margin };
+      case 'bottom-center': return { left: (ww - WIDGET_W) / 2, top: wh - barH - widgetH - margin };
       case 'bottom-right': default:
-        return { left: ww - WIDGET_W - margin, top: wh - barH - WIDGET_H - margin };
+        return { left: ww - WIDGET_W - margin, top: wh - barH - widgetH - margin };
     }
   }
 
@@ -62,7 +72,7 @@
   let wh = typeof window !== 'undefined' ? window.innerHeight : 800;
 
   // Current pixel position (origin + drag offset, clamped to viewport).
-  $: rawOrigin = presetOrigin(state.position, ww, wh, 12);
+  $: rawOrigin = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
   $: left = clamp(rawOrigin.left + state.dragOffset.x, 0, ww - WIDGET_W);
   $: top  = clamp(rawOrigin.top  + state.dragOffset.y, 0, wh - WIDGET_H);
 
@@ -87,7 +97,7 @@
     const newLeft = clamp(originAtDragStart.x + dx, 0, ww - WIDGET_W);
     const newTop  = clamp(originAtDragStart.y + dy, 0, wh - WIDGET_H);
     // Store new drag offset relative to the current preset origin.
-    const origin = presetOrigin(state.position, ww, wh, 12);
+    const origin = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
     visualizerStore.setDragOffset(newLeft - origin.left, newTop - origin.top);
   }
 
@@ -107,7 +117,7 @@
     if (dx !== 0 || dy !== 0) {
       const newLeft = clamp(left + dx, 0, ww - WIDGET_W);
       const newTop  = clamp(top  + dy, 0, wh - WIDGET_H);
-      const origin  = presetOrigin(state.position, ww, wh, 12);
+      const origin  = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
       visualizerStore.setDragOffset(newLeft - origin.left, newTop - origin.top);
     }
   }
@@ -136,7 +146,7 @@
   });
 
   // ---- option cycling -------------------------------------------------------
-  const TYPES:    VisualizerType[]        = ['spectrum', 'waveform', 'track-waveform'];
+  const TYPES:    VisualizerType[]        = ['spectrum', 'waveform', 'track-waveform', 'spectrogram'];
   const SCHEMES:  VisualizerColorScheme[] = ['accent', 'rainbow', 'mono'];
   const POSITIONS: VisualizerPosition[]   = [
     'bottom-right', 'bottom-center', 'bottom-left',
@@ -159,9 +169,10 @@
   }
 
   const TYPE_LABELS: Record<VisualizerType, string> = {
-    spectrum: 'Spectrum',
-    waveform: 'Waveform',
+    spectrum:         'Spectrum',
+    waveform:         'Waveform',
     'track-waveform': 'Song Wave',
+    spectrogram:      'Spek',
   };
   const SCHEME_LABELS: Record<VisualizerColorScheme, string> = {
     accent: 'Accent',
@@ -210,11 +221,13 @@
     <!-- Canvas area ---------------------------------------------------------->
     <div class="viz-canvas-wrap">
       {#if state.type === 'spectrum'}
-        <SpectrumAnalyzer width={WIDGET_W} height={72} colorScheme={state.colorScheme} />
+        <SpectrumAnalyzer width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
       {:else if state.type === 'track-waveform'}
-        <TrackWaveform    width={WIDGET_W} height={80} colorScheme={state.colorScheme} />
+        <TrackWaveform    width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
+      {:else if state.type === 'spectrogram'}
+        <Spectrogram      width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
       {:else}
-        <WaveformWidget   width={WIDGET_W} height={72} colorScheme={state.colorScheme} />
+        <WaveformWidget   width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
       {/if}
     </div>
 

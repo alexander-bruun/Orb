@@ -6,7 +6,7 @@
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
 
-export type VisualizerType = 'spectrum' | 'waveform' | 'track-waveform';
+export type VisualizerType = 'spectrum' | 'waveform' | 'track-waveform' | 'spectrogram';
 
 /** Named anchor positions for the floating widget. */
 export type VisualizerPosition =
