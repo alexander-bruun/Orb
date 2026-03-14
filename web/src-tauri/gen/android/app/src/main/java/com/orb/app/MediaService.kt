@@ -21,6 +21,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -415,7 +416,9 @@ class MediaService : MediaLibraryService() {
 
         // Disable ExoPlayer's built-in audio focus so our custom listener governs
         // all focus transitions (pause on media loss, ignore game ducking).
-        val exoPlayer = ExoPlayer.Builder(this).build().also { p ->
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setEnableAudioFloatOutput(true)
+        val exoPlayer = ExoPlayer.Builder(this, renderersFactory).build().also { p ->
             p.setAudioAttributes(
                 androidx.media3.common.AudioAttributes.Builder()
                     .setUsage(androidx.media3.common.C.USAGE_MEDIA)
@@ -1053,7 +1056,7 @@ class MediaService : MediaLibraryService() {
 
         // Create a secondary player to continue the old track during the fade.
         if (currentItem != null) {
-            val secondary = ExoPlayer.Builder(this).build().also { p ->
+            val secondary = ExoPlayer.Builder(this, DefaultRenderersFactory(this).setEnableAudioFloatOutput(true)).build().also { p ->
                 p.setAudioAttributes(
                     androidx.media3.common.AudioAttributes.Builder()
                         .setUsage(androidx.media3.common.C.USAGE_MEDIA)
