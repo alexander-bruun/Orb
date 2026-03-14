@@ -122,6 +122,7 @@
       <form onsubmit={connect}>
         <label>
           Server URL
+          <!-- svelte-ignore a11y_autofocus -->
           <input
             type="url"
             bind:value={url}

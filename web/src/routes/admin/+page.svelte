@@ -684,7 +684,8 @@
 </main>
 
 {#if showWebhookModal}
-<div class="modal-backdrop" on:click|self={() => showWebhookModal = false} role="dialog" aria-modal="true">
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
+<div class="modal-backdrop" on:click|self={() => showWebhookModal = false} role="dialog" aria-modal="true" tabindex="-1">
   <div class="modal webhook-modal">
     <h2>{editingWebhook ? 'Edit Webhook' : 'Add Webhook'}</h2>
     <form on:submit|preventDefault={saveWebhook}>
@@ -693,12 +694,12 @@
       <div class="form-row"><label for="wh-desc">Description</label><input id="wh-desc" bind:value={webhookForm.description} placeholder="Optional description" /></div>
       {#if editingWebhook}
       <div class="form-row">
-        <label>Enabled</label>
-        <input type="checkbox" bind:checked={webhookForm.enabled} />
+        <label for="wh-enabled">Enabled</label>
+        <input id="wh-enabled" type="checkbox" bind:checked={webhookForm.enabled} />
       </div>
       {/if}
       <div style="margin-top:0.75rem">
-        <label class="form-label">Events</label>
+        <span class="form-label">Events</span>
         <div class="events-grid">
           {#each webhookEvents as ev}
             <label class="event-check">
@@ -719,22 +720,24 @@
 {/if}
 
 {#if showInviteModal}
-<div class="modal-backdrop" on:click|self={() => showInviteModal = false} role="dialog" aria-modal="true">
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
+<div class="modal-backdrop" on:click|self={() => showInviteModal = false} role="dialog" aria-modal="true" tabindex="-1">
   <div class="modal">
     <h2>Invite User</h2>
     {#if inviteResult}
       <p class="success">Invite created!</p>
-      <label class="form-label">Invite URL — share with the user:</label>
+      <label class="form-label" for="invite-url-input">Invite URL — share with the user:</label>
       <div class="copy-row">
-        <input readonly value={inviteResult.invite_url} class="copy-input" />
+        <input id="invite-url-input" readonly value={inviteResult.invite_url} class="copy-input" />
         <button class="btn-xs" on:click={() => navigator.clipboard.writeText(inviteResult!.invite_url)}>Copy</button>
       </div>
       <p class="muted" style="font-size:0.75rem;margin-top:0.4rem">Expires {new Date(inviteResult.expires_at).toLocaleDateString()}</p>
       <button class="btn-accent" style="margin-top:1rem;width:100%" on:click={() => { showInviteModal = false; inviteResult = null; }}>Done</button>
     {:else}
       <form on:submit|preventDefault={sendInvite}>
-        <label class="form-label">Email address</label>
-        <input type="email" bind:value={inviteEmail} placeholder="user@example.com" autofocus required />
+        <!-- svelte-ignore a11y_autofocus -->
+        <label class="form-label" for="invite-email">Email address</label>
+        <input id="invite-email" type="email" bind:value={inviteEmail} placeholder="user@example.com" autofocus required />
         {#if inviteError}<p class="error" style="margin-top:0.5rem">{inviteError}</p>{/if}
         <div class="modal-actions">
           <button type="button" class="btn-xs" on:click={() => showInviteModal = false}>Cancel</button>

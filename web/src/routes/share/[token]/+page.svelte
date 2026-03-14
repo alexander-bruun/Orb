@@ -34,7 +34,7 @@
   }
 
   onMount(async () => {
-    const token = $page.params.token;
+    const token = $page.params.token ?? '';
     try {
       data = await shareApi.redeem(token);
       streamSession = data.stream_session;
@@ -285,7 +285,7 @@
 
         <!-- Active lyric line -->
         {#if activeLyric}
-          <p class="lyric-line" key={activeLyric}>{activeLyric}</p>
+          <p class="lyric-line">{activeLyric}</p>
         {/if}
 
         <!-- Track list (album mode) -->

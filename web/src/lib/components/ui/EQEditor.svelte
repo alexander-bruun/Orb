@@ -237,7 +237,7 @@
               min="-12"
               max="12"
               step="0.5"
-              orient="vertical"
+              style="writing-mode: vertical-lr; direction: rtl;"
               bind:value={band.gain}
               on:input={() => {
                 // Live-update the audio engine as the slider moves

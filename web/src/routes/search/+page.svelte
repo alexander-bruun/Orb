@@ -624,7 +624,7 @@
   .btn-ghost:hover { color: var(--text); }
 
   /* ── Results ────────────────────────────────────────────── */
-  .results { }
+  .results { display: block; }
 
   .section-title {
     font-size: 0.6875rem;

@@ -271,6 +271,7 @@
       {/if}
       <div class="nickname-field">
         <label for="nickname-input" class="field-label">Your nickname</label>
+        <!-- svelte-ignore a11y_autofocus -->
         <input
           id="nickname-input"
           type="text"

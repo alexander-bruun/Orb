@@ -20,8 +20,7 @@
 </script>
 
 {#if open}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="backdrop" onclick={onBackdropClick}>
+  <div class="backdrop" role="presentation" onclick={onBackdropClick} onkeydown={onKeydown}>
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
       <div class="sheet-head">
         <span class="sheet-title">Keyboard Shortcuts</span>
