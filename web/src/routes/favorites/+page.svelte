@@ -158,7 +158,7 @@
   {:else if !$isOffline && tracks.length === 0}
     <p class="muted">No favorites yet — right-click a track to add one.</p>
   {:else}
-    <TrackList tracks={displayTracks} showCover={true} />
+    <TrackList tracks={displayTracks} showCover={true} showDiscNumbers={false} />
   {/if}
 </div>
 
