@@ -266,6 +266,35 @@
     totpError = '';
   }
 
+  // ── Email verification ────────────────────────────────────
+  let smtpConfigured = false;
+  let resendLoading = false;
+  let resendSuccess = false;
+  let resendError = '';
+
+  async function loadEmailConfig() {
+    try {
+      const res = await apiFetch<{ verification_enabled: boolean }>('/auth/email-config');
+      smtpConfigured = res.verification_enabled;
+    } catch {}
+  }
+
+  loadEmailConfig();
+
+  async function resendVerification() {
+    resendError = '';
+    resendSuccess = false;
+    resendLoading = true;
+    try {
+      await apiFetch('/auth/resend-verification', { method: 'POST' });
+      resendSuccess = true;
+    } catch (err: any) {
+      resendError = err?.message ?? 'Failed to send verification email.';
+    } finally {
+      resendLoading = false;
+    }
+  }
+
   // ── Streaming Quality Prefs ────────────────────────────────
   let sqLoading = false;
   let sqSaving  = false;
@@ -626,9 +655,30 @@
       </div>
       <div class="field">
         <span class="field-label">Email</span>
-        <div class="field-value">{$authStore.user?.email ?? '—'}</div>
+        <div class="field-value field-value--row">
+          <span>{$authStore.user?.email ?? '—'}</span>
+          {#if $authStore.user?.email_verified}
+            <span class="badge badge--verified" title="Email verified">Verified</span>
+          {:else if smtpConfigured}
+            <span class="badge badge--unverified" title="Email not verified">Unverified</span>
+          {/if}
+        </div>
       </div>
     </div>
+
+    {#if !$authStore.user?.email_verified && smtpConfigured}
+      <div class="verify-banner">
+        <span class="verify-banner__text">Your email address has not been verified.</span>
+        {#if resendSuccess}
+          <span class="msg msg--ok" style="margin:0">Verification email sent — check your inbox.</span>
+        {:else}
+          <button class="btn-ghost btn--sm" on:click={resendVerification} disabled={resendLoading}>
+            {resendLoading ? 'Sending…' : 'Resend verification email'}
+          </button>
+        {/if}
+        {#if resendError}<span class="msg msg--error" style="margin:0">{resendError}</span>{/if}
+      </div>
+    {/if}
   </section>
 
   <!-- ── Change password ────────────────────────────────────── -->
@@ -1763,6 +1813,57 @@
     font-size: 13px;
     color: var(--text);
     font-family: 'DM Mono', monospace;
+  }
+
+  .field-value--row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-sans, sans-serif);
+    letter-spacing: 0.02em;
+  }
+
+  .badge--verified {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+  }
+
+  .badge--unverified {
+    background: rgba(234, 179, 8, 0.15);
+    color: #eab308;
+  }
+
+  .verify-banner {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid rgba(234, 179, 8, 0.2);
+    border-radius: 8px;
+  }
+
+  .verify-banner__text {
+    font-size: 13px;
+    color: var(--text-2);
+    flex: 1;
+  }
+
+  .btn--sm {
+    padding: 5px 12px;
+    font-size: 12px;
   }
 
   /* ── Form ── */

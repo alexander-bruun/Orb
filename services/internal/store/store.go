@@ -48,10 +48,10 @@ func (s *Store) Ping(ctx context.Context) error {
 // GetUserByID returns a user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
-	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active FROM users WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active, email_verified FROM users WHERE id = $1`, id)
 	var lastLoginAt sql.NullTime
 	var totpSecret, totpBackupCodes sql.NullString
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive, &u.EmailVerified)
 	if lastLoginAt.Valid {
 		u.LastLoginAt = &lastLoginAt.Time
 	}
@@ -822,10 +822,10 @@ func (s *Store) CreateUser(ctx context.Context, p CreateUserParams) (User, error
 // GetUserByEmail returns a user by email.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	var u User
-	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active FROM users WHERE email = $1`, email)
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active, email_verified FROM users WHERE email = $1`, email)
 	var lastLoginAt sql.NullTime
 	var totpSecret, totpBackupCodes sql.NullString
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive, &u.EmailVerified)
 	if lastLoginAt.Valid {
 		u.LastLoginAt = &lastLoginAt.Time
 	}
@@ -836,6 +836,42 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) 
 		u.TOTPBackupCodes = &totpBackupCodes.String
 	}
 	return u, err
+}
+
+// SetEmailVerificationToken stores a verification token for the user (used when sending verification emails).
+func (s *Store) SetEmailVerificationToken(ctx context.Context, userID, token string, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET email_verification_token = $2, email_verification_expires_at = $3, email_verified = FALSE WHERE id = $1`,
+		userID, token, expiresAt)
+	return err
+}
+
+// VerifyEmailToken looks up the token, checks expiry, marks the user verified, and clears the token.
+// Returns the user ID on success, or an error if the token is invalid or expired.
+func (s *Store) VerifyEmailToken(ctx context.Context, token string) (string, error) {
+	var userID string
+	var expiresAt time.Time
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, email_verification_expires_at FROM users WHERE email_verification_token = $1 AND email_verified = FALSE`,
+		token).Scan(&userID, &expiresAt)
+	if err != nil {
+		return "", err
+	}
+	if time.Now().After(expiresAt) {
+		return "", errors.New("verification token expired")
+	}
+	_, err = s.pool.Exec(ctx,
+		`UPDATE users SET email_verified = TRUE, email_verification_token = NULL, email_verification_expires_at = NULL WHERE id = $1`,
+		userID)
+	return userID, err
+}
+
+// ResetEmailVerification clears the verified flag and any pending token for a user (called on email change).
+func (s *Store) ResetEmailVerification(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET email_verified = FALSE, email_verification_token = NULL, email_verification_expires_at = NULL WHERE id = $1`,
+		userID)
+	return err
 }
 
 // SetTOTPSecret stores an unconfirmed TOTP secret for a user (not yet enabled).
@@ -2725,7 +2761,7 @@ func (s *Store) ListUsersWithStats(ctx context.Context) ([]UserPlayStat, error) 
 	rows, err := s.pool.Query(ctx, `
 		SELECT
 			u.id, u.username, u.email, u.is_admin, u.is_active,
-			u.storage_quota_bytes,
+			u.storage_quota_bytes, u.email_verified,
 			COUNT(ph.id) AS play_count,
 			u.last_login_at,
 			u.created_at
@@ -2742,7 +2778,7 @@ func (s *Store) ListUsersWithStats(ctx context.Context) ([]UserPlayStat, error) 
 	for rows.Next() {
 		var s UserPlayStat
 		if err := rows.Scan(&s.UserID, &s.Username, &s.Email, &s.IsAdmin, &s.IsActive,
-			&s.StorageQuotaBytes, &s.PlayCount, &s.LastLoginAt, &s.CreatedAt); err != nil {
+			&s.StorageQuotaBytes, &s.EmailVerified, &s.PlayCount, &s.LastLoginAt, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		results = append(results, s)

@@ -70,6 +70,7 @@ function createAuthStore() {
 				user_id?: string;
 				username?: string;
 				is_admin?: boolean;
+				email_verified?: boolean;
 				totp_required: boolean;
 				temp_token?: string;
 			}>(
@@ -82,7 +83,7 @@ function createAuthStore() {
 			const state: AuthState = {
 				token: res.access_token!,
 				refreshToken: res.refresh_token!,
-				user: { id: res.user_id!, username: res.username ?? '', email, is_admin: res.is_admin ?? false }
+				user: { id: res.user_id!, username: res.username ?? '', email, is_admin: res.is_admin ?? false, email_verified: res.email_verified ?? false }
 			};
 			set(state);
 			saveToStorage(state);
@@ -90,14 +91,14 @@ function createAuthStore() {
 			return { totpRequired: false };
 		},
 		async verifyTOTP(tempToken: string, code: string, email: string) {
-			const res = await apiFetch<{ access_token: string; refresh_token: string; user_id: string; username: string; is_admin?: boolean }>(
+			const res = await apiFetch<{ access_token: string; refresh_token: string; user_id: string; username: string; is_admin?: boolean; email_verified?: boolean }>(
 				'/auth/totp/verify',
 				{ method: 'POST', body: JSON.stringify({ temp_token: tempToken, code }) }
 			);
 			const state: AuthState = {
 				token: res.access_token,
 				refreshToken: res.refresh_token,
-				user: { id: res.user_id, username: res.username ?? '', email, is_admin: res.is_admin ?? false }
+				user: { id: res.user_id, username: res.username ?? '', email, is_admin: res.is_admin ?? false, email_verified: res.email_verified ?? false }
 			};
 			set(state);
 			saveToStorage(state);
@@ -115,7 +116,14 @@ function createAuthStore() {
 		},
 		updateEmail(email: string) {
 			update((s) => {
-				const next = { ...s, user: s.user ? { ...s.user, email } : s.user };
+				const next = { ...s, user: s.user ? { ...s.user, email, email_verified: false } : s.user };
+				saveToStorage(next);
+				return next;
+			});
+		},
+		updateEmailVerified(verified: boolean) {
+			update((s) => {
+				const next = { ...s, user: s.user ? { ...s.user, email_verified: verified } : s.user };
 				saveToStorage(next);
 				return next;
 			});

@@ -21,8 +21,9 @@ import (
 var templateFS embed.FS
 
 var (
-	tmplInvite = template.Must(template.ParseFS(templateFS, "templates/invite.html"))
-	tmplTest   = template.Must(template.ParseFS(templateFS, "templates/test.html"))
+	tmplInvite  = template.Must(template.ParseFS(templateFS, "templates/invite.html"))
+	tmplTest    = template.Must(template.ParseFS(templateFS, "templates/test.html"))
+	tmplVerify  = template.Must(template.ParseFS(templateFS, "templates/verify.html"))
 )
 
 // Config holds SMTP connection settings.
@@ -124,6 +125,18 @@ func (m *Mailer) SendTest(ctx context.Context, to string) error {
 		return err
 	}
 	return m.Send(ctx, to, "Orb SMTP test", buf.String())
+}
+
+// SendVerification renders the email verification template and delivers it.
+func (m *Mailer) SendVerification(ctx context.Context, to, username, verifyURL string) error {
+	var buf bytes.Buffer
+	if err := tmplVerify.Execute(&buf, map[string]string{
+		"Username":  username,
+		"VerifyURL": verifyURL,
+	}); err != nil {
+		return err
+	}
+	return m.Send(ctx, to, "Verify your Orb email address", buf.String())
 }
 
 // Validate checks that the minimum required fields are present.

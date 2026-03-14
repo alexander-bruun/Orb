@@ -24,6 +24,7 @@ export interface UserPlayStat {
 	is_admin: boolean;
 	is_active: boolean;
 	storage_quota_bytes?: number | null;
+	email_verified: boolean;
 	play_count: number;
 	last_login_at?: string;
 	created_at: string;

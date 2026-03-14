@@ -10,11 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
+	"github.com/alexander-bruun/orb/services/internal/mailer"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
@@ -54,6 +56,11 @@ func (s *Service) Routes(r chi.Router) {
 	r.Post("/refresh", s.refresh)
 	r.Post("/logout", s.logout)
 
+	// Email verification (public — token arrives via email link).
+	r.Get("/verify-email", s.verifyEmail)
+	// Whether SMTP is configured (public — lets the frontend show/hide resend UI).
+	r.Get("/email-config", s.emailConfig)
+
 	// TOTP second-factor verification (uses temp token, no JWT needed).
 	r.Post("/totp/verify", s.totpVerify)
 
@@ -63,6 +70,9 @@ func (s *Service) Routes(r chi.Router) {
 		r.Patch("/password", s.changePassword)
 		r.Patch("/email", s.changeEmail)
 
+		// Email verification resend (authenticated).
+		r.Post("/resend-verification", s.resendVerification)
+
 		// 2FA management.
 		r.Get("/totp/status", s.totpStatus)
 		r.Post("/totp/setup", s.totpSetup)
@@ -70,6 +80,99 @@ func (s *Service) Routes(r chi.Router) {
 		r.Post("/totp/disable", s.totpDisable)
 		r.Post("/totp/backup-codes/regenerate", s.totpRegenerateBackupCodes)
 	})
+}
+
+const emailVerificationTTL = 24 * time.Hour
+
+// smtpSettingKeys are the site_settings keys needed to build a mailer.
+var smtpSettingKeys = []string{
+	"site_base_url", "smtp_host", "smtp_port",
+	"smtp_username", "smtp_password", "smtp_from_address", "smtp_from_name", "smtp_tls",
+}
+
+// loadMailer fetches SMTP settings from the DB and returns a ready Mailer.
+// Returns nil if SMTP is not configured.
+func (s *Service) loadMailer(ctx context.Context) (*mailer.Mailer, string) {
+	cfg, _ := s.db.GetSiteSettings(ctx, smtpSettingKeys)
+	if cfg["smtp_host"] == "" || cfg["smtp_from_address"] == "" {
+		return nil, ""
+	}
+	m := mailer.New(mailer.Config{
+		Host:        cfg["smtp_host"],
+		Port:        cfg["smtp_port"],
+		Username:    cfg["smtp_username"],
+		Password:    cfg["smtp_password"],
+		FromAddress: cfg["smtp_from_address"],
+		FromName:    cfg["smtp_from_name"],
+		TLS:         cfg["smtp_tls"] == "true",
+	})
+	return m, cfg["site_base_url"]
+}
+
+// sendVerificationEmail generates a token, stores it, and sends the email.
+// Best-effort: errors are logged but not returned to callers.
+func (s *Service) sendVerificationEmail(ctx context.Context, user store.User) {
+	m, baseURL := s.loadMailer(ctx)
+	if m == nil {
+		return
+	}
+	token := uuid.New().String()
+	expiresAt := time.Now().Add(emailVerificationTTL)
+	if err := s.db.SetEmailVerificationToken(ctx, user.ID, token, expiresAt); err != nil {
+		slog.Warn("auth: failed to store verification token", "user_id", user.ID, "err", err)
+		return
+	}
+	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", baseURL, token)
+	if err := m.SendVerification(ctx, user.Email, user.Username, verifyURL); err != nil {
+		slog.Warn("auth: failed to send verification email", "to", user.Email, "err", err)
+	}
+}
+
+// GET /auth/email-config — returns whether email verification is available (SMTP configured).
+func (s *Service) emailConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, _ := s.db.GetSiteSettings(r.Context(), []string{"smtp_host", "smtp_from_address"})
+	smtpConfigured := cfg["smtp_host"] != "" && cfg["smtp_from_address"] != ""
+	writeJSON(w, http.StatusOK, map[string]bool{"verification_enabled": smtpConfigured})
+}
+
+// GET /auth/verify-email?token=... — verifies the token and marks the email as verified.
+func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		writeErr(w, http.StatusBadRequest, "token required")
+		return
+	}
+	_, err := s.db.VerifyEmailToken(r.Context(), token)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusBadRequest, "invalid or already used verification token")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "email verified"})
+}
+
+// POST /auth/resend-verification — resends the verification email (requires JWT).
+func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) {
+	userID := UserIDFromCtx(r.Context())
+	user, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	if user.EmailVerified {
+		writeErr(w, http.StatusConflict, "email already verified")
+		return
+	}
+	m, _ := s.loadMailer(r.Context())
+	if m == nil {
+		writeErr(w, http.StatusServiceUnavailable, "email verification not configured")
+		return
+	}
+	s.sendVerificationEmail(r.Context(), user)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
 }
 
 // --- handlers ---
@@ -159,6 +262,9 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		_ = s.db.ConsumeInviteToken(r.Context(), req.InviteToken, user.ID)
 	}
 
+	// Send verification email if SMTP is configured (best-effort).
+	go s.sendVerificationEmail(context.Background(), user)
+
 	writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "username": user.Username})
 }
 
@@ -232,12 +338,13 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.UpdateLastLogin(r.Context(), user.ID)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"user_id":       user.ID,
-		"username":      user.Username,
-		"is_admin":      user.IsAdmin,
-		"totp_required": false,
+		"access_token":   accessToken,
+		"refresh_token":  refreshToken,
+		"user_id":        user.ID,
+		"username":       user.Username,
+		"is_admin":       user.IsAdmin,
+		"email_verified": user.EmailVerified,
+		"totp_required":  false,
 	})
 }
 
@@ -374,6 +481,11 @@ func (s *Service) changeEmail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
+	// Reset verification state for the new address.
+	_ = s.db.ResetEmailVerification(r.Context(), userID)
+	// Send a fresh verification email (best-effort).
+	user.Email = req.NewEmail
+	go s.sendVerificationEmail(context.Background(), user)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -598,11 +710,12 @@ func (s *Service) totpVerify(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.UpdateLastLogin(r.Context(), userID)
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"user_id":       user.ID,
-		"username":      user.Username,
-		"is_admin":      user.IsAdmin,
+		"access_token":   accessToken,
+		"refresh_token":  refreshToken,
+		"user_id":        user.ID,
+		"username":       user.Username,
+		"is_admin":       user.IsAdmin,
+		"email_verified": user.EmailVerified,
 	})
 }
 

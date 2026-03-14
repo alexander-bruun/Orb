@@ -3,6 +3,7 @@ export interface User {
 	username: string;
 	email: string;
 	is_admin?: boolean;
+	email_verified?: boolean;
 }
 
 export interface Genre {

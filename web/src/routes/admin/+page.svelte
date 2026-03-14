@@ -419,12 +419,19 @@
     <section class="panel">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Username</th><th>Email</th><th>Plays</th><th>Joined</th><th>Quota</th><th>Active</th><th>Role</th><th></th></tr></thead>
+          <thead><tr><th>Username</th><th>Email</th><th>Verified</th><th>Plays</th><th>Joined</th><th>Quota</th><th>Active</th><th>Role</th><th></th></tr></thead>
           <tbody>
             {#each users as u}
             <tr class:inactive={!u.is_active}>
               <td>{u.username}</td>
               <td class="muted">{u.email}</td>
+              <td>
+                {#if u.email_verified}
+                  <span class="badge verified-badge" title="Email verified">✓</span>
+                {:else}
+                  <span class="badge unverified-badge" title="Email not verified">—</span>
+                {/if}
+              </td>
               <td class="plays">{u.play_count}</td>
               <td class="muted nowrap">{new Date(u.created_at).toLocaleDateString()}</td>
               <td>
@@ -806,6 +813,8 @@
 
   .badge { font-size: 0.72rem; color: var(--text-secondary, #888); }
   .badge.accent { color: var(--accent, #a78bfa); }
+  .verified-badge { color: #22c55e; font-weight: 700; }
+  .unverified-badge { color: var(--text-secondary, #555); }
   .quota-edit { display: flex; align-items: center; gap: 0.25rem; }
   .quota-input { width: 72px; padding: 0.1rem 0.35rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 4px; color: var(--text-primary, #fff); font-size: 0.75rem; }
   .delete-confirm { display: flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; }

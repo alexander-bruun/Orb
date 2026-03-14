@@ -29,6 +29,7 @@ type User struct {
 	IsAdmin            bool       `json:"is_admin"`
 	IsActive           bool       `json:"is_active"`
 	StorageQuotaBytes  *int64     `json:"storage_quota_bytes,omitempty"`
+	EmailVerified      bool       `json:"email_verified"`
 }
 
 // Artist represents an artist in the database.
@@ -545,6 +546,7 @@ type UserPlayStat struct {
 	IsAdmin           bool       `json:"is_admin"`
 	IsActive          bool       `json:"is_active"`
 	StorageQuotaBytes *int64     `json:"storage_quota_bytes,omitempty"`
+	EmailVerified     bool       `json:"email_verified"`
 	PlayCount         int        `json:"play_count"`
 	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`

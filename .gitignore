@@ -21,6 +21,7 @@ coverage.out
 
 # Tauri build outputs
 web/src-tauri/target/
+web/src-tauri/gen/android/buildSrc/.kotlin/
 
 # Temporary files and editor swap files
 tmp/
@@ -67,4 +68,3 @@ scripts/dev-keystore.jks
 
 # Temporary
 music-demo/
-web/src-tauri/gen/android/buildSrc/.kotlin/
