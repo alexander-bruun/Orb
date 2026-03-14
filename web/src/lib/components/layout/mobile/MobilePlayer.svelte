@@ -149,7 +149,7 @@
 
     if (miniSwipeAxis === 'h' && Math.abs(miniDeltaX) > 55) {
       miniDidSwipe = true;
-      const goNext = miniDeltaX < 0;
+      const goNext = miniDeltaX > 0;
       miniDeltaX = 0;
       miniSwipeAxis = null;
       if (goNext) next(); else previous();
