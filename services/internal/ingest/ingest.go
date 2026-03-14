@@ -317,9 +317,6 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 				if path != dir && g.isDirExcluded(path) {
 					return filepath.SkipDir
 				}
-				if !g.cfg.Watch && path != dir {
-					return filepath.SkipDir
-				}
 				return nil
 			}
 			if isAudioFile(path) {
@@ -458,6 +455,9 @@ func (g *Ingester) Run(ctx context.Context) error {
 	}
 	slog.Info("watching", "dirs", g.cfg.Dirs)
 
+	pollTicker := time.NewTicker(g.cfg.PollInterval)
+	defer pollTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -512,8 +512,18 @@ func (g *Ingester) Run(ctx context.Context) error {
 				return nil
 			}
 			slog.Warn("watcher error", "err", err)
-		case <-time.After(10 * time.Second):
-			// keep alive
+		case <-pollTicker.C:
+			// Periodic safety-net scan: catches new files on filesystems where
+			// fsnotify succeeds without error but silently delivers no events
+			// (e.g. NTFS/CIFS mounts in WSL2, some network filesystems).
+			go func() {
+				newIDs, _, _ := g.Scan(ctx)
+				if len(newIDs) > 0 && g.cfg.ComputeSimilarity {
+					if err := g.runSimilarity(ctx, newIDs); err != nil {
+						slog.Error("similarity computation failed", "err", err)
+					}
+				}
+			}()
 		}
 	}
 }
@@ -1117,9 +1127,6 @@ func (g *Ingester) ScanAndEnqueue(ctx context.Context, kv *redis.Client) (int, e
 				if path != dir && g.isDirExcluded(path) {
 					return filepath.SkipDir
 				}
-				if !g.cfg.Watch && path != dir {
-					return filepath.SkipDir
-				}
 				return nil
 			}
 			if !isAudioFile(path) {
@@ -1210,6 +1217,9 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 	}
 	slog.Info("ingest leader: watching for changes", "dirs", g.cfg.Dirs)
 
+	pollTicker := time.NewTicker(g.cfg.PollInterval)
+	defer pollTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1258,8 +1268,17 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 				return nil
 			}
 			slog.Warn("watcher error", "err", err)
-		case <-time.After(10 * time.Second):
-			// keep alive
+		case <-pollTicker.C:
+			// Periodic safety-net scan: catches new files on filesystems where
+			// fsnotify succeeds without error but silently delivers no events
+			// (e.g. NTFS/CIFS mounts in WSL2, some network filesystems).
+			go func() {
+				if n, err := g.ScanAndEnqueue(ctx, kv); err != nil {
+					slog.Error("ingest leader: poll enqueue failed", "err", err)
+				} else if n > 0 {
+					slog.Info("ingest leader: poll safety-net enqueued", "count", n)
+				}
+			}()
 		}
 	}
 }
