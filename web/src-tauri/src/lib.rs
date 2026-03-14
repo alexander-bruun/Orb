@@ -74,8 +74,14 @@ fn sync_downloads(metadata_json: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, String> {
-    android_bridge::save_offline_file(track_id, data)
+async fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, String> {
+    // Run blocking file I/O on a dedicated thread pool so the WebView IPC thread
+    // is not stalled while writing large audio files (can be 100+ MB).
+    tauri::async_runtime::spawn_blocking(move || {
+        android_bridge::save_offline_file(track_id, data)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(target_os = "android")]
@@ -86,8 +92,12 @@ fn delete_offline_file(track_id: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn save_cover_art(album_id: String, data: Vec<u8>) -> Result<(), String> {
-    android_bridge::save_cover_art(album_id, data)
+async fn save_cover_art(album_id: String, data: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        android_bridge::save_cover_art(album_id, data)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(target_os = "android")]
