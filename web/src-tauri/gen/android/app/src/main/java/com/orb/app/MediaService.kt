@@ -192,6 +192,10 @@ class MediaService : MediaLibraryService() {
         private external fun nativeOnFavoriteToggle()
         @JvmStatic
         private external fun nativeOnVolumeChange(volume: Float)
+        @JvmStatic
+        private external fun nativeOnPause()
+        @JvmStatic
+        private external fun nativeOnPlay()
 
         init {
             System.loadLibrary("orb_lib")
@@ -404,6 +408,15 @@ class MediaService : MediaLibraryService() {
         fun setGaplessEnabled(@Suppress("UNUSED_PARAMETER") enabled: Boolean) {
             // Reserved — ExoPlayer handles buffering well enough on its own.
         }
+
+        @JvmStatic
+        fun openBluetoothSettings() {
+            val svc = instance ?: return
+            val intent = Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            svc.startActivity(intent)
+        }
     }
 
     override fun onCreate() {
@@ -451,6 +464,12 @@ class MediaService : MediaLibraryService() {
                 // Re-attach the equalizer to the new audio session whenever
                 // ExoPlayer opens or reopens its audio output.
                 initEqualizer(audioSessionId)
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                try {
+                    if (isPlaying) nativeOnPlay() else nativeOnPause()
+                } catch (_: Exception) {}
             }
 
             override fun onDeviceVolumeChanged(vol: Int, muted: Boolean) {

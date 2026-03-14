@@ -981,6 +981,23 @@ if (typeof document !== 'undefined') {
 		// backgrounded (e.g. pause_others, device un-registration).
 		refreshDevicesFromSession().catch(() => {});
 
+		// On Android, re-query native playback state to catch any pause/play
+		// events that were fired while the WebView was backgrounded and couldn't
+		// receive Tauri events. This is a safety net alongside native-pause/play.
+		if (isAndroidNative) {
+			invoke<boolean>('get_is_playing').then((playing: boolean) => {
+				const current = get(playbackState);
+				if (playing && current !== 'playing') {
+					playbackState.set('playing');
+					startNativePositionPolling();
+				} else if (!playing && current === 'playing') {
+					playbackState.set('paused');
+					stopNativePositionPolling();
+				}
+			}).catch(() => {});
+			return;
+		}
+
 		// Only resume audio contexts if this device was actually playing
 		// locally — NOT when we're just mirroring a remote device's state.
 		// Without this guard, returning to a tab that was shadow-mirroring a
@@ -1149,6 +1166,18 @@ if (isAndroidNative) {
 	listen<number>('native-volume-change', (event) => {
 		volume.set(event.payload);
 		audioEngine.setVolume(event.payload);
+	}).catch(() => {});
+
+	// Sync play/pause state when ExoPlayer is paused/resumed externally
+	// (e.g. audio focus loss, notification controls, Bluetooth disconnect).
+	listen('native-pause', () => {
+		playbackState.set('paused');
+		stopNativePositionPolling();
+	}).catch(() => {});
+
+	listen('native-play', () => {
+		playbackState.set('playing');
+		startNativePositionPolling();
 	}).catch(() => {});
 
 	// Sync favorite state to the native notification icon when the track or

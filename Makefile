@@ -4,7 +4,7 @@ web-install:
 
 # Tauri desktop build (installs frontend deps first)
 tauri-build: web-install
-	cd web && bunx tauri build
+	cd web && cargo tauri build
 
 # Docker targets
 docker-build:
@@ -24,11 +24,11 @@ docker-down:
 
 # Tauri Android targets (local)
 android-init:
-	. scripts/android.env && cd web && bunx tauri android init
+	. scripts/android.env && cd web && cargo tauri android init
 	@$(MAKE) android-dev-sign
 
 android-build:
-	. scripts/android.env && cd web && bunx tauri android build --apk --aab
+	. scripts/android.env && cd web && cargo tauri android build --apk --aab
 
 android-dev-sign:
 	scripts/android-sign.sh --dev
@@ -38,11 +38,11 @@ android-install:
 
 # Tauri iOS targets (local)
 ios-init:
-	. scripts/ios.env && cd web && bunx tauri ios init
+	. scripts/ios.env && cd web && cargo tauri ios init
 	@$(MAKE) ios-dev-sign
 
 ios-build:
-	. scripts/ios.env && cd web && bunx tauri ios build
+	. scripts/ios.env && cd web && cargo tauri ios build
 
 ios-dev-sign:
 	scripts/ios-sign.sh --dev
@@ -52,16 +52,16 @@ ios-install:
 
 # CI targets (no local env sourcing, no dev signing — env vars set by CI)
 android-init-ci:
-	cd web && bunx tauri android init
+	cd web && cargo tauri android init
 
 android-build-ci:
-	cd web && bunx tauri android build --apk --aab
+	cd web && cargo tauri android build --apk --aab
 
 ios-init-ci:
-	cd web && bunx tauri ios init
+	cd web && cargo tauri ios init
 
 ios-build-ci:
-	cd web && bunx tauri ios build
+	cd web && cargo tauri ios build
 
 # Helper functions for generating iOS and Android icons
 icon-generate:

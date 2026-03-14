@@ -67,3 +67,4 @@ scripts/dev-keystore.jks
 
 # Temporary
 music-demo/
+web/src-tauri/gen/android/buildSrc/.kotlin/

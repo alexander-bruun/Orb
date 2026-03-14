@@ -56,6 +56,8 @@
   } from '$lib/stores/social/listenParty';
   import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
   import { waveformEnabled } from '$lib/stores/settings/theme';
+  import { nativePlatform } from '$lib/utils/platform';
+  import { invoke } from '@tauri-apps/api/core';
 
   const currentAlbum = writable<{ id: string; title: string; artist?: string } | null>(null);
 
@@ -280,6 +282,11 @@
   initCastSdk();
 
   async function handleCastToggle() {
+    // On Android native, open the system Bluetooth / connected devices settings.
+    if (nativePlatform() === 'android') {
+      try { await invoke('open_bluetooth_settings'); } catch { /* ignore */ }
+      return;
+    }
     if ($castState === 'connected') {
       stopCast();
     } else if ($castState === 'idle') {

@@ -110,6 +110,24 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnFavoriteToggle(
 
 #[no_mangle]
 #[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPause(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    emit_to_frontend("native-pause");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPlay(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    emit_to_frontend("native-play");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
 pub extern "system" fn Java_com_orb_app_MediaService_nativeOnVolumeChange(
     _env: JNIEnv,
     _class: JClass,
@@ -604,4 +622,17 @@ pub extern "system" fn Java_com_orb_app_MainActivity_nativeInit(
 #[cfg(target_os = "android")]
 pub fn get_device_id() -> Result<String, String> {
     Ok(DEVICE_ID.get().cloned().unwrap_or_default())
+}
+
+#[cfg(target_os = "android")]
+pub fn open_bluetooth_settings() -> Result<(), String> {
+    let jvm = get_jvm();
+    let res: Result<(), jni::errors::Error> = (|| {
+        let guard = jvm.attach_current_thread()?;
+        let mut env = guard;
+        let cls = get_companion_class(&mut env)?;
+        env.call_static_method(cls, "openBluetoothSettings", "()V", &[])?;
+        Ok(())
+    })();
+    res.map_err(|e| e.to_string())
 }

@@ -132,6 +132,12 @@ fn set_gapless_enabled(enabled: bool) -> Result<(), String> {
     android_bridge::set_gapless_enabled(enabled)
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn open_bluetooth_settings() -> Result<(), String> {
+    android_bridge::open_bluetooth_settings()
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -167,6 +173,7 @@ pub fn run() {
             set_eq_bands,
             set_crossfade_settings,
             set_gapless_enabled,
+            open_bluetooth_settings,
         ])
         .setup(|app| {
             let _ = android_bridge::APP_HANDLE.set(app.handle().clone());
