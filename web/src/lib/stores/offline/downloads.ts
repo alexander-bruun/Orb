@@ -167,7 +167,9 @@ async function saveToNativeStorage(trackId: string, blob: Blob): Promise<void> {
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     const buffer = await blob.arrayBuffer();
-    await invoke('save_offline_file', { trackId, data: Array.from(new Uint8Array(buffer)) });
+    // Pass Uint8Array directly — Tauri v2 transfers binary without JSON serialization,
+    // avoiding the main-thread freeze that Array.from() caused on large audio files.
+    await invoke('save_offline_file', { trackId, data: new Uint8Array(buffer) });
   } catch { /* best-effort */ }
 }
 
@@ -181,7 +183,7 @@ async function saveCoverToNativeStorage(albumId: string): Promise<void> {
     if (!res.ok) return;
     const blob = await res.blob();
     const buffer = await blob.arrayBuffer();
-    await invoke('save_cover_art', { albumId, data: Array.from(new Uint8Array(buffer)) });
+    await invoke('save_cover_art', { albumId, data: new Uint8Array(buffer) });
   } catch { /* best-effort */ }
 }
 
@@ -249,6 +251,7 @@ export async function downloadTrack(track: Track): Promise<void> {
       const reader        = res.body.getReader();
       const chunks: Uint8Array[] = [];
       let received = 0;
+      let lastReportedProgress = -1;
 
       for (;;) {
         const { done, value } = await reader.read();
@@ -256,13 +259,18 @@ export async function downloadTrack(track: Track): Promise<void> {
         chunks.push(value);
         received += value.byteLength;
         const progress = contentLength ? Math.round((received / contentLength) * 100) : 0;
-        downloads.update(m => {
-          const entry = m.get(track.id);
-          if (entry) {
-            m.set(track.id, { ...entry, progress, sizeBytes: received });
-          }
-          return m;
-        });
+        // Throttle store updates: only fire when progress changes by ≥1% to avoid
+        // thousands of re-renders per download on slow mobile hardware.
+        if (progress !== lastReportedProgress) {
+          lastReportedProgress = progress;
+          downloads.update(m => {
+            const entry = m.get(track.id);
+            if (entry) {
+              m.set(track.id, { ...entry, progress, sizeBytes: received });
+            }
+            return m;
+          });
+        }
       }
 
       blob = new Blob(chunks, { type: contentType });
@@ -291,7 +299,6 @@ export async function downloadTrack(track: Track): Promise<void> {
 
     // Android: save audio + cover art to native filesystem for Android Auto offline playback
     await saveToNativeStorage(track.id, blob);
-    if (track.album_id) await saveCoverToNativeStorage(track.album_id);
 
     // Cache lyrics and waveform for offline playback (best-effort).
     const headers = { Authorization: auth.token ? `Bearer ${auth.token}` : '' };
@@ -344,10 +351,16 @@ export async function downloadTrack(track: Track): Promise<void> {
 // ── Batch download (sequential to avoid hammering the server) ─────────────────
 
 export async function downloadAlbum(tracks: Track[]): Promise<void> {
+  const savedCovers = new Set<string>();
   for (const track of tracks) {
     const entry = get(downloads).get(track.id);
     if (entry?.status === 'done') continue;
     await downloadTrack(track);
+    // Save cover art once per album, not once per track.
+    if (track.album_id && !savedCovers.has(track.album_id)) {
+      savedCovers.add(track.album_id);
+      await saveCoverToNativeStorage(track.album_id);
+    }
   }
 }
 
