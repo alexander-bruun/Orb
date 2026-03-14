@@ -30,7 +30,7 @@
   async function handleFavorite() {
     const t = $contextMenu.track;
     if (!t) return;
-    await favorites.toggle(t.id);
+    await favorites.toggle(t.id, t);
   }
 
   async function loadPlaylists() {

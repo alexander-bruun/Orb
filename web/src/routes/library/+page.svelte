@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { library as libApi } from '$lib/api/library';
+  import { admin as adminApi } from '$lib/api/admin';
   import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
   import AlphaScrollbar from '$lib/components/library/AlphaScrollbar.svelte';
   import type { Album } from '$lib/types';
@@ -25,6 +26,7 @@
   let scrollEl: HTMLElement | null = null;
   let sentinel: HTMLElement;
   let observer: IntersectionObserver | null = null;
+  let ingestES: EventSource | null = null;
 
   // ── Grouping (no client-side sort — DB returns in the right order) ─────────
 
@@ -155,12 +157,29 @@
     scrollEl = document.querySelector('main.content');
     if (scrollEl) scrollEl.addEventListener('scroll', updateActive, { passive: true });
     loadFirstPage();
+    ingestES = adminApi.openIngestStream((e) => {
+      if (e.type === 'complete') refreshAlbums();
+    });
   });
 
   onDestroy(() => {
     scrollEl?.removeEventListener('scroll', updateActive);
     observer?.disconnect();
+    ingestES?.close();
   });
+
+  async function refreshAlbums() {
+    try {
+      const first = await libApi.albums(PAGE_SIZE, 0, sortBy);
+      if (first.total === totalCount) return; // nothing new
+      totalCount = first.total;
+      albums = first.items;
+      nextOffset = PAGE_SIZE;
+    } catch {
+      // silently ignore
+    }
+    setupObserver();
+  }
 
   async function loadFirstPage() {
     try {

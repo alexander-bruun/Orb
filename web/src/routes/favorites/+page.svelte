@@ -1,15 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { library } from '$lib/api/library';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import Skeleton from '$lib/components/ui/Skeleton.svelte';
   import { playTrack, shuffle } from '$lib/stores/player';
   import { downloadFavorites, downloads } from '$lib/stores/offline/downloads';
   import { isOffline } from '$lib/stores/offline/connectivity';
+  import { favorites, favoriteTracks } from '$lib/stores/library/favorites';
   import type { Track } from '$lib/types';
 
-  let tracks: Track[] = [];
   let loading = true;
+  $: tracks = $favoriteTracks ?? [];
 
   // Derive playable Track stubs from the downloads store for offline mode.
   // The player streams via /api/stream/{id}, which the service worker serves
@@ -39,8 +39,13 @@
       loading = false;
       return;
     }
+    // If the store is already populated (e.g. navigated back), skip fetch.
+    if ($favoriteTracks !== null) {
+      loading = false;
+      return;
+    }
     try {
-      tracks = await library.favorites();
+      await favorites.loadTracks();
     } finally {
       loading = false;
     }

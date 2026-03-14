@@ -1137,7 +1137,7 @@ if (isAndroidNative) {
 	listen('native-shuffle-toggle', () => { toggleShuffle(); }).catch(() => {});
 	listen('native-favorite-toggle', () => {
 		const track = get(currentTrack);
-		if (track) favorites.toggle(track.id).catch(() => {});
+		if (track) favorites.toggle(track.id, track).catch(() => {});
 	}).catch(() => {});
 
 	// Sync shuffle state to the native notification icon whenever it changes.

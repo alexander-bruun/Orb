@@ -63,7 +63,7 @@
 
   async function toggleFavorite() {
     if (!$currentTrack) return;
-    await favorites.toggle($currentTrack.id);
+    await favorites.toggle($currentTrack.id, $currentTrack);
   }
 
   let playerOpen = false;
