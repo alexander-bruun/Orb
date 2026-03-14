@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <!-- Outer ring -->
+    <path
+        android:pathData="M152,512 a360,360 0 1,0 720,0 a360,360 0 1,0 -720,0Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="48" />
+    <!-- Mid ring -->
+    <path
+        android:pathData="M292,512 a220,220 0 1,0 440,0 a220,220 0 1,0 -440,0Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="24" />
+    <!-- Inner sphere -->
+    <path
+        android:pathData="M352,512 a160,160 0 1,0 320,0 a160,160 0 1,0 -320,0Z"
+        android:fillColor="#FFFFFF" />
+</vector>

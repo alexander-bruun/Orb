@@ -14,11 +14,14 @@ import { browser } from '$app/environment';
 import { devices as devicesApi, type Device, type DeviceEvent } from '$lib/api/devices';
 import { ApiError } from '$lib/api/client';
 import { authStore } from '$lib/stores/auth';
-import { isTauri } from '$lib/utils/platform';
+import { isTauri, nativePlatform } from '$lib/utils/platform';
 
 // ── Local device identity ────────────────────────────────────────────────────
 
 const DEVICE_KEY = 'orb_device_id';
+// Stable native device ID cached in localStorage so it's available synchronously
+// on subsequent cold starts (populated from ANDROID_ID on first run).
+const NATIVE_DEVICE_KEY = 'orb_native_device_id';
 const DEVICE_NAME_KEY = 'orb_device_name';
 
 function generateId(): string {
@@ -52,6 +55,23 @@ function getOrCreateDeviceId(): string {
 		// session-scoped ID so the device still registers for this tab.
 		return generateId();
 	}
+}
+
+/** Resolve the stable Android hardware ID. Returns cached value instantly if available. */
+async function resolveNativeDeviceId(): Promise<string> {
+	try {
+		// Return cached value from a previous run without an IPC round-trip.
+		const cached = localStorage.getItem(NATIVE_DEVICE_KEY);
+		if (cached) return cached;
+
+		const { invoke } = await import('@tauri-apps/api/core');
+		const id = await invoke<string>('get_device_id');
+		if (id) {
+			try { localStorage.setItem(NATIVE_DEVICE_KEY, id); } catch { /* storage blocked */ }
+			return id;
+		}
+	} catch { /* IPC unavailable — fall through */ }
+	return generateId();
 }
 
 function getDeviceName(): string {
@@ -94,8 +114,20 @@ function getDeviceName(): string {
 
 // ── Exported stores ──────────────────────────────────────────────────────────
 
-/** Stable ID for this browser tab / native window. */
-export const deviceId = browser ? getOrCreateDeviceId() : '';
+/**
+ * Stable ID for this browser tab / native window.
+ * On Android native: populated from ANDROID_ID (survives reinstalls) before
+ * the first session starts. Uses ES module live-binding so all importers see
+ * the updated value after startSession resolves it.
+ * On browser: a per-tab UUID from sessionStorage.
+ */
+// Pre-populate from localStorage cache so the value is available synchronously
+// on subsequent runs (populated async on first run via resolveNativeDeviceId).
+export let deviceId: string = browser
+	? (isTauri() && nativePlatform() === 'android'
+		? (localStorage.getItem(NATIVE_DEVICE_KEY) ?? '')
+		: getOrCreateDeviceId())
+	: '';
 
 /** Human-readable name for this device (editable). */
 export const deviceName = writable<string>(browser ? getDeviceName() : 'Browser');
@@ -148,7 +180,15 @@ export function setPlayerRef(p: PlayerRef) {
 
 /** Start the device session. Called when the user is authenticated. */
 export async function startSession() {
-	if (!browser || !deviceId) return;
+	if (!browser) return;
+
+	// On Android native, resolve the hardware-stable ANDROID_ID before registering.
+	// This updates the exported live binding so heartbeat / SSE handlers use it too.
+	if (isTauri() && nativePlatform() === 'android' && !deviceId) {
+		deviceId = await resolveNativeDeviceId();
+	}
+
+	if (!deviceId) return;
 	const name = get(deviceName);
 
 	try {

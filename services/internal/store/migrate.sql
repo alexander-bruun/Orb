@@ -280,3 +280,39 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FAL
 -- Pre-generated waveform peak data produced by audiowaveform during ingest.
 -- Stored as a compact JSON float array (0–1 range, ~200 values).
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS waveform_peaks JSONB;
+
+-- User lifecycle: active flag and storage quota.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active           BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_quota_bytes BIGINT;
+
+-- Invite tokens: admins generate these to allow new user registration.
+CREATE TABLE IF NOT EXISTS invite_tokens (
+    token      TEXT        PRIMARY KEY,
+    email      TEXT        NOT NULL,
+    created_by TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ,
+    used_by    TEXT        REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS invite_tokens_email_idx ON invite_tokens(email);
+
+-- Audit log: immutable record of admin and user actions.
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          BIGSERIAL   PRIMARY KEY,
+    actor_id    TEXT        REFERENCES users(id) ON DELETE SET NULL,
+    action      TEXT        NOT NULL,
+    target_type TEXT,
+    target_id   TEXT,
+    detail      JSONB,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_actor_idx      ON audit_logs(actor_id);
+
+-- Site settings: runtime configuration stored in the database.
+CREATE TABLE IF NOT EXISTS site_settings (
+    key        TEXT        PRIMARY KEY,
+    value      TEXT        NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

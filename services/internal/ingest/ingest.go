@@ -172,6 +172,7 @@ func extractFeaturedArtists(m interface {
 // Config holds all ingest configuration.
 type Config struct {
 	Dirs              []string
+	ExcludeGlobs      []string // glob patterns for directories/files to skip (supports **)
 	UserID            string
 	DryRun            bool
 	Watch             bool
@@ -188,11 +189,24 @@ type ingestEntry struct {
 	fileSize  int64
 }
 
+// ProgressEvent is published to Redis during a scan so the admin SSE endpoint
+// can stream real-time ingest progress to connected browsers.
+type ProgressEvent struct {
+	Type     string `json:"type"`     // "progress" | "complete" | "error"
+	Total    int    `json:"total"`
+	Done     int    `json:"done"`
+	Skipped  int    `json:"skipped"`
+	Errors   int    `json:"errors"`
+	FilePath string `json:"file_path,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
 // Ingester holds shared state used across the initial scan and the optional watcher.
 type Ingester struct {
 	db  *store.Store
 	obj objstore.ObjectStore
 	cfg Config
+	kv  *redis.Client // optional; nil = no SSE event publishing
 
 	stateMu sync.RWMutex
 	state   map[string]ingestEntry
@@ -206,16 +220,29 @@ type Ingester struct {
 }
 
 // New creates a new Ingester with the given dependencies and config.
-func New(db *store.Store, obj objstore.ObjectStore, cfg Config) *Ingester {
+// kv is optional; when non-nil, progress events are published via Redis pub/sub
+// so that the admin SSE endpoint can stream them to browsers.
+func New(db *store.Store, obj objstore.ObjectStore, cfg Config, kv *redis.Client) *Ingester {
 	g := &Ingester{
-		db:  db,
-		obj: obj,
-		cfg: cfg,
+		db:    db,
+		obj:   obj,
+		cfg:   cfg,
+		kv:    kv,
+		state: make(map[string]ingestEntry),
 	}
 	if cfg.Enrich {
 		g.mb = musicbrainz.New()
 	}
 	return g
+}
+
+// publishEvent sends a ProgressEvent to the Redis pub/sub channel if kv is set.
+func (g *Ingester) publishEvent(ctx context.Context, ev ProgressEvent) {
+	if g.kv == nil {
+		return
+	}
+	data, _ := json.Marshal(ev)
+	_ = g.kv.Publish(ctx, kvkeys.IngestEvents(), string(data))
 }
 
 func (g *Ingester) loadState(ctx context.Context) error {
@@ -287,6 +314,9 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 				return nil
 			}
 			if d.IsDir() {
+				if path != dir && g.isDirExcluded(path) {
+					return filepath.SkipDir
+				}
 				if !g.cfg.Watch && path != dir {
 					return filepath.SkipDir
 				}
@@ -301,7 +331,8 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 		}
 	}
 
-	var nSkipped, nErrs int64
+	total := len(paths)
+	var nDone, nSkipped, nErrs int64
 	var mu sync.Mutex
 	var ids []string
 
@@ -330,6 +361,15 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 						mu.Unlock()
 					}
 				}
+				done := int(atomic.AddInt64(&nDone, 1))
+				g.publishEvent(ctx, ProgressEvent{
+					Type:     "progress",
+					Total:    total,
+					Done:     done,
+					Skipped:  int(atomic.LoadInt64(&nSkipped)),
+					Errors:   int(atomic.LoadInt64(&nErrs)),
+					FilePath: p,
+				})
 			}
 		}()
 	}
@@ -338,6 +378,14 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 	}
 	close(pathCh)
 	wg.Wait()
+
+	g.publishEvent(ctx, ProgressEvent{
+		Type:    "complete",
+		Total:   total,
+		Done:    int(nDone),
+		Skipped: int(nSkipped),
+		Errors:  int(nErrs),
+	})
 	return ids, int(nSkipped), int(nErrs)
 }
 
@@ -400,6 +448,9 @@ func (g *Ingester) Run(ctx context.Context) error {
 		}
 		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, e error) error {
 			if e == nil && d.IsDir() {
+				if path != dir && g.isDirExcluded(path) {
+					return filepath.SkipDir
+				}
 				_ = watcher.Add(path)
 			}
 			return nil
@@ -423,10 +474,19 @@ func (g *Ingester) Run(ctx context.Context) error {
 				continue
 			}
 			if fi.IsDir() {
+				if g.isDirExcluded(ev.Name) {
+					continue
+				}
 				_ = watcher.Add(ev.Name)
 				go func(p string) {
 					_ = filepath.WalkDir(p, func(path string, d os.DirEntry, e error) error {
-						if e != nil || d.IsDir() {
+						if e != nil {
+							return nil
+						}
+						if d.IsDir() {
+							if path != p && g.isDirExcluded(path) {
+								return filepath.SkipDir
+							}
 							return nil
 						}
 						if isAudioFile(path) {
@@ -857,6 +917,61 @@ func strPtr(s string) *string {
 	return &s
 }
 
+// isDirExcluded returns true if the given directory path matches any of the
+// configured exclude globs. It also tests each intermediate path component so
+// that a simple pattern like "temp" matches /music/temp without a leading **/
+func (g *Ingester) isDirExcluded(dirPath string) bool {
+	for _, glob := range g.cfg.ExcludeGlobs {
+		if matchExcludeGlob(glob, dirPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchExcludeGlob returns true when path matches pattern. Supports standard
+// filepath.Match syntax plus ** for any number of path segments.
+//   - Simple name (no separators): matched against every path component.
+//   - Pattern with ** : the ** is replaced by matching zero-or-more segments.
+func matchExcludeGlob(pattern, path string) bool {
+	pattern = filepath.Clean(pattern)
+	path = filepath.Clean(path)
+
+	// Full-path match (handles absolute patterns and single-level globs).
+	if ok, _ := filepath.Match(pattern, path); ok {
+		return true
+	}
+
+	// Simple name pattern (no path separators): test every component.
+	if !strings.ContainsAny(pattern, "/\\") && !strings.Contains(pattern, "**") {
+		for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+			if ok, _ := filepath.Match(pattern, part); ok {
+				return true
+			}
+		}
+		return false
+	}
+
+	// ** matching: strip each leading segment and try the pattern (minus its
+	// own leading **/) against the remaining path suffix.
+	if strings.Contains(pattern, "**") {
+		sub := strings.TrimPrefix(filepath.ToSlash(pattern), "**/")
+		parts := strings.Split(filepath.ToSlash(path), "/")
+		for i := range parts {
+			candidate := strings.Join(parts[i:], "/")
+			if ok, _ := filepath.Match(sub, candidate); ok {
+				return true
+			}
+			// Also try matching just the single component for patterns like **/temp
+			if ok, _ := filepath.Match(sub, parts[i]); ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 func isAudioFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".flac", ".wav", ".mp3", ".aiff", ".aif":
@@ -999,6 +1114,9 @@ func (g *Ingester) ScanAndEnqueue(ctx context.Context, kv *redis.Client) (int, e
 				return nil
 			}
 			if d.IsDir() {
+				if path != dir && g.isDirExcluded(path) {
+					return filepath.SkipDir
+				}
 				if !g.cfg.Watch && path != dir {
 					return filepath.SkipDir
 				}
@@ -1082,6 +1200,9 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 		}
 		_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, e error) error {
 			if e == nil && d.IsDir() {
+				if path != dir && g.isDirExcluded(path) {
+					return filepath.SkipDir
+				}
 				_ = watcher.Add(path)
 			}
 			return nil
@@ -1105,10 +1226,19 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 				continue
 			}
 			if fi.IsDir() {
+				if g.isDirExcluded(ev.Name) {
+					continue
+				}
 				_ = watcher.Add(ev.Name)
 				go func(p string) {
 					_ = filepath.WalkDir(p, func(path string, d os.DirEntry, e error) error {
-						if e != nil || d.IsDir() {
+						if e != nil {
+							return nil
+						}
+						if d.IsDir() {
+							if path != p && g.isDirExcluded(path) {
+								return filepath.SkipDir
+							}
 							return nil
 						}
 						if isAudioFile(path) {

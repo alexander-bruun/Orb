@@ -27,7 +27,8 @@
     setVolume,
   } from "$lib/stores/player";
   import { themeStore } from "$lib/stores/settings/theme";
-  import { isTauri, isNative } from "$lib/utils/platform";
+  import { syncNativeCrossfade } from "$lib/stores/settings/crossfade";
+  import { isTauri, isNative, isDesktop } from "$lib/utils/platform";
   import TitleBar from "$lib/components/layout/tauri/TitleBar.svelte";
   import MobileNav from "$lib/components/layout/mobile/MobileNav.svelte";
   import MobilePlayer from "$lib/components/layout/mobile/MobilePlayer.svelte";
@@ -104,6 +105,7 @@
 
   onMount(async () => {
     themeStore.init();
+    syncNativeCrossfade();
     restoreDownloads();
     startConnectivityMonitor();
 
@@ -129,15 +131,10 @@
       // Check if the backend is actually unreachable.
       const offline = await checkConnectivity();
       if (offline) {
-        // Backend down — check if there are downloaded tracks to show.
-        const dlMap = get(downloads);
-        const hasDownloads = [...dlMap.values()].some(
-          (e) => e.status === "done",
-        );
-        if (hasDownloads) {
-          goto("/offline");
-          return;
-        }
+        // Backend down — stay on home; it renders the offline downloaded-tracks
+        // view when $isOffline is true.
+        goto("/");
+        return;
       }
 
       // If the check fails, assume setup is done and fall through to login guard.
@@ -154,8 +151,7 @@
     if (
       path.startsWith("/listen/") ||
       path === "/connect" ||
-      path.startsWith("/share/") ||
-      path === "/offline"
+      path.startsWith("/share/")
     )
       return;
 
@@ -172,12 +168,8 @@
       // Setup done — /setup is no longer accessible.
       if (path === "/setup") {
         goto($isAuthenticated ? "/" : "/login");
-      } else if (
-        path !== "/login" &&
-        path !== "/offline" &&
-        !$isAuthenticated
-      ) {
-        // Token expired or logged out — send to login (unless offline page).
+      } else if (path !== "/login" && !$isAuthenticated) {
+        // Token expired or logged out — send to login.
         dataLoaded = false;
         goto("/login");
       } else if ($isAuthenticated) {
@@ -190,24 +182,16 @@
     }
   });
 
-  // ── Auto-navigate away from /offline when connectivity is restored ────────
-  $effect(() => {
-    const offline = $isOffline;
-    const path = $page.url.pathname;
-    if (!offline && path === "/offline") {
-      goto("/");
-    }
-  });
-
-  // ── Auto-navigate TO /offline when backend becomes unreachable ────────────
-  // Uses a confirmation check to avoid reacting to transient glitches.
+  // ── Auto-navigate TO /favorites when backend becomes unreachable ─────────
+  // Uses a 2 s confirmation check to avoid reacting to transient glitches.
   let offlineConfirmTimeout: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
     const offline = $isOffline;
     const path = $page.url.pathname;
-    // Already on a public/offline page — nothing to do.
+    // Already on a safe landing page — nothing to do.
     if (
-      path === "/offline" ||
+      path === "/" ||
+      path === "/favorites" ||
       path === "/login" ||
       path === "/setup" ||
       path === "/connect" ||
@@ -233,11 +217,7 @@
       offlineConfirmTimeout = null;
       const stillOffline = await checkConnectivity();
       if (!stillOffline) return; // was just a transient glitch
-      const dlMap = get(downloads);
-      const hasDownloads = [...dlMap.values()].some((e) => e.status === "done");
-      if (hasDownloads) {
-        goto("/offline");
-      }
+      goto("/");
     }, 2000);
   });
 
@@ -279,11 +259,11 @@
   <title>Orb</title>
 </svelte:head>
 
-{#if isTauri()}
+{#if isDesktop()}
   <div class="window-frame" aria-hidden="true"></div>
 {/if}
 
-{#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname.startsWith("/share/") || $page.url.pathname === "/offline"}
+{#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname.startsWith("/share/")}
   <!-- Public page: render without shell or auth guards -->
   {@render children()}
 {:else if $setupRequired === null}
@@ -295,10 +275,10 @@
 {:else if !$setupRequired && $isAuthenticated}
   <div
     class="shell"
-    class:tauri={isTauri()}
+    class:tauri={isDesktop()}
     class:party-open={$lpPanelOpen && $lpRole === "host"}
   >
-    {#if isTauri()}<TitleBar />{/if}
+    {#if isDesktop()}<TitleBar />{/if}
     <TopBar />
     <Sidebar />
     <main class="content">
@@ -381,11 +361,15 @@
   /* ── Mobile layout: full-screen content, fixed bottom mobile UI ─────────── */
   @media (max-width: 640px) {
     .shell {
+      /* Stop the scroll container (and its scrollbar) above the fixed bottom
+         bars: 64px nav + 66px mini-player + safe-area. Matches padding-bottom. */
+      height: calc(100dvh - 130px - env(safe-area-inset-bottom, 0px));
       grid-template-rows: 1fr;
       grid-template-columns: 1fr;
       grid-template-areas: "content";
     }
     .shell.tauri {
+      height: calc(100dvh - 130px - env(safe-area-inset-bottom, 0px) - var(--titlebar-h, 0px));
       grid-template-rows: var(--titlebar-h) 1fr;
       grid-template-areas:
         "titlebar"
@@ -400,6 +384,8 @@
     }
     /* Sidebar stays off-screen (its own transform handles it) */
     .content {
+      /* Pad above content so it doesn't hide under the phone's status bar */
+      padding-top: calc(var(--page-padding) + env(safe-area-inset-top, 0px));
       /* Pad below content so it doesn't hide behind mobile player + nav */
       padding-bottom: calc(
         64px + env(safe-area-inset-bottom, 0px) + /* mini player height */ 66px

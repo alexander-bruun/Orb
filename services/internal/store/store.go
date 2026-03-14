@@ -48,10 +48,10 @@ func (s *Store) Ping(ctx context.Context) error {
 // GetUserByID returns a user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id string) (User, error) {
 	var u User
-	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin FROM users WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active FROM users WHERE id = $1`, id)
 	var lastLoginAt sql.NullTime
 	var totpSecret, totpBackupCodes sql.NullString
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive)
 	if lastLoginAt.Valid {
 		u.LastLoginAt = &lastLoginAt.Time
 	}
@@ -822,10 +822,10 @@ func (s *Store) CreateUser(ctx context.Context, p CreateUserParams) (User, error
 // GetUserByEmail returns a user by email.
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	var u User
-	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin FROM users WHERE email = $1`, email)
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active FROM users WHERE email = $1`, email)
 	var lastLoginAt sql.NullTime
 	var totpSecret, totpBackupCodes sql.NullString
-	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin)
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive)
 	if lastLoginAt.Valid {
 		u.LastLoginAt = &lastLoginAt.Time
 	}
@@ -2705,14 +2705,18 @@ func (s *Store) GetAdminSummary(ctx context.Context) (AdminSummary, error) {
 	var sum AdminSummary
 	err := s.pool.QueryRow(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM users)   AS total_users,
-			(SELECT COUNT(*) FROM tracks)  AS total_tracks,
-			(SELECT COUNT(*) FROM albums)  AS total_albums,
-			(SELECT COUNT(*) FROM artists) AS total_artists,
-			(SELECT COUNT(*) FROM play_history) AS total_plays,
-			(SELECT COALESCE(SUM(duration_played_ms),0) FROM play_history) AS total_played_ms
-	`).Scan(&sum.TotalUsers, &sum.TotalTracks, &sum.TotalAlbums,
-		&sum.TotalArtists, &sum.TotalPlays, &sum.TotalPlayedMs)
+			(SELECT COUNT(*) FROM users)                                        AS total_users,
+			(SELECT COUNT(*) FROM users WHERE is_active = TRUE)                 AS active_users,
+			(SELECT COUNT(*) FROM tracks)                                       AS total_tracks,
+			(SELECT COUNT(*) FROM albums)                                       AS total_albums,
+			(SELECT COUNT(*) FROM artists)                                      AS total_artists,
+			(SELECT COUNT(*) FROM play_history)                                 AS total_plays,
+			(SELECT COALESCE(SUM(duration_played_ms),0) FROM play_history)      AS total_played_ms,
+			(SELECT COALESCE(SUM(file_size),0) FROM tracks)                     AS total_size_bytes,
+			(SELECT COUNT(*) FROM albums WHERE cover_art_key IS NULL)           AS albums_no_cover_art
+	`).Scan(&sum.TotalUsers, &sum.ActiveUsers, &sum.TotalTracks, &sum.TotalAlbums,
+		&sum.TotalArtists, &sum.TotalPlays, &sum.TotalPlayedMs,
+		&sum.TotalSizeBytes, &sum.AlbumsNoCoverArt)
 	return sum, err
 }
 
@@ -2720,8 +2724,10 @@ func (s *Store) GetAdminSummary(ctx context.Context) (AdminSummary, error) {
 func (s *Store) ListUsersWithStats(ctx context.Context) ([]UserPlayStat, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			u.id, u.username, u.email, u.is_admin,
+			u.id, u.username, u.email, u.is_admin, u.is_active,
+			u.storage_quota_bytes,
 			COUNT(ph.id) AS play_count,
+			u.last_login_at,
 			u.created_at
 		FROM users u
 		LEFT JOIN play_history ph ON ph.user_id = u.id
@@ -2732,11 +2738,11 @@ func (s *Store) ListUsersWithStats(ctx context.Context) ([]UserPlayStat, error) 
 		return nil, err
 	}
 	defer rows.Close()
-	var results []UserPlayStat
+	results := make([]UserPlayStat, 0)
 	for rows.Next() {
 		var s UserPlayStat
-		if err := rows.Scan(&s.UserID, &s.Username, &s.Email, &s.IsAdmin,
-			&s.PlayCount, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.UserID, &s.Username, &s.Email, &s.IsAdmin, &s.IsActive,
+			&s.StorageQuotaBytes, &s.PlayCount, &s.LastLoginAt, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		results = append(results, s)
@@ -2764,7 +2770,7 @@ func (s *Store) GetTopTracks(ctx context.Context, limit int) ([]TrackPlayCount, 
 		return nil, err
 	}
 	defer rows.Close()
-	var results []TrackPlayCount
+	results := make([]TrackPlayCount, 0)
 	for rows.Next() {
 		var r TrackPlayCount
 		if err := rows.Scan(&r.TrackID, &r.Title, &r.ArtistName, &r.AlbumTitle, &r.Plays); err != nil {
@@ -2792,7 +2798,7 @@ func (s *Store) GetTopArtists(ctx context.Context, limit int) ([]ArtistPlayCount
 		return nil, err
 	}
 	defer rows.Close()
-	var results []ArtistPlayCount
+	results := make([]ArtistPlayCount, 0)
 	for rows.Next() {
 		var r ArtistPlayCount
 		if err := rows.Scan(&r.ArtistID, &r.Name, &r.Plays); err != nil {
@@ -2823,7 +2829,7 @@ func (s *Store) GetPlaysByDay(ctx context.Context, days int) ([]DailyPlayCount, 
 		return nil, err
 	}
 	defer rows.Close()
-	var results []DailyPlayCount
+	results := make([]DailyPlayCount, 0)
 	for rows.Next() {
 		var r DailyPlayCount
 		if err := rows.Scan(&r.Date, &r.Plays); err != nil {
@@ -2839,4 +2845,283 @@ func (s *Store) SetUserAdmin(ctx context.Context, userID string, isAdmin bool) e
 	_, err := s.pool.Exec(ctx,
 		`UPDATE users SET is_admin = $1 WHERE id = $2`, isAdmin, userID)
 	return err
+}
+
+// CountUsers returns the total number of registered users.
+func (s *Store) CountUsers(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&n)
+	return n, err
+}
+
+// SetUserActive enables or disables a user account.
+func (s *Store) SetUserActive(ctx context.Context, userID string, active bool) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET is_active = $1 WHERE id = $2`, active, userID)
+	return err
+}
+
+// DeleteUser removes a user and all their data (cascading FK deletes handle owned rows).
+func (s *Store) DeleteUser(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	return err
+}
+
+// SetUserQuota sets or clears (nil = unlimited) the storage quota for a user.
+func (s *Store) SetUserQuota(ctx context.Context, userID string, quotaBytes *int64) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET storage_quota_bytes = $1 WHERE id = $2`, quotaBytes, userID)
+	return err
+}
+
+// ---- Invite tokens ----
+
+// CreateInviteToken inserts a new invite token.
+func (s *Store) CreateInviteToken(ctx context.Context, token, email, createdBy string, expiresAt time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO invite_tokens (token, email, created_by, expires_at)
+		VALUES ($1, $2, $3, $4)
+	`, token, email, createdBy, expiresAt)
+	return err
+}
+
+// GetInviteToken retrieves a single invite token row.
+func (s *Store) GetInviteToken(ctx context.Context, token string) (*InviteToken, error) {
+	var t InviteToken
+	err := s.pool.QueryRow(ctx, `
+		SELECT token, email, created_by, created_at, expires_at, used_at, used_by
+		FROM invite_tokens WHERE token = $1
+	`, token).Scan(&t.Token, &t.Email, &t.CreatedBy, &t.CreatedAt, &t.ExpiresAt, &t.UsedAt, &t.UsedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return &t, err
+}
+
+// ListInviteTokens returns all invite tokens ordered by creation time descending.
+func (s *Store) ListInviteTokens(ctx context.Context) ([]InviteToken, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT token, email, created_by, created_at, expires_at, used_at, used_by
+		FROM invite_tokens ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	results := make([]InviteToken, 0)
+	for rows.Next() {
+		var t InviteToken
+		if err := rows.Scan(&t.Token, &t.Email, &t.CreatedBy, &t.CreatedAt, &t.ExpiresAt, &t.UsedAt, &t.UsedBy); err != nil {
+			return nil, err
+		}
+		results = append(results, t)
+	}
+	return results, rows.Err()
+}
+
+// RevokeInviteToken deletes an unused invite token.
+func (s *Store) RevokeInviteToken(ctx context.Context, token string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM invite_tokens WHERE token = $1 AND used_at IS NULL`, token)
+	return err
+}
+
+// ConsumeInviteToken marks an invite as used.
+func (s *Store) ConsumeInviteToken(ctx context.Context, token, usedBy string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE invite_tokens SET used_at = now(), used_by = $1
+		WHERE token = $2 AND used_at IS NULL
+	`, usedBy, token)
+	return err
+}
+
+// ---- Audit log ----
+
+// InsertAuditLog records an admin or system action.
+func (s *Store) InsertAuditLog(ctx context.Context, actorID, action, targetType, targetID string, detail any) error {
+	var detailJSON []byte
+	if detail != nil {
+		var err error
+		detailJSON, err = json.Marshal(detail)
+		if err != nil {
+			return err
+		}
+	}
+	var actor *string
+	if actorID != "" {
+		actor = &actorID
+	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO audit_logs (actor_id, action, target_type, target_id, detail)
+		VALUES ($1, $2, $3, $4, $5)
+	`, actor, action, targetType, targetID, detailJSON)
+	return err
+}
+
+// ListAuditLogs returns paginated audit log entries newest-first, optionally joined with actor username.
+func (s *Store) ListAuditLogs(ctx context.Context, limit, offset int) ([]AuditLog, int, error) {
+	var total int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM audit_logs`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT al.id, al.actor_id, u.username, al.action, al.target_type, al.target_id, al.detail, al.created_at
+		FROM audit_logs al
+		LEFT JOIN users u ON u.id = al.actor_id
+		ORDER BY al.created_at DESC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	results := make([]AuditLog, 0)
+	for rows.Next() {
+		var l AuditLog
+		if err := rows.Scan(&l.ID, &l.ActorID, &l.ActorName, &l.Action,
+			&l.TargetType, &l.TargetID, &l.Detail, &l.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		results = append(results, l)
+	}
+	return results, total, rows.Err()
+}
+
+// ---- Site settings ----
+
+// GetSiteSetting retrieves a single setting value by key. Returns "" if not found.
+func (s *Store) GetSiteSetting(ctx context.Context, key string) (string, error) {
+	var val string
+	err := s.pool.QueryRow(ctx, `SELECT value FROM site_settings WHERE key = $1`, key).Scan(&val)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return val, err
+}
+
+// SetSiteSetting upserts a site setting.
+func (s *Store) SetSiteSetting(ctx context.Context, key, value string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO site_settings (key, value, updated_at) VALUES ($1, $2, now())
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+	`, key, value)
+	return err
+}
+
+// GetSiteSettings retrieves multiple settings in one query. Returns a map (missing keys absent).
+func (s *Store) GetSiteSettings(ctx context.Context, keys []string) (map[string]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT key, value FROM site_settings WHERE key = ANY($1)`, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	m := make(map[string]string, len(keys))
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		m[k] = v
+	}
+	return m, rows.Err()
+}
+
+// ---- Storage / artwork ----
+
+// GetStorageStats returns disk usage broken down by audio format.
+func (s *Store) GetStorageStats(ctx context.Context) (StorageStats, error) {
+	ss := StorageStats{ByFormat: make([]FormatStat, 0)}
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(file_size),0), COUNT(*) FROM tracks
+	`).Scan(&ss.TotalSizeBytes, &ss.TrackCount); err != nil {
+		return ss, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT format, COUNT(*) AS cnt, COALESCE(SUM(file_size),0) AS sz
+		FROM tracks GROUP BY format ORDER BY sz DESC
+	`)
+	if err != nil {
+		return ss, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f FormatStat
+		if err := rows.Scan(&f.Format, &f.Count, &f.SizeBytes); err != nil {
+			return ss, err
+		}
+		ss.ByFormat = append(ss.ByFormat, f)
+	}
+	return ss, rows.Err()
+}
+
+// ListAlbumsWithoutCover returns albums that have no cover_art_key, paginated.
+func (s *Store) ListAlbumsWithoutCover(ctx context.Context, limit, offset int) ([]Album, int, error) {
+	var total int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM albums WHERE cover_art_key IS NULL`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT al.id, al.artist_id, ar.name AS artist_name, al.title, al.release_year,
+		       al.mbid, al.album_type, al.created_at
+		FROM albums al
+		LEFT JOIN artists ar ON ar.id = al.artist_id
+		WHERE al.cover_art_key IS NULL
+		ORDER BY al.title
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	results := make([]Album, 0)
+	for rows.Next() {
+		var a Album
+		if err := rows.Scan(&a.ID, &a.ArtistID, &a.ArtistName, &a.Title, &a.ReleaseYear,
+			&a.Mbid, &a.AlbumType, &a.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		results = append(results, a)
+	}
+	return results, total, rows.Err()
+}
+
+// ListTrackIDsByAlbum returns all track IDs for an album (used by waveform/metadata jobs).
+func (s *Store) ListTrackIDsByAlbum(ctx context.Context, albumID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id FROM tracks WHERE album_id = $1 ORDER BY disc_number, track_number`, albumID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetTrackFileKey returns just the file_key for a track (used by waveform regeneration jobs).
+func (s *Store) GetTrackFileKey(ctx context.Context, trackID string) (string, error) {
+	var key string
+	err := s.pool.QueryRow(ctx, `SELECT file_key FROM tracks WHERE id = $1`, trackID).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return key, err
+}
+
+// GetUserByIDFull returns a full user row including is_active (for middleware checks).
+func (s *Store) GetUserIsActive(ctx context.Context, userID string) (bool, error) {
+	var active bool
+	err := s.pool.QueryRow(ctx,
+		`SELECT is_active FROM users WHERE id = $1`, userID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return active, err
 }

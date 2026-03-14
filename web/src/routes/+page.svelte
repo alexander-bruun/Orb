@@ -4,6 +4,10 @@
   import type { Track, Album } from "$lib/types";
   import TrackList from "$lib/components/library/TrackList.svelte";
   import AlbumCard from "$lib/components/library/AlbumCard.svelte";
+  import Skeleton from "$lib/components/ui/Skeleton.svelte";
+  import { playTrack, shuffle as shuffleStore } from "$lib/stores/player";
+  import { downloads } from "$lib/stores/offline/downloads";
+  import { isOffline } from "$lib/stores/offline/connectivity";
 
   const PAGE_SIZE = 10;
 
@@ -34,6 +38,43 @@
     mostPage * PAGE_SIZE,
   );
 
+  // ── Offline: derive playable stubs from the downloads store ─────────────────
+  // The player streams via /api/stream/{id}, intercepted by the service worker
+  // from IndexedDB when the track is downloaded — only `id` is required.
+  $: offlineTracks = [...$downloads.values()]
+    .filter((e) => e.status === "done")
+    .map(
+      (e) =>
+        ({
+          id: e.trackId,
+          title: e.title,
+          artist_name: e.artistName,
+          album_name: e.albumName,
+          album_id: e.albumId,
+          disc_number: 0,
+          duration_ms: 0,
+          file_key: "",
+          file_size: e.sizeBytes,
+          format: "flac" as const,
+          sample_rate: 44100,
+          channels: 2,
+        }) satisfies Track,
+    );
+
+  function playAllOffline() {
+    if (offlineTracks.length > 0) playTrack(offlineTracks[0], offlineTracks);
+  }
+
+  function shuffleOffline() {
+    if (offlineTracks.length === 0) return;
+    shuffleStore.set(true);
+    playTrack(
+      offlineTracks[Math.floor(Math.random() * offlineTracks.length)],
+      offlineTracks,
+    );
+  }
+
+  // ── Online data loading ──────────────────────────────────────────────────────
   const INTERVALS: { key: Interval; label: string }[] = [
     { key: "today", label: "Today" },
     { key: "week", label: "Week" },
@@ -106,6 +147,10 @@
   }
 
   onMount(async () => {
+    if ($isOffline) {
+      loading = false;
+      return;
+    }
     try {
       [recentTracks, mostTracks, recentAlbums, newAlbums] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
@@ -121,8 +166,95 @@
   });
 </script>
 
-{#if loading}
-  <p class="muted">Loading…</p>
+<!-- ── Offline view ─────────────────────────────────────────────────────────── -->
+{#if $isOffline}
+  <div class="offline-view">
+    <div class="offline-header">
+      <div class="offline-title-row">
+        <h2 class="title">Downloads</h2>
+        <span class="offline-badge">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="1" y1="1" x2="23" y2="23"/>
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+            <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
+          Offline
+        </span>
+      </div>
+
+      {#if offlineTracks.length > 0}
+        <div class="offline-actions">
+          <button class="btn-play" on:click={playAllOffline}>▶ Play</button>
+          <button class="btn-shuffle" on:click={shuffleOffline} title="Shuffle">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+              <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+              <line x1="4" y1="4" x2="9" y2="9"/>
+            </svg>
+            Shuffle
+          </button>
+          <span class="track-count">{offlineTracks.length} track{offlineTracks.length === 1 ? "" : "s"}</span>
+        </div>
+      {/if}
+    </div>
+
+    {#if offlineTracks.length === 0}
+      <div class="empty-offline">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="1" y1="1" x2="23" y2="23"/>
+          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+          <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+          <line x1="12" y1="20" x2="12.01" y2="20"/>
+        </svg>
+        <p>You're offline and have no downloaded tracks.</p>
+        <p class="muted">Download your favorites while connected to listen without a network.</p>
+      </div>
+    {:else}
+      <TrackList tracks={offlineTracks} showCover={true} />
+    {/if}
+  </div>
+
+<!-- ── Online loading skeleton ─────────────────────────────────────────────── -->
+{:else if loading}
+  <div class="skeleton-home">
+    <!-- Album slider skeleton -->
+    <div class="skeleton-section">
+      <Skeleton width="160px" height="1.1rem" radius="4px" />
+      <div class="skeleton-slider">
+        {#each { length: 6 } as _}
+          <div class="skeleton-album">
+            <Skeleton width="134px" height="134px" radius="6px" />
+            <Skeleton width="90px" height="0.8rem" />
+            <Skeleton width="60px" height="0.75rem" />
+          </div>
+        {/each}
+      </div>
+    </div>
+    <!-- Track list skeleton -->
+    <div class="skeleton-section">
+      <Skeleton width="140px" height="1.1rem" radius="4px" />
+      <div class="skeleton-tracks">
+        {#each { length: 8 } as _}
+          <div class="skeleton-row">
+            <Skeleton width="36px" height="36px" radius="4px" />
+            <div class="skeleton-text">
+              <Skeleton width="50%" height="0.85rem" />
+              <Skeleton width="32%" height="0.75rem" />
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+
+<!-- ── Normal online home ───────────────────────────────────────────────────── -->
 {:else}
   {#if recentTracks.length > 0 || mostTracks.length > 0}
     <section class="home-section">
@@ -244,9 +376,116 @@
 {/if}
 
 <style>
-  .home-section {
-    margin-bottom: 40px;
+  /* ── Offline view ── */
+  .offline-view { padding-top: 4px; }
+
+  .offline-header { margin-bottom: 20px; }
+
+  .offline-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
   }
+  .title { font-size: 1.25rem; font-weight: 600; margin: 0; }
+
+  .offline-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 10px;
+  }
+
+  .offline-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-play {
+    background: var(--accent);
+    border: none;
+    border-radius: 20px;
+    padding: 7px 18px;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-play:hover { background: var(--accent-hover); }
+
+  .btn-shuffle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 14px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-shuffle:hover { color: var(--text); border-color: var(--text); }
+
+  .track-count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-left: 4px;
+  }
+
+  .empty-offline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 48px 16px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .empty-offline p { margin: 0; font-size: 0.9rem; }
+  .empty-offline svg { opacity: 0.4; }
+
+  /* ── Loading skeleton ── */
+  .skeleton-home { display: flex; flex-direction: column; gap: 40px; }
+  .skeleton-section { display: flex; flex-direction: column; gap: 16px; }
+
+  .skeleton-slider {
+    display: flex;
+    gap: 16px;
+    overflow: hidden;
+  }
+  .skeleton-album {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 0 0 134px;
+  }
+
+  .skeleton-tracks { display: flex; flex-direction: column; gap: 2px; }
+  .skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
+  .skeleton-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* ── Normal home ── */
+  .home-section { margin-bottom: 40px; }
 
   .section-header {
     display: flex;
@@ -255,11 +494,7 @@
     margin-bottom: 16px;
   }
 
-  .section-title {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0;
-  }
+  .section-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
 
   .view-all {
     font-size: 0.8rem;
@@ -267,11 +502,8 @@
     text-decoration: none;
     letter-spacing: 0.02em;
   }
-  .view-all:hover {
-    color: var(--text);
-  }
+  .view-all:hover { color: var(--text); }
 
-  /* --- interval filter --- */
   .plays-controls {
     display: flex;
     flex-wrap: wrap;
@@ -280,10 +512,7 @@
     margin-bottom: 20px;
   }
 
-  .interval-tabs {
-    display: flex;
-    gap: 4px;
-  }
+  .interval-tabs { display: flex; gap: 4px; }
 
   .interval-tab {
     background: none;
@@ -293,26 +522,12 @@
     cursor: pointer;
     font-size: 0.8rem;
     padding: 4px 12px;
-    transition:
-      background 0.15s,
-      color 0.15s,
-      border-color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
   }
-  .interval-tab:hover {
-    color: var(--text);
-    border-color: var(--text-muted);
-  }
-  .interval-tab.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
+  .interval-tab:hover { color: var(--text); border-color: var(--text-muted); }
+  .interval-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-  .date-range {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
+  .date-range { display: flex; align-items: center; gap: 8px; }
 
   .date-input {
     background: var(--bg-elevated);
@@ -323,27 +538,17 @@
     padding: 3px 8px;
     cursor: pointer;
   }
-  .date-input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
+  .date-input:focus { outline: none; border-color: var(--accent); }
 
-  .date-sep {
-    color: var(--text-muted);
-    font-size: 0.8rem;
-  }
+  .date-sep { color: var(--text-muted); font-size: 0.8rem; }
 
-  /* --- 2-column layout --- */
   .plays-columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 32px;
   }
-
   @media (max-width: 900px) {
-    .plays-columns {
-      grid-template-columns: 1fr;
-    }
+    .plays-columns { grid-template-columns: 1fr; }
   }
 
   .col-header {
@@ -353,13 +558,8 @@
     margin-bottom: 12px;
   }
 
-  .col-title {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin: 0;
-  }
+  .col-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
 
-  /* --- pagination --- */
   .page-label {
     display: flex;
     align-items: center;
@@ -377,17 +577,10 @@
     padding: 2px 6px;
     cursor: pointer;
   }
-  .page-select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
+  .page-select:focus { outline: none; border-color: var(--accent); }
 
-  .muted {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-  }
+  .muted { color: var(--text-muted); font-size: 0.875rem; }
 
-  /* --- album slider --- */
   .album-slider {
     display: flex;
     gap: 16px;
@@ -396,16 +589,9 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
-  .album-slider::-webkit-scrollbar {
-    height: 4px;
-  }
-  .album-slider::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .album-slider::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: 2px;
-  }
+  .album-slider::-webkit-scrollbar { height: 4px; }
+  .album-slider::-webkit-scrollbar-track { background: transparent; }
+  .album-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .slider-item {
     flex: 0 0 160px;
@@ -415,14 +601,6 @@
     display: flex;
     flex-direction: column;
   }
-  .slider-item :global(.album-card) {
-    width: 160px;
-    max-width: 160px;
-    box-sizing: border-box;
-  }
-  .slider-item :global(.cover-wrap) {
-    width: 134px;
-    height: 134px;
-    padding-bottom: 0;
-  }
+  .slider-item :global(.album-card) { width: 160px; max-width: 160px; box-sizing: border-box; }
+  .slider-item :global(.cover-wrap) { width: 134px; height: 134px; padding-bottom: 0; }
 </style>

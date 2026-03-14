@@ -2,11 +2,18 @@
   import { authStore } from '$lib/stores/auth';
   import { goto } from '$app/navigation';
   import { isNative } from '$lib/utils/platform';
+  import { validateEmail } from '$lib/utils/validation';
 
   let email = '';
   let password = '';
   let error = '';
   let loading = false;
+
+  let emailError = '';
+  let passwordError = '';
+
+  function blurEmail()    { emailError    = validateEmail(email); }
+  function blurPassword() { passwordError = password ? '' : 'Password is required.'; }
 
   // TOTP step state
   let totpRequired = false;
@@ -17,6 +24,10 @@
 
   async function handleLogin(e: Event) {
     e.preventDefault();
+    emailError    = validateEmail(email);
+    passwordError = password ? '' : 'Password is required.';
+    if (emailError || passwordError) return;
+
     error = '';
     loading = true;
     try {
@@ -72,11 +83,25 @@
       <form onsubmit={handleLogin}>
         <label>
           Email
-          <input type="email" bind:value={email} required autocomplete="email" />
+          <input
+            type="email"
+            bind:value={email}
+            onblur={blurEmail}
+            class:input-error={!!emailError}
+            autocomplete="email"
+          />
+          {#if emailError}<span class="field-error">{emailError}</span>{/if}
         </label>
         <label>
           Password
-          <input type="password" bind:value={password} required autocomplete="current-password" />
+          <input
+            type="password"
+            bind:value={password}
+            onblur={blurPassword}
+            class:input-error={!!passwordError}
+            autocomplete="current-password"
+          />
+          {#if passwordError}<span class="field-error">{passwordError}</span>{/if}
         </label>
         <button type="submit" disabled={loading} class="btn-primary">
           {loading ? 'Signing in…' : 'Sign in'}
@@ -155,6 +180,7 @@
     outline: none;
   }
   input:focus { border-color: var(--accent); }
+  input.input-error { border-color: #f87171; }
   .btn-primary {
     background: var(--accent);
     border: none;
@@ -169,6 +195,7 @@
   .btn-primary:hover { background: var(--accent-hover); }
   .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
   .error { color: #f87171; font-size: 0.875rem; }
+  .field-error { color: #f87171; font-size: 0.8125rem; margin-top: -2px; }
   .link-btn {
     margin-top: 16px;
     background: none;

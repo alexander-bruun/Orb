@@ -91,6 +91,12 @@
     searchFocused = false;
   }
 
+  function goAdmin(e: MouseEvent) {
+    e.stopPropagation();
+    menuOpen = false;
+    goto('/admin');
+  }
+
   function goSettings(e: MouseEvent) {
     e.stopPropagation();
     menuOpen = false;
@@ -251,6 +257,17 @@
               <span class="menu-email">{$authStore.user?.email ?? ''}</span>
             </div>
           </div>
+          {#if $authStore.user?.is_admin}
+            <div class="menu-divider"></div>
+            <button class="menu-item" on:click={goAdmin}>
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+              </svg>
+              Admin
+            </button>
+          {/if}
           <div class="menu-divider"></div>
           <button class="menu-item" on:click={goSettings}>
             <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

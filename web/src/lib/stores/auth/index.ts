@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { User } from '$lib/types';
 import { apiFetch } from '$lib/api/client';
+import { nativePlatform } from '$lib/utils/platform';
 
 interface AuthState {
 	token: string | null;
@@ -10,6 +11,17 @@ interface AuthState {
 
 const STORAGE_KEY = 'orb_auth';
 import { getApiBase } from '$lib/api/base';
+
+/** Push server URL + JWT to the Android MediaService for Android Auto browsing. */
+async function syncCredentialsToAndroid(token: string | null) {
+	if (nativePlatform() !== 'android' || !token) return;
+	try {
+		const { invoke } = await import('@tauri-apps/api/core');
+		await invoke('set_api_credentials', { baseUrl: getApiBase(), token });
+	} catch {
+		// best-effort — service may not be running yet
+	}
+}
 
 function loadFromStorage(): AuthState {
 	if (typeof localStorage === 'undefined') return { token: null, refreshToken: null, user: null };
@@ -37,7 +49,11 @@ function clearStorage() {
 let refreshPromise: Promise<boolean> | null = null;
 
 function createAuthStore() {
-	const { subscribe, set, update } = writable<AuthState>(loadFromStorage());
+	const initial = loadFromStorage();
+	const { subscribe, set, update } = writable<AuthState>(initial);
+
+	// Sync existing credentials to Android on app start
+	syncCredentialsToAndroid(initial.token);
 
 	function doLogout() {
 		set({ token: null, refreshToken: null, user: null });
@@ -53,6 +69,7 @@ function createAuthStore() {
 				refresh_token?: string;
 				user_id?: string;
 				username?: string;
+				is_admin?: boolean;
 				totp_required: boolean;
 				temp_token?: string;
 			}>(
@@ -65,24 +82,26 @@ function createAuthStore() {
 			const state: AuthState = {
 				token: res.access_token!,
 				refreshToken: res.refresh_token!,
-				user: { id: res.user_id!, username: res.username ?? '', email }
+				user: { id: res.user_id!, username: res.username ?? '', email, is_admin: res.is_admin ?? false }
 			};
 			set(state);
 			saveToStorage(state);
+			syncCredentialsToAndroid(state.token);
 			return { totpRequired: false };
 		},
 		async verifyTOTP(tempToken: string, code: string, email: string) {
-			const res = await apiFetch<{ access_token: string; refresh_token: string; user_id: string; username: string }>(
+			const res = await apiFetch<{ access_token: string; refresh_token: string; user_id: string; username: string; is_admin?: boolean }>(
 				'/auth/totp/verify',
 				{ method: 'POST', body: JSON.stringify({ temp_token: tempToken, code }) }
 			);
 			const state: AuthState = {
 				token: res.access_token,
 				refreshToken: res.refresh_token,
-				user: { id: res.user_id, username: res.username ?? '', email }
+				user: { id: res.user_id, username: res.username ?? '', email, is_admin: res.is_admin ?? false }
 			};
 			set(state);
 			saveToStorage(state);
+			syncCredentialsToAndroid(state.token);
 		},
 		async register(username: string, email: string, password: string) {
 			await apiFetch('/auth/register', {
@@ -125,6 +144,7 @@ function createAuthStore() {
 					update((s) => {
 						const next = { ...s, token: data.access_token, refreshToken: data.refresh_token };
 						saveToStorage(next);
+						syncCredentialsToAndroid(next.token);
 						return next;
 					});
 					return true;

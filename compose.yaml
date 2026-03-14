@@ -25,6 +25,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    # To use the published image instead of building locally, comment out the build section above and uncomment the line below:
     # image: alexbruun/orb:latest
     environment:
       DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
@@ -38,7 +39,7 @@ services:
       DLNA_ENABLED: "true"
     volumes:
       - audio_data:/data/audio
-      - /my-music:/music:ro
+      - /mnt/d/Music:/music:ro
     ports:
       - 3000:80 # UI
       - 8080:8080 # API

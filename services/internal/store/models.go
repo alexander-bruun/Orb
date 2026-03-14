@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Playlist represents a playlist in the database.
 type Playlist struct {
@@ -14,16 +17,18 @@ type Playlist struct {
 
 // User represents a user in the database.
 type User struct {
-	ID              string     `json:"id"`
-	Username        string     `json:"username"`
-	Email           string     `json:"email"`
-	PasswordHash    string     `json:"-"`
-	CreatedAt       time.Time  `json:"created_at"`
-	LastLoginAt     *time.Time `json:"last_login_at,omitempty"`
-	TOTPSecret      *string    `json:"-"`
-	TOTPEnabled     bool       `json:"totp_enabled"`
-	TOTPBackupCodes *string    `json:"-"`
-	IsAdmin         bool       `json:"is_admin"`
+	ID                 string     `json:"id"`
+	Username           string     `json:"username"`
+	Email              string     `json:"email"`
+	PasswordHash       string     `json:"-"`
+	CreatedAt          time.Time  `json:"created_at"`
+	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
+	TOTPSecret         *string    `json:"-"`
+	TOTPEnabled        bool       `json:"totp_enabled"`
+	TOTPBackupCodes    *string    `json:"-"`
+	IsAdmin            bool       `json:"is_admin"`
+	IsActive           bool       `json:"is_active"`
+	StorageQuotaBytes  *int64     `json:"storage_quota_bytes,omitempty"`
 }
 
 // Artist represents an artist in the database.
@@ -484,23 +489,65 @@ type UpdateEQProfileParams struct {
 
 // AdminSummary holds high-level server statistics.
 type AdminSummary struct {
-	TotalUsers    int `json:"total_users"`
-	TotalTracks   int `json:"total_tracks"`
-	TotalAlbums   int `json:"total_albums"`
-	TotalArtists  int `json:"total_artists"`
-	TotalPlays    int `json:"total_plays"`
-	TotalPlayedMs int `json:"total_played_ms"`
+	TotalUsers        int   `json:"total_users"`
+	ActiveUsers       int   `json:"active_users"`
+	TotalTracks       int   `json:"total_tracks"`
+	TotalAlbums       int   `json:"total_albums"`
+	TotalArtists      int   `json:"total_artists"`
+	TotalPlays        int   `json:"total_plays"`
+	TotalPlayedMs     int   `json:"total_played_ms"`
+	TotalSizeBytes    int64 `json:"total_size_bytes"`
+	AlbumsNoCoverArt  int   `json:"albums_no_cover_art"`
+}
+
+// InviteToken represents an admin-generated invite for a new user.
+type InviteToken struct {
+	Token     string     `json:"token"`
+	Email     string     `json:"email"`
+	CreatedBy string     `json:"created_by"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	UsedAt    *time.Time `json:"used_at,omitempty"`
+	UsedBy    *string    `json:"used_by,omitempty"`
+}
+
+// AuditLog records an admin or system action.
+type AuditLog struct {
+	ID         int64           `json:"id"`
+	ActorID    *string         `json:"actor_id,omitempty"`
+	ActorName  *string         `json:"actor_name,omitempty"`
+	Action     string          `json:"action"`
+	TargetType string          `json:"target_type,omitempty"`
+	TargetID   string          `json:"target_id,omitempty"`
+	Detail     json.RawMessage `json:"detail,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// FormatStat holds track count and total size for a given audio format.
+type FormatStat struct {
+	Format     string `json:"format"`
+	Count      int    `json:"count"`
+	SizeBytes  int64  `json:"size_bytes"`
+}
+
+// StorageStats holds disk usage statistics for the library.
+type StorageStats struct {
+	TotalSizeBytes int64        `json:"total_size_bytes"`
+	TrackCount     int          `json:"track_count"`
+	ByFormat       []FormatStat `json:"by_format"`
 }
 
 // UserPlayStat holds a user's listening statistics.
 type UserPlayStat struct {
-	UserID      string     `json:"user_id"`
-	Username    string     `json:"username"`
-	Email       string     `json:"email"`
-	IsAdmin     bool       `json:"is_admin"`
-	PlayCount   int        `json:"play_count"`
-	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	UserID            string     `json:"user_id"`
+	Username          string     `json:"username"`
+	Email             string     `json:"email"`
+	IsAdmin           bool       `json:"is_admin"`
+	IsActive          bool       `json:"is_active"`
+	StorageQuotaBytes *int64     `json:"storage_quota_bytes,omitempty"`
+	PlayCount         int        `json:"play_count"`
+	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 // TrackPlayCount holds a track's total play count.

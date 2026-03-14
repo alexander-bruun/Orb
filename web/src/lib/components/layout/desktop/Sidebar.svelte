@@ -83,7 +83,6 @@
     padding: 12px;
     border-top: 1px solid var(--border);
   }
-  .now-playing-cover { width: 100%; }
   .cover-wrap { position: relative; }
   .full-image {
     width: 100%;

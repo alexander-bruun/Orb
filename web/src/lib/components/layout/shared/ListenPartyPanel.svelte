@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import QRCode from 'qrcode';
   import {
     lpRole,
     lpSessionId,
@@ -19,12 +21,23 @@
   let copied = $state(false);
   let codeCopied = $state(false);
   let togglingCode = $state(false);
+  let qrDataUrl = $state('');
 
   let inviteUrl = $derived(
     $lpSessionId
       ? `${APP_BASE}/listen/${$lpSessionId}`
       : ''
   );
+
+  $effect(() => {
+    if (inviteUrl) {
+      QRCode.toDataURL(inviteUrl, { width: 200, margin: 1 }).then(url => {
+        qrDataUrl = url;
+      });
+    } else {
+      qrDataUrl = '';
+    }
+  });
 
   function fallbackCopy(text: string): boolean {
     const ta = document.createElement('textarea');
@@ -110,6 +123,11 @@
 
     <div class="invite-section">
       <p class="section-label">Invite Link</p>
+      {#if qrDataUrl}
+        <div class="qr-wrap">
+          <img src={qrDataUrl} alt="Party invite QR code" class="qr-img" />
+        </div>
+      {/if}
       <div class="invite-row">
         <input
           class="invite-input"
@@ -289,6 +307,19 @@
     padding: 1px 6px;
     font-size: 0.7rem;
     font-weight: 700;
+  }
+
+  .qr-wrap {
+    display: none;
+    justify-content: center;
+    padding: 8px 0 12px;
+  }
+
+  .qr-img {
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    width: 180px;
+    height: 180px;
   }
 
   .invite-row {
@@ -504,6 +535,10 @@
 
   /* ── Mobile: full-screen bottom sheet ──────────────────────────────────── */
   @media (max-width: 640px) {
+    .qr-wrap {
+      display: flex;
+    }
+
     .party-panel {
       position: fixed;
       top: 0;

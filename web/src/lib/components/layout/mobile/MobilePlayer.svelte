@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     currentTrack,
     playbackState,
@@ -22,6 +23,7 @@
     toggleRepeat,
     toggleShuffle,
     transferPlayback,
+    formattedFormat,
   } from '$lib/stores/player';
   import { library } from '$lib/api/library';
   import { favorites } from '$lib/stores/library/favorites';
@@ -65,6 +67,23 @@
   }
 
   let playerOpen = false;
+  let playerHistoryPushed = false;
+
+  onMount(() => {
+    function handlePopState() {
+      if (playerOpen) {
+        // Back gesture/button while player is open — close without re-popping
+        playerHistoryPushed = false;
+        playerOpen = false;
+        rawDelta = 0;
+        swipeDelta = 0;
+        swiping = false;
+        dismissing = false;
+      }
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  });
 
   // Lyrics view
   let showLyrics = false;
@@ -85,7 +104,65 @@
   let touchStartY = 0;
   let touchCurrentY = 0;
   let swiping = false;
-  let swipeDelta = 0;
+  let rawDelta = 0;      // raw touch offset
+  let swipeDelta = 0;    // rubber-banded visual offset
+  let dismissing = false;
+
+  // Mini-player horizontal swipe → next / previous
+  let miniStartX = 0;
+  let miniStartY = 0;
+  let miniDeltaX = 0;
+  let miniSwipeAxis: 'h' | 'v' | null = null;
+  let miniIsSwiping = false;
+  let miniDidSwipe = false;
+
+  function onMiniTouchStart(e: TouchEvent) {
+    miniStartX = e.touches[0].clientX;
+    miniStartY = e.touches[0].clientY;
+    miniDeltaX = 0;
+    miniSwipeAxis = null;
+    miniIsSwiping = true;
+    miniDidSwipe = false;
+  }
+
+  function onMiniTouchMove(e: TouchEvent) {
+    if (!miniIsSwiping) return;
+    const dx = e.touches[0].clientX - miniStartX;
+    const dy = e.touches[0].clientY - miniStartY;
+
+    if (!miniSwipeAxis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      miniSwipeAxis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+    }
+
+    if (miniSwipeAxis === 'h') {
+      e.preventDefault();
+      miniDeltaX = dx;
+    }
+  }
+
+  function onMiniTouchEnd() {
+    if (!miniIsSwiping) return;
+    miniIsSwiping = false;
+
+    if (miniSwipeAxis === 'h' && Math.abs(miniDeltaX) > 55) {
+      miniDidSwipe = true;
+      const goNext = miniDeltaX < 0;
+      miniDeltaX = 0;
+      miniSwipeAxis = null;
+      if (goNext) next(); else previous();
+    } else {
+      miniDeltaX = 0;
+      miniSwipeAxis = null;
+    }
+  }
+
+  function onMiniClick() {
+    if (miniDidSwipe) {
+      miniDidSwipe = false;
+      return;
+    }
+    openPlayer();
+  }
 
   $: {
     if ($currentTrack?.album_id) {
@@ -118,42 +195,71 @@
 
   function openPlayer() {
     playerOpen = true;
+    history.pushState({ orbPlayer: true }, '');
+    playerHistoryPushed = true;
   }
 
-  function closePlayer() {
+  function closePlayer(skipHistory = false) {
     playerOpen = false;
+    rawDelta = 0;
     swipeDelta = 0;
     swiping = false;
+    dismissing = false;
+    if (playerHistoryPushed) {
+      playerHistoryPushed = false;
+      if (!skipHistory) {
+        history.back(); // pops the state we pushed; popstate handler is a no-op since playerOpen is already false
+      }
+    }
   }
 
   // Swipe down gesture on full screen player
   function onTouchStart(e: TouchEvent) {
+    if (dismissing) return;
     touchStartY = e.touches[0].clientY;
     touchCurrentY = touchStartY;
     swiping = true;
+    rawDelta = 0;
     swipeDelta = 0;
   }
 
   function onTouchMove(e: TouchEvent) {
     if (!swiping) return;
     touchCurrentY = e.touches[0].clientY;
-    swipeDelta = Math.max(0, touchCurrentY - touchStartY);
+    rawDelta = Math.max(0, touchCurrentY - touchStartY);
+    // Rubber-band resistance: starts ~1:1, progressively heavier
+    swipeDelta = rawDelta / (1 + rawDelta / 220);
   }
 
-  function onTouchEnd() {
+  async function onTouchEnd() {
     if (!swiping) return;
     swiping = false;
-    if (swipeDelta > 80) {
-      closePlayer();
+    if (rawDelta > 100) {
+      dismissing = true;
+      swipeDelta = window.innerHeight * 1.1;
+      await new Promise<void>(r => setTimeout(r, 400));
+      dismissing = false;
+      playerOpen = false;
+      rawDelta = 0;
+      swipeDelta = 0;
+      if (playerHistoryPushed) {
+        playerHistoryPushed = false;
+        history.back();
+      }
     } else {
+      rawDelta = 0;
       swipeDelta = 0;
     }
+  }
+
+  function seekToLyric(timeMs: number) {
+    seek(timeMs / 1000);
   }
 
   function goToAlbum(e: MouseEvent) {
     e.stopPropagation();
     if ($currentAlbum) {
-      closePlayer();
+      closePlayer(true);
       goto(`/library/albums/${$currentAlbum.id}`);
     }
   }
@@ -161,7 +267,7 @@
   function goToArtist(e: MouseEvent) {
     e.stopPropagation();
     if ($currentTrack?.artist_id) {
-      closePlayer();
+      closePlayer(true);
       goto(`/artists/${$currentTrack.artist_id}`);
     }
   }
@@ -213,7 +319,12 @@
     class="mini-player"
     role="complementary"
     aria-label="Now playing"
-    on:click={openPlayer}
+    on:click={onMiniClick}
+    on:touchstart={onMiniTouchStart}
+    on:touchmove|nonpassive={onMiniTouchMove}
+    on:touchend={onMiniTouchEnd}
+    style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
+           transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
   >
     <!-- Thin progress line at top -->
     <div class="mini-progress-track">
@@ -243,6 +354,17 @@
 
       <!-- Controls -->
       <div class="mini-controls">
+        <button
+          class="mini-btn mini-btn--fav"
+          class:active={isFavorite}
+          on:click|stopPropagation={toggleFavorite}
+          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          aria-pressed={isFavorite}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+          </svg>
+        </button>
         <button
           class="mini-btn"
           on:click|stopPropagation={togglePlayPause}
@@ -280,16 +402,27 @@
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
     class="fullscreen-player"
-    style="transform: translateY({swipeDelta}px); transition: {swiping ? 'none' : 'transform 0.3s cubic-bezier(0.4,0,0.2,1)'};"
+    style="
+      transform: translateY({swipeDelta}px) scale({1 - swipeDelta * 0.00032});
+      opacity: {Math.max(0.12, 1 - swipeDelta / 310)};
+      border-radius: {Math.min(swipeDelta * 0.22, 20)}px;
+      transition: {swiping ? 'none' : dismissing
+        ? 'transform 0.4s cubic-bezier(0.4, 0, 1, 1), opacity 0.4s cubic-bezier(0.4, 0, 1, 1), border-radius 0.4s cubic-bezier(0.4, 0, 1, 1)'
+        : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
+    "
     on:touchstart={onTouchStart}
     on:touchmove={onTouchMove}
     on:touchend={onTouchEnd}
   >
-    <!-- Blurred album art background -->
+    <!-- Blurred album art background (parallax: moves slower than content) -->
     {#if $currentTrack.album_id}
       <div
         class="fs-bg"
-        style="background-image: url('{getApiBase()}/covers/{$currentTrack.album_id}')"
+        style="
+          background-image: url('{getApiBase()}/covers/{$currentTrack.album_id}');
+          transform: translateY({-swipeDelta * 0.38}px) scale({1 + swipeDelta * 0.00045});
+          transition: {swiping ? 'none' : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
+        "
       ></div>
     {/if}
     <div class="fs-overlay"></div>
@@ -336,11 +469,14 @@
           {:else}
             <div class="lyric-spacer-top"></div>
             {#each $lyricsLines as line, i}
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
               <p
                 class="lyric-line"
                 class:lyric-active={i === $activeLyricIndex}
                 class:lyric-past={i < $activeLyricIndex}
                 data-lyric-idx={i}
+                on:click|stopPropagation={() => seekToLyric(line.time_ms)}
               >{line.text || '♩'}</p>
             {/each}
             <div class="lyric-spacer-bottom"></div>
@@ -352,6 +488,11 @@
           <div class="fs-title">{$currentTrack.title}</div>
         </div>
       {:else}
+        <!-- Bitrate badge -->
+        {#if $formattedFormat}
+          <div class="fs-format-badge">{$formattedFormat}</div>
+        {/if}
+
         <!-- Album art -->
         <div class="fs-cover-wrap">
           {#if $currentTrack.album_id}
@@ -362,6 +503,21 @@
             />
           {:else}
             <div class="fs-cover fs-cover--placeholder"></div>
+          {/if}
+        </div>
+
+        <!-- Active lyric preview (shown when lyrics panel is closed) -->
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div
+          class="fs-lyric-slot"
+          class:fs-lyric-slot--active={$lyricsLines.length > 0 && $activeLyricIndex >= 0}
+          on:click|stopPropagation={() => { if ($lyricsLines.length > 0 && $activeLyricIndex >= 0) showLyrics = true; }}
+        >
+          {#if $lyricsLines.length > 0 && $activeLyricIndex >= 0}
+            <span class="fs-lyric-preview">
+              {$lyricsLines[$activeLyricIndex]?.text ?? ''}
+            </span>
           {/if}
         </div>
 
@@ -525,6 +681,7 @@
           on:touchmove|stopPropagation={() => {}}
           class="volume-slider"
           aria-label="Volume"
+          style="background: linear-gradient(to right, rgba(255,255,255,0.85) {$volume * 100}%, rgba(255,255,255,0.25) {$volume * 100}%)"
         />
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
           <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -735,11 +892,14 @@
     .mini-player {
       display: block;
       position: fixed;
-      left: 0;
-      right: 0;
-      bottom: calc(60px + env(safe-area-inset-bottom));
+      left: 12px;
+      right: 12px;
+      bottom: calc(68px + env(safe-area-inset-bottom));
       background: var(--bg-elevated);
-      border-top: 1px solid var(--border);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
       z-index: 39;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
@@ -750,6 +910,9 @@
       height: 2px;
       background: var(--bg-hover);
       position: relative;
+      margin: 0 12px;
+      border-radius: 1px;
+      overflow: hidden;
     }
 
     .mini-progress-fill {
@@ -769,9 +932,9 @@
     }
 
     .mini-cover {
-      width: 44px;
-      height: 44px;
-      border-radius: 6px;
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
       object-fit: contain;
       flex-shrink: 0;
       background: var(--bg-hover);
@@ -829,6 +992,19 @@
 
     .mini-btn:active {
       background: var(--bg-hover);
+    }
+
+    .mini-btn--fav {
+      color: var(--text-muted);
+      transition: color 0.15s, background 0.1s, transform 0.1s;
+    }
+
+    .mini-btn--fav.active {
+      color: #e85050;
+    }
+
+    .mini-btn--fav:active {
+      transform: scale(0.85);
     }
 
     /* ── Full screen player ──────────────────────────────────────────────── */
@@ -928,6 +1104,20 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    /* Format badge */
+    .fs-format-badge {
+      align-self: center;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.6);
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 12px;
+      padding: 3px 10px;
+      flex-shrink: 0;
+    }
+
     /* Album art */
     .fs-cover-wrap {
       flex: 1;
@@ -950,6 +1140,38 @@
 
     .fs-cover--placeholder {
       background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Fixed-height slot between cover and track info — always reserves space */
+    .fs-lyric-slot {
+      flex-shrink: 0;
+      height: 3.2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 20px;
+    }
+
+    .fs-lyric-slot--active {
+      cursor: pointer;
+    }
+
+    /* Active lyric preview — centered inside the slot */
+    .fs-lyric-preview {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-align: center;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.7);
+      line-height: 1.4;
+      transition: color 0.25s ease;
+    }
+
+    .fs-lyric-slot--active:active .fs-lyric-preview {
+      color: rgba(255, 255, 255, 0.95);
     }
 
     /* ── Lyrics panel ────────────────────────────────────────────── */
@@ -980,9 +1202,14 @@
       color: rgba(255, 255, 255, 0.22);
       margin: 0 0 22px;
       padding: 0;
-      transition: color 0.35s ease, font-size 0.2s ease;
-      cursor: default;
+      transition: color 0.35s ease, font-size 0.2s ease, opacity 0.1s ease;
+      cursor: pointer;
       word-break: break-word;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .lyric-line:active {
+      opacity: 0.6;
     }
 
     .lyric-line.lyric-active {
@@ -1285,6 +1512,7 @@
       background: rgba(255, 255, 255, 0.25);
       border-radius: 2px;
       touch-action: none;
+      transition: background 0.15s ease;
     }
 
     .volume-slider::-webkit-slider-thumb {

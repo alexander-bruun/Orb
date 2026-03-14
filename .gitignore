@@ -19,6 +19,9 @@ services/bin/
 *.out
 coverage.out
 
+# Tauri build outputs
+web/src-tauri/target/
+
 # Temporary files and editor swap files
 tmp/
 /tmp/
@@ -34,10 +37,6 @@ web/.turbo/
 web/package-lock.json
 web/build/
 
-# Tauri Rust build output
-web/src-tauri/target/
-web/src-tauri/gen/
-
 # Logs
 logs/
 *.log
@@ -49,11 +48,6 @@ logs/
 *.asc
 secrets.*
 secret-*.json
-
-# Database files
-*.sqlite
-*.db
-*.sql.gz
 
 # IDEs
 .vscode/
@@ -69,3 +63,7 @@ coverage/
 .cache/
 .parcel-cache/
 .DS_Store
+scripts/dev-keystore.jks
+
+# Temporary
+music-demo/

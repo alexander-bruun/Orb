@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 
 const CF_KEY = 'orb-crossfade-secs';
 const GAPLESS_KEY = 'orb-gapless-enabled';
@@ -63,3 +63,47 @@ export const crossfadeEnabled = persistedBool('orb-crossfade-enabled', false);
  * as the current one ends (WASM/24-bit path only).
  */
 export const gaplessEnabled = persistedBool(GAPLESS_KEY, false);
+
+// ── Native Android crossfade/gapless sync ────────────────────────────────────
+
+function isAndroidNative(): boolean {
+	if (typeof window === 'undefined') return false;
+	return (window as any).__TAURI_METADATA__?.currentPlatform === 'android';
+}
+
+/** Debounce handle so rapid slider drags don't flood the JNI bridge. */
+let nativeSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleCrossfadeNativeSync() {
+	if (!isAndroidNative()) return;
+	if (nativeSyncTimer) clearTimeout(nativeSyncTimer);
+	nativeSyncTimer = setTimeout(async () => {
+		nativeSyncTimer = null;
+		try {
+			const { invoke } = await import('@tauri-apps/api/core');
+			const cf      = get(crossfadeEnabled);
+			const secs    = get(crossfadeSecs);
+			const gapless = get(gaplessEnabled);
+			await invoke('set_crossfade_settings', { enabled: cf, secs });
+			await invoke('set_gapless_enabled', { enabled: gapless });
+		} catch { /* best-effort */ }
+	}, 100);
+}
+
+// Subscribe to each store so changes made in the settings UI propagate to
+// ExoPlayer automatically. The subscriptions also fire on first subscribe
+// (Svelte store guarantee), but we guard with isAndroidNative() so the
+// imports are never attempted on non-Android targets.
+if (typeof window !== 'undefined') {
+	crossfadeEnabled.subscribe(() => scheduleCrossfadeNativeSync());
+	crossfadeSecs.subscribe(() => scheduleCrossfadeNativeSync());
+	gaplessEnabled.subscribe(() => scheduleCrossfadeNativeSync());
+}
+
+/**
+ * Push the current crossfade + gapless settings to the Android media layer.
+ * Call this once on app startup to sync the persisted values into ExoPlayer.
+ */
+export async function syncNativeCrossfade(): Promise<void> {
+	scheduleCrossfadeNativeSync();
+}

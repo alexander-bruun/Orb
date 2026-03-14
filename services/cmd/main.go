@@ -151,7 +151,7 @@ func run(ctx context.Context) error {
 			deviceSvc.Routes(r)
 		})
 
-		adminSvc := admin.New(db)
+		adminSvc := admin.New(db, obj, musicbrainz.New(), kv)
 		r.Group(func(r chi.Router) {
 			r.Use(adminSvc.AdminMiddleware)
 			r.Route("/admin", func(r chi.Router) {
@@ -240,6 +240,7 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 	}
 	cfg := ingest.Config{
 		Dirs:              dirs,
+		ExcludeGlobs:      parseDirs(config.Env("INGEST_EXCLUDE", "")),
 		UserID:            config.Env("INGEST_USER_ID", ""),
 		Watch:             config.Env("INGEST_WATCH", "false") == "true",
 		Workers:           runtime.NumCPU(),
@@ -248,7 +249,7 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
 	}
-	return ingest.NewService(ctx, ingest.New(db, obj, cfg), kv)
+	return ingest.NewService(ctx, ingest.New(db, obj, cfg, kv), kv)
 }
 
 func parseDirs(s string) []string {

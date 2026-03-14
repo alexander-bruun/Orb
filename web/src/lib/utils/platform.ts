@@ -23,3 +23,8 @@ export function nativePlatform(): 'ios' | 'android' | 'web' {
 export function isNative(): boolean {
 	return isTauri();
 }
+
+/** True only on Tauri desktop (not Android/iOS). */
+export function isDesktop(): boolean {
+	return isTauri() && nativePlatform() === 'web';
+}

@@ -311,6 +311,7 @@
       align-items: center;
       text-align: center;
       gap: 16px;
+      margin-top: var(--page-padding);
       margin-bottom: 20px;
     }
     .cover {

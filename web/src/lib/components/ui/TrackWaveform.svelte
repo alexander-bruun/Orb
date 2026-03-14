@@ -23,6 +23,24 @@
   let canvas: HTMLCanvasElement | null = null;
   const unsubs: (() => void)[] = [];
 
+  // ── animation state ──────────────────────────────────────────────────────────
+  let animRaf = 0;
+  let shimmerPhase = 0;   // 0..1, advances during the placeholder phase
+  let transitionT = 1;    // 0 → 1: blends placeholder silhouette → real peaks
+  let transitionStart = 0;
+  let hadPeaks = false;
+  const TRANSITION_MS = 700;
+
+  // ── cursor smoothing state ───────────────────────────────────────────────────
+  let smoothPct = 0;      // visual cursor position (0..1), animated on seeks
+  let prevPct = 0;        // last known raw position — used to detect seek jumps
+  let cursorAnimFrom = 0;
+  let cursorAnimTarget = 0;
+  let cursorAnimStart = 0;
+  let cursorAnimRaf = 0;
+  const CURSOR_ANIM_MS = 350;
+  const SEEK_THRESHOLD = 0.008; // ~0.8% of track — larger = normal playback advance
+
   // ── colour helpers ──────────────────────────────────────────────────────────
 
   function accentColor(): string {
@@ -46,6 +64,119 @@
     return played ? accentColor() : 'rgba(120,120,120,0.28)';
   }
 
+  // ── animation helpers ────────────────────────────────────────────────────────
+
+  function easeOutCubic(t: number): number {
+    return 1 - Math.pow(1 - Math.min(t, 1), 3);
+  }
+
+  /** Normalized placeholder bar height at position t ∈ [0,1] — same twin-sine
+   *  formula used in drawPlaceholder, extracted so draw() can blend against it. */
+  function placeholderPeakAt(t: number): number {
+    return Math.abs(Math.sin(t * Math.PI * 6)) * 0.4 +
+           Math.abs(Math.sin(t * Math.PI * 13)) * 0.25 + 0.05;
+  }
+
+  function stopAnim() {
+    if (animRaf) { cancelAnimationFrame(animRaf); animRaf = 0; }
+  }
+
+  function stopCursorAnim() {
+    if (cursorAnimRaf) { cancelAnimationFrame(cursorAnimRaf); cursorAnimRaf = 0; }
+  }
+
+  function startCursorAnim(from: number, to: number) {
+    stopCursorAnim();
+    cursorAnimFrom = from;
+    cursorAnimTarget = to;
+    cursorAnimStart = 0;
+    const loop = (now: number) => {
+      if (!cursorAnimStart) cursorAnimStart = now;
+      const t = Math.min((now - cursorAnimStart) / CURSOR_ANIM_MS, 1);
+      smoothPct = cursorAnimFrom + (cursorAnimTarget - cursorAnimFrom) * easeOutCubic(t);
+      // Only draw directly if the main waveform animation isn't already looping.
+      if (!animRaf) draw();
+      if (t < 1) {
+        cursorAnimRaf = requestAnimationFrame(loop);
+      } else {
+        smoothPct = cursorAnimTarget;
+        cursorAnimRaf = 0;
+        if (!animRaf) draw();
+      }
+    };
+    cursorAnimRaf = requestAnimationFrame(loop);
+  }
+
+  /** Called when positionMs changes. Animates the cursor on large jumps (seeks). */
+  function handlePositionChange() {
+    const dur = $durationMs;
+    const pos = $positionMs;
+    const newPct = dur > 0 ? Math.min(pos / dur, 1) : 0;
+
+    const delta = Math.abs(newPct - prevPct);
+    prevPct = newPct;
+
+    if (delta > SEEK_THRESHOLD) {
+      // Big jump — user or programmatic seek: animate the cursor.
+      startCursorAnim(smoothPct, newPct);
+    } else {
+      // Normal playback tick — follow directly without animation.
+      stopCursorAnim();
+      smoothPct = newPct;
+      if (!animRaf) draw();
+    }
+  }
+
+  function startShimmer() {
+    if (animRaf) return; // already looping
+    const loop = (now: number) => {
+      shimmerPhase = (now / 1800) % 1;
+      draw();
+      animRaf = requestAnimationFrame(loop);
+    };
+    animRaf = requestAnimationFrame(loop);
+  }
+
+  function startTransition() {
+    stopAnim();
+    transitionT = 0;
+    transitionStart = 0;
+    const loop = (now: number) => {
+      if (!transitionStart) transitionStart = now;
+      transitionT = Math.min((now - transitionStart) / TRANSITION_MS, 1);
+      draw();
+      if (transitionT < 1) {
+        animRaf = requestAnimationFrame(loop);
+      } else {
+        animRaf = 0;
+      }
+    };
+    animRaf = requestAnimationFrame(loop);
+  }
+
+  /** Called whenever any relevant store changes. Routes to the right animation. */
+  function handleStoreChange() {
+    const loading = $waveformLoading;
+    const peaks = $waveformPeaks?.peaks ?? null;
+
+    if (!peaks) {
+      if (hadPeaks) hadPeaks = false;
+      if (loading) {
+        startShimmer();
+      } else {
+        stopAnim();
+        draw();
+      }
+    } else {
+      if (!hadPeaks) {
+        hadPeaks = true;
+        startTransition();
+      } else if (!animRaf) {
+        draw();
+      }
+    }
+  }
+
   // ── drawing ─────────────────────────────────────────────────────────────────
 
   function draw() {
@@ -65,17 +196,16 @@
 
     ctx.clearRect(0, 0, physW, physH);
 
-    const peaks      = $waveformPeaks?.peaks ?? null;
-    const loading    = $waveformLoading;
-    const dur        = $durationMs;
-    const pos        = $positionMs;
-    const pct        = dur > 0 ? Math.min(pos / dur, 1) : 0;
-    const cursorPx   = Math.round(pct * physW);
-    const cy         = physH / 2;
-    const maxBarH    = Math.max(1, (physH - 4 * dpr) / 2);
+    const peaks    = $waveformPeaks?.peaks ?? null;
+    const loading  = $waveformLoading;
+    const pct      = smoothPct;
+    const cursorPx = Math.round(pct * physW);
+    const cy       = physH / 2;
+    const maxBarH  = Math.max(1, (physH - 4 * dpr) / 2);
 
+    // Pure placeholder while loading with no peaks yet.
     if (loading && !peaks) {
-      drawPlaceholder(ctx, physW, physH);
+      drawPlaceholder(ctx, physW, physH, shimmerPhase);
       return;
     }
 
@@ -86,30 +216,36 @@
       return;
     }
 
-    // ── draw bars (1 physical pixel per column) ───────────────────────────
-    for (let px = 0; px < physW; px++) {
-      const t       = px / physW;                                          // 0..1
-      const idx     = Math.min(Math.floor(t * peaks.length), peaks.length - 1);
-      const peak    = peaks[idx];
-      const barH    = Math.max(1 * dpr, peak * maxBarH);
-      const played  = px < cursorPx;
+    // ── draw bars — blends placeholder silhouette → real peaks ────────────
+    const blend = easeOutCubic(transitionT);
 
-      ctx.fillStyle = barColor(t, played, peak);
+    for (let px = 0; px < physW; px++) {
+      const t      = px / physW;
+      const idx    = Math.min(Math.floor(t * peaks.length), peaks.length - 1);
+      const realPk = peaks[idx];
+      // Morphs shape from placeholder → real while simultaneously fading in.
+      const peak   = blend < 1
+        ? placeholderPeakAt(t) + (realPk - placeholderPeakAt(t)) * blend
+        : realPk;
+      const barH   = Math.max(1 * dpr, peak * maxBarH);
+      const played = px < cursorPx;
+
+      ctx.globalAlpha = blend < 1 ? 0.18 + 0.82 * blend : 1;
+      ctx.fillStyle = barColor(t, played, realPk);
       ctx.fillRect(px, cy - barH, 1, barH * 2);
     }
+    ctx.globalAlpha = 1;
 
     // ── cursor line ────────────────────────────────────────────────────────
     const accent = accentColor();
-    // Glow pass (wider, low opacity)
     ctx.fillStyle = accent;
     ctx.globalAlpha = 0.25;
     ctx.fillRect(Math.max(0, cursorPx - dpr), 0, dpr * 3, physH);
-    // Sharp line
     ctx.globalAlpha = 1;
     ctx.fillStyle = colorScheme === 'mono' ? 'rgba(255,255,255,0.9)' : accent;
     ctx.fillRect(cursorPx, 0, Math.max(1, dpr), physH);
 
-    // ── loading shimmer overlay while peaks are still computing ───────────
+    // Dim overlay while peaks are still refining.
     if (loading) {
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.fillRect(0, 0, physW, physH);
@@ -117,22 +253,32 @@
   }
 
   /**
-   * Placeholder bars drawn while the waveform is being computed.
-   * A simple soft pattern so the widget doesn't look empty.
+   * Placeholder bars drawn while the waveform is computing.
+   * Uses the same twin-sine silhouette as placeholderPeakAt() with a
+   * traveling shimmer sweep animated via the shimmer parameter (0..1).
    */
-  function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number, shimmer: number) {
     const cy   = h / 2;
     const step = Math.ceil(w / 150);
 
     for (let i = 0, px = 0; px < w; i++, px += step) {
       const t    = i / 150;
-      // Two overlapping sine waves for a vaguely musical silhouette.
-      const barH = (Math.abs(Math.sin(t * Math.PI * 6)) * 0.4 +
-                    Math.abs(Math.sin(t * Math.PI * 13)) * 0.25 + 0.05)
-                   * (h / 2 - 4);
+      const barH = placeholderPeakAt(t) * (h / 2 - 4);
       ctx.fillStyle = `rgba(120,120,120,${(0.10 + 0.05 * Math.sin(t * Math.PI)).toFixed(2)})`;
       ctx.fillRect(px, cy - barH, step - 1, barH * 2);
     }
+
+    // Traveling shimmer sweep — a soft highlight that scrolls left→right.
+    const sw = w * 0.28;
+    const sx = shimmer * (w + sw) - sw;
+    const grad = ctx.createLinearGradient(sx, 0, sx + sw, 0);
+    grad.addColorStop(0,    'rgba(255,255,255,0)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.045)');
+    grad.addColorStop(0.5,  'rgba(255,255,255,0.085)');
+    grad.addColorStop(0.65, 'rgba(255,255,255,0.045)');
+    grad.addColorStop(1,    'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
   }
 
   // ── seeking ─────────────────────────────────────────────────────────────────
@@ -150,6 +296,11 @@
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const pct = pctFromPointer(e);
     seek(($durationMs / 1000) * pct);
+    // Update cursor immediately — no animation while dragging.
+    stopCursorAnim();
+    smoothPct = pct;
+    prevPct = pct;
+    if (!animRaf) draw();
     if (rangeInput) rangeInput.value = String(pct * 100);
   }
 
@@ -157,6 +308,10 @@
     if (!pointerSeeking) return;
     const pct = pctFromPointer(e);
     seek(($durationMs / 1000) * pct);
+    // Keep cursor locked to pointer during drag.
+    smoothPct = pct;
+    prevPct = pct;
+    if (!animRaf) draw();
     if (rangeInput) rangeInput.value = String(pct * 100);
   }
 
@@ -174,15 +329,17 @@
 
   onMount(() => {
     unsubs.push(
-      positionMs.subscribe(draw),
-      waveformPeaks.subscribe(draw),
-      waveformLoading.subscribe(draw),
+      positionMs.subscribe(handlePositionChange),
+      waveformPeaks.subscribe(handleStoreChange),
+      waveformLoading.subscribe(handleStoreChange),
     );
-    draw(); // initial render
+    handleStoreChange(); // initial render / kick off shimmer if needed
   });
 
   onDestroy(() => {
     unsubs.forEach((u) => u());
+    stopAnim();
+    stopCursorAnim();
   });
 
   $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;

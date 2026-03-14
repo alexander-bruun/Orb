@@ -2017,7 +2017,9 @@ name = "orb"
 version = "0.0.1"
 dependencies = [
  "discord-rich-presence",
+ "jni",
  "mdns-sd",
+ "once_cell",
  "serde",
  "serde_json",
  "tauri",

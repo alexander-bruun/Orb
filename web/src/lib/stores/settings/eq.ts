@@ -10,6 +10,24 @@ import { DEFAULT_EQ_BANDS } from '$lib/types';
 import * as eqApi from '$lib/api/eq';
 import { audioEngine } from '$lib/audio/engine';
 
+// ── Native Android EQ sync ────────────────────────────────────────────────────
+
+function isAndroidNative(): boolean {
+	if (typeof window === 'undefined') return false;
+	return (window as any).__TAURI_METADATA__?.currentPlatform === 'android';
+}
+
+async function nativeSyncEQ(enabled: boolean, bands: EQBand[]): Promise<void> {
+	if (!isAndroidNative()) return;
+	try {
+		const { invoke } = await import('@tauri-apps/api/core');
+		await invoke('set_eq_bands', {
+			enabled,
+			bandsJson: enabled ? JSON.stringify(bands) : '[]'
+		});
+	} catch { /* best-effort */ }
+}
+
 // ──────────────────────────────────────────────────────────────
 // State stores
 // ──────────────────────────────────────────────────────────────
@@ -62,12 +80,15 @@ export async function loadEQProfiles(): Promise<void> {
 export function applyEQProfile(profile: EQProfile): void {
 	activeEQProfile.set(profile);
 	audioEngine.setEQ(profile.bands);
+	nativeSyncEQ(true, profile.bands);
 }
 
 /** Restore flat EQ (all gains 0) without changing which profile is saved. */
 export function disableEQ(): void {
 	activeEQProfile.set(null);
-	audioEngine.setEQ(DEFAULT_EQ_BANDS.map((b) => ({ ...b, gain: 0 })));
+	const flat = DEFAULT_EQ_BANDS.map((b) => ({ ...b, gain: 0 }));
+	audioEngine.setEQ(flat);
+	nativeSyncEQ(false, flat);
 }
 
 // ──────────────────────────────────────────────────────────────

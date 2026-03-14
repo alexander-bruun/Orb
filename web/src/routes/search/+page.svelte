@@ -121,8 +121,10 @@
     localQuery = $searchQuery;
     if (localQuery.trim()) doSearch(localQuery, $searchFilters);
 
-    // Focus the input for convenience
-    searchInputEl?.focus();
+    // Focus the input on desktop only — on mobile this would pop the keyboard up immediately
+    if (!('ontouchstart' in window)) {
+      searchInputEl?.focus();
+    }
   });
 
   $: hasResults =

@@ -6,9 +6,11 @@ import { queue as queueApi } from '$lib/api/queue';
 import { library as libraryApi } from '$lib/api/library';
 import { recommend } from '$lib/api/recommend';
 import { addToast } from '$lib/stores/ui/toast';
-import { isTauri } from '$lib/utils/platform';
+import { isTauri, nativePlatform } from '$lib/utils/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { authStore } from '$lib/stores/auth';
+import { favorites } from '$lib/stores/library/favorites';
 import { exclusiveMode, deviceId, activeDeviceId, activeDevices, setPlayerRef, sendHeartbeat, refreshDevices as refreshDevicesFromSession } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
@@ -124,6 +126,41 @@ function buildShuffleOrder(tracks: Track[], pinIndex = -1): number[] {
 function actualIndex(logicalPos: number): number {
 	const order = get(shuffleOrder);
 	return get(shuffle) && order.length > logicalPos ? order[logicalPos] : logicalPos;
+}
+
+// ── Native Android playback helpers ──────────────────────────────────────────
+// When running on Android inside Tauri, audio is handled by ExoPlayer via JNI.
+// The browser audio engine is bypassed entirely.
+
+const isAndroidNative = typeof window !== 'undefined' && nativePlatform() === 'android';
+
+/** Position polling timer for native Android playback. */
+let nativePositionTimer: ReturnType<typeof setInterval> | null = null;
+
+function startNativePositionPolling() {
+	stopNativePositionPolling();
+	nativePositionTimer = setInterval(async () => {
+		try {
+			const pos = await invoke<number>('get_position_music');
+			const dur = await invoke<number>('get_duration_music');
+			positionMs.set(pos);
+			if (dur > 0) durationMs.set(dur);
+		} catch { /* ignore */ }
+	}, 250);
+}
+
+function stopNativePositionPolling() {
+	if (nativePositionTimer) {
+		clearInterval(nativePositionTimer);
+		nativePositionTimer = null;
+	}
+}
+
+/** Build a stream URL for native ExoPlayer with auth token as query param. */
+function buildNativeStreamUrl(trackId: string): string {
+	const base = getApiBase();
+	const token = get(authStore).token ?? '';
+	return `${base}/stream/${trackId}?token=${encodeURIComponent(token)}`;
 }
 
 export const formattedFormat = derived(currentTrack, ($t) => {
@@ -271,37 +308,42 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	positionMs.set(startSeconds * 1000);
 	durationMs.set(track.duration_ms);
 	try {
-		// Apply replay gain before starting playback so the engine applies it
-		// from the very first decoded sample.
-		const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
-		audioEngine.setReplayGainDb(rgDb);
-
-		// Apply the selected audio output device (Bluetooth, HDMI, etc.) before
-		// starting playback so the engine routes to the right sink from the start.
-		if (sinkIdSupported) {
-			const sinkId = get(selectedAudioOutputId);
-			if (sinkId && sinkId !== 'default') {
-				audioEngine.setAudioOutput(sinkId).catch(() => {});
+		if (isAndroidNative) {
+			// Native Android path: ExoPlayer handles playback via JNI bridge.
+			const streamUrl = buildNativeStreamUrl(track.id);
+			const coverUrl = track.album_id ? `${getApiBase()}/covers/${track.album_id}?token=${encodeURIComponent(get(authStore).token ?? '')}` : undefined;
+			await invoke('play_music', {
+				url: streamUrl,
+				title: track.title,
+				artist: track.artist_name ?? undefined,
+				coverUrl
+			});
+			if (startSeconds > 0) {
+				await invoke('seek_music', { positionMs: Math.round(startSeconds * 1000) });
 			}
+			startNativePositionPolling();
+		} else {
+			// Browser audio engine path (desktop + web).
+			const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
+			audioEngine.setReplayGainDb(rgDb);
+			if (sinkIdSupported) {
+				const sinkId = get(selectedAudioOutputId);
+				if (sinkId && sinkId !== 'default') {
+					audioEngine.setAudioOutput(sinkId).catch(() => {});
+				}
+			}
+			await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
+			// Preload the next track and schedule crossfade / gapless if enabled.
+			setupCrossfade(track).catch(() => {});
 		}
-
-		await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
 		_isRemoteMirror = false;
 		playbackState.set('playing');
-		// In exclusive mode, claim this device and tell peers to pause.
 		if (get(exclusiveMode) && deviceId) {
 			devicesApi.activate(deviceId).catch(() => {});
 		}
-		// In non-exclusive mode we still send a heartbeat but never activate.
-		// Immediately push current playback state so other devices update without
-		// waiting for the next 30-second heartbeat cycle.
 		sendHeartbeat().catch(() => {});
-		// Track for smart shuffle recency weighting.
 		recentlyPlayedIds.add(track.id);
-		// Record the play fire-and-forget; ignore errors so playback is never blocked.
 		libraryApi.recordPlay(track.id, 0).catch(() => {});
-		// Preload the next track and schedule crossfade / gapless if enabled.
-		setupCrossfade(track).catch(() => {});
 	} catch (err) {
 		console.error('playTrack error', err);
 		playbackState.set('idle');
@@ -316,7 +358,10 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
  */
 export function pauseLocal() {
 	_isRemoteMirror = false;
-	if (audioEngine.isLoaded) {
+	if (isAndroidNative) {
+		invoke('pause_music').catch(() => {});
+		stopNativePositionPolling();
+	} else if (audioEngine.isLoaded) {
 		audioEngine.stop();
 	}
 	const state = get(playbackState);
@@ -334,11 +379,22 @@ export function togglePlayPause() {
 	}
 	const state = get(playbackState);
 	if (state === 'playing') {
-		audioEngine.pause();
+		if (isAndroidNative) {
+			invoke('pause_music').catch(() => {});
+			stopNativePositionPolling();
+		} else {
+			audioEngine.pause();
+		}
 		playbackState.set('paused');
 		sendHeartbeat().catch(() => {});
 	} else if (state === 'paused') {
-		if (!audioEngine.isLoaded) {
+		if (isAndroidNative) {
+			// On Android, resume the paused ExoPlayer instance.
+			invoke('resume_music').catch(() => {});
+			startNativePositionPolling();
+			playbackState.set('playing');
+			sendHeartbeat().catch(() => {});
+		} else if (!audioEngine.isLoaded) {
 			// Restore scenario: nothing is loaded in the engine yet (e.g. after page
 			// refresh). Load the track starting from the saved position.
 			const track = get(currentTrack);
@@ -369,7 +425,11 @@ export function seek(posSeconds: number) {
 	const dur = get(durationMs) || 0;
 	const maxSec = Math.max(0, dur / 1000);
 	const clamped = Math.max(0, Math.min(posSeconds, Math.max(0, maxSec - 0.01)));
-	audioEngine.seek(clamped);
+	if (isAndroidNative) {
+		invoke('seek_music', { positionMs: Math.round(clamped * 1000) }).catch(() => {});
+	} else {
+		audioEngine.seek(clamped);
+	}
 	positionMs.set(clamped * 1000);
 	sendHeartbeat().catch(() => {});
 	// Re-schedule crossfade with updated timing after seek.
@@ -386,6 +446,12 @@ export function setVolume(gain: number) {
 	}
 	volume.set(gain);
 	audioEngine.setVolume(gain);
+
+	// On Android, sync to system music volume
+	if (nativePlatform() === 'android') {
+		invoke('set_volume', { volume: gain }).catch(() => {});
+	}
+
 	sendHeartbeat().catch(() => {});
 }
 
@@ -833,6 +899,8 @@ replayGainEnabled.subscribe(() => {
 // and OS-level media overlays to the player store.
 
 function mediaSessionSupported(): boolean {
+	// On Android native, Media3 manages its own MediaSession — skip the browser one.
+	if (isAndroidNative) return false;
 	return typeof navigator !== 'undefined' && 'mediaSession' in navigator;
 }
 
@@ -931,7 +999,7 @@ if (typeof document !== 'undefined') {
 // ─── Discord Rich Presence ───────────────────────────────────────────────────
 // Only active in the Tauri desktop shell. Updates presence when the track
 // changes or Discord is toggled on; clears it when toggled off.
-if (isTauri()) {
+if (isTauri() && !isAndroidNative) {
 	function pushDiscordPresence(track: Track | null) {
 		if (!get(discordEnabled) || !track) return;
 		invoke('discord_update', { title: track.title, artist: track.artist_name ?? '', album: '' }).catch(() => {});
@@ -961,7 +1029,8 @@ if (isTauri()) {
 // ─── System Tray Integration ─────────────────────────────────────────────────
 // Syncs playback state to the tray Play/Pause label and handles tray menu
 // button clicks (Previous / Play-Pause / Next) via Tauri events.
-if (isTauri()) {
+// Desktop only — tray and Discord commands don't exist on Android.
+if (isTauri() && !isAndroidNative) {
 	playbackState.subscribe((state) => {
 		invoke('set_tray_playback_state', { playing: state === 'playing' }).catch(() => {});
 	});
@@ -1003,7 +1072,13 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		durationMs.set(track.duration_ms);
 		positionMs.set((st.pos || 0) * 1000);
 		queueIndex.set(typeof st.queueIndex === 'number' ? st.queueIndex : 0);
-		const vol = typeof st.volume === 'number' ? st.volume : 1;
+		let vol = typeof st.volume === 'number' ? st.volume : 1;
+		// On Android, use the system music volume instead of the saved value
+		if (nativePlatform() === 'android') {
+			try {
+				vol = await invoke<number>('get_volume');
+			} catch { /* use saved value */ }
+		}
 		volume.set(vol);
 		audioEngine.setVolume(vol);
 		if (st.repeat === 'one' || st.repeat === 'all') repeatMode.set(st.repeat);
@@ -1026,15 +1101,67 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 			if (qTracks.length) queue.set(qTracks);
 		}
 
-		// Leave playback state as paused. Pressing play will call togglePlayPause,
-		// which detects the unloaded engine and starts from the saved position.
-		playbackState.set('paused');
+		// On Android, ExoPlayer may still be playing in the foreground service
+		// after the WebView was destroyed and recreated. Query the actual state
+		// so the play/pause button matches reality.
+		if (isAndroidNative) {
+			try {
+				const playing = await invoke<boolean>('get_is_playing');
+				if (playing) {
+					playbackState.set('playing');
+					startNativePositionPolling();
+				} else {
+					playbackState.set('paused');
+				}
+			} catch {
+				playbackState.set('paused');
+			}
+		} else {
+			// Non-Android: leave as paused. Pressing play will reload the track.
+			playbackState.set('paused');
+		}
 	} catch {
 		// ignore parse / storage errors
 	} finally {
 		saveEnabled = true;
 	}
 })();
+
+// ─── Android Native Event Bridge ──────────────────────────────────────────────
+// Listen for events emitted by the Kotlin MediaService via JNI → Rust → Tauri.
+// These handle notification button presses (next, previous, shuffle, favorite).
+
+if (isAndroidNative) {
+	listen('native-next', () => { next(); }).catch(() => {});
+	listen('native-previous', () => { previous(); }).catch(() => {});
+	listen('native-shuffle-toggle', () => { toggleShuffle(); }).catch(() => {});
+	listen('native-favorite-toggle', () => {
+		const track = get(currentTrack);
+		if (track) favorites.toggle(track.id).catch(() => {});
+	}).catch(() => {});
+
+	// Sync shuffle state to the native notification icon whenever it changes.
+	shuffle.subscribe((sh) => {
+		invoke('set_shuffle_state', { shuffled: sh }).catch(() => {});
+	});
+
+	// Sync volume slider when hardware volume buttons change the system volume.
+	listen<number>('native-volume-change', (event) => {
+		volume.set(event.payload);
+		audioEngine.setVolume(event.payload);
+	}).catch(() => {});
+
+	// Sync favorite state to the native notification icon when the track or
+	// favorites set changes.
+	const syncNativeFavorite = () => {
+		const track = get(currentTrack);
+		if (!track) return;
+		const isFav = get(favorites).has(track.id);
+		invoke('set_favorite_state', { favorited: isFav }).catch(() => {});
+	};
+	currentTrack.subscribe(syncNativeFavorite);
+	favorites.subscribe(syncNativeFavorite);
+}
 
 // ─── Device Session wiring ────────────────────────────────────────────────────
 // Inject player references into the device session so it can react to

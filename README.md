@@ -12,8 +12,10 @@
 ![Orb Desktop UI](docs/desktop.png)
 
 <table align="center"><tr>
-  <td><img src="docs/mobile.png" alt="Orb Mobile UI" width="300"></td>
+  <td><img src="docs/mobile-home.png" alt="Orb Mobile UI" width="300"></td>
+  <td><img src="docs/mobile-player.png" alt="Orb Mobile UI" width="300"></td>
   <td><img src="docs/mobile-lyrics.png" alt="Orb Mobile + Lyrics" width="300"></td>
+  <td><img src="docs/mobile-notification.png" alt="Orb Mobile + Notification" width="300"></td>
 </tr></table>
 
 ---

@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
+import { nativePlatform } from '$lib/utils/platform';
 import type { Track } from '$lib/types';
 
 export type DownloadStatus = 'downloading' | 'done' | 'error';
@@ -10,6 +11,7 @@ export interface DownloadEntry {
   title:         string;
   artistName:    string;
   albumName:     string;
+  albumId?:      string;
   status:        DownloadStatus;
   progress:      number;   // 0–100
   sizeBytes:     number;
@@ -89,6 +91,58 @@ function persist(map: Map<string, DownloadEntry>): void {
   try {
     localStorage.setItem(META_KEY, JSON.stringify([...map]));
   } catch { /* storage full — ignore */ }
+  syncMetadataToAndroid(map);
+}
+
+/** Push download metadata to Android MediaService for Android Auto offline browsing. */
+async function syncMetadataToAndroid(map: Map<string, DownloadEntry>): Promise<void> {
+  if (nativePlatform() !== 'android') return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const completed = [...map.values()]
+      .filter(e => e.status === 'done')
+      .map(e => ({
+        trackId: e.trackId,
+        title: e.title,
+        artistName: e.artistName,
+        albumName: e.albumName,
+        albumId: e.albumId ?? null,
+      }));
+    await invoke('sync_downloads', { metadataJson: JSON.stringify(completed) });
+  } catch { /* best-effort */ }
+}
+
+/** Save audio bytes to Android native storage for offline Android Auto playback. */
+async function saveToNativeStorage(trackId: string, blob: Blob): Promise<void> {
+  if (nativePlatform() !== 'android') return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const buffer = await blob.arrayBuffer();
+    await invoke('save_offline_file', { trackId, data: Array.from(new Uint8Array(buffer)) });
+  } catch { /* best-effort */ }
+}
+
+/** Download and save cover art to Android native storage for offline browsing. */
+async function saveCoverToNativeStorage(albumId: string): Promise<void> {
+  if (nativePlatform() !== 'android' || !albumId) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const coverUrl = `${getApiBase()}/covers/${albumId}`;
+    const res = await fetch(coverUrl);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const buffer = await blob.arrayBuffer();
+    await invoke('save_cover_art', { albumId, data: Array.from(new Uint8Array(buffer)) });
+  } catch { /* best-effort */ }
+}
+
+/** Delete audio file from Android native storage. */
+async function deleteFromNativeStorage(trackId: string): Promise<void> {
+  if (nativePlatform() !== 'android') return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('delete_offline_file', { trackId });
+  } catch { /* best-effort */ }
 }
 
 export function restoreDownloads(): void {
@@ -119,6 +173,7 @@ export async function downloadTrack(track: Track): Promise<void> {
       title:      track.title,
       artistName: track.artist_name ?? '',
       albumName:  track.album_name ?? '',
+      albumId:    track.album_id ?? undefined,
       status:     'downloading',
       progress:   0,
       sizeBytes:  0,
@@ -185,12 +240,17 @@ export async function downloadTrack(track: Track): Promise<void> {
       } catch { /* Cache API unavailable — IDB is the source of truth */ }
     }
 
+    // Android: save audio + cover art to native filesystem for Android Auto offline playback
+    await saveToNativeStorage(track.id, blob);
+    if (track.album_id) await saveCoverToNativeStorage(track.album_id);
+
     downloads.update(m => {
       m.set(track.id, {
         trackId:      track.id,
         title:        track.title,
         artistName:   track.artist_name ?? '',
         albumName:    track.album_name ?? '',
+        albumId:      track.album_id ?? undefined,
         status:       'done',
         progress:     100,
         sizeBytes:    blob.size,
@@ -329,6 +389,9 @@ export async function deleteDownload(trackId: string): Promise<void> {
       await cache.delete(`/api/stream/${trackId}`);
     } catch { /* ignore */ }
   }
+
+  // Remove from Android native storage
+  await deleteFromNativeStorage(trackId);
 
   downloads.update(m => {
     m.delete(trackId);

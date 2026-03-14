@@ -84,19 +84,16 @@ func (s *Service) setup(w http.ResponseWriter, r *http.Request) {
 }
 
 type registerReq struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	InviteToken string `json:"invite_token"`
 }
 
 func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	has, err := s.db.HasAnyUser(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	if has {
-		writeErr(w, http.StatusForbidden, "registration is closed")
 		return
 	}
 
@@ -109,13 +106,36 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "username, email, and password required")
 		return
 	}
+
+	// After setup: require a valid invite token.
+	if has {
+		if req.InviteToken == "" {
+			writeErr(w, http.StatusForbidden, "registration requires an invite")
+			return
+		}
+		invite, err := s.db.GetInviteToken(r.Context(), req.InviteToken)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		if invite == nil || invite.UsedAt != nil || invite.ExpiresAt.Before(time.Now()) {
+			writeErr(w, http.StatusForbidden, "invalid or expired invite token")
+			return
+		}
+		if !strings.EqualFold(invite.Email, req.Email) {
+			writeErr(w, http.StatusForbidden, "invite email does not match")
+			return
+		}
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "hash error")
 		return
 	}
+	userID := uuid.New().String()
 	user, err := s.db.CreateUser(r.Context(), store.CreateUserParams{
-		ID:           uuid.New().String(),
+		ID:           userID,
 		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: string(hash),
@@ -128,6 +148,17 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// First user becomes admin automatically.
+	if !has {
+		_ = s.db.SetUserAdmin(r.Context(), user.ID, true)
+	}
+
+	// Consume the invite token if one was used.
+	if req.InviteToken != "" {
+		_ = s.db.ConsumeInviteToken(r.Context(), req.InviteToken, user.ID)
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "username": user.Username})
 }
 
@@ -205,6 +236,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		"refresh_token": refreshToken,
 		"user_id":       user.ID,
 		"username":      user.Username,
+		"is_admin":      user.IsAdmin,
 		"totp_required": false,
 	})
 }
@@ -570,6 +602,7 @@ func (s *Service) totpVerify(w http.ResponseWriter, r *http.Request) {
 		"refresh_token": refreshToken,
 		"user_id":       user.ID,
 		"username":      user.Username,
+		"is_admin":      user.IsAdmin,
 	})
 }
 

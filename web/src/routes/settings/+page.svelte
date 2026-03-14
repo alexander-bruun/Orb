@@ -1,5 +1,6 @@
 <script lang="ts">
   import { authStore } from '$lib/stores/auth';
+  import { validateEmail, validatePassword } from '$lib/utils/validation';
   import { themeStore, avatarStore, ACCENTS } from '$lib/stores/settings/theme';
   import { apiFetch } from '$lib/api/client';
   import { isTauri, isNative } from '$lib/utils/platform';
@@ -72,21 +73,21 @@
   let pwError = '';
   let pwSuccess = false;
 
+  let pwCurrentError = '';
+  let pwNewError = '';
+  let pwConfirmError = '';
+
+  function blurPwCurrent() { pwCurrentError = pwCurrent ? '' : 'Current password is required.'; }
+  function blurPwNew()     { pwNewError = validatePassword(pwNew); }
+  function blurPwConfirm() { pwConfirmError = pwConfirm !== pwNew ? 'Passwords do not match.' : (pwConfirm ? '' : 'Please confirm your password.'); }
+
   async function submitPassword() {
+    pwCurrentError = pwCurrent ? '' : 'Current password is required.';
+    pwNewError     = validatePassword(pwNew);
+    pwConfirmError = !pwConfirm ? 'Please confirm your password.' : pwConfirm !== pwNew ? 'Passwords do not match.' : '';
     pwError = '';
     pwSuccess = false;
-    if (!pwCurrent || !pwNew || !pwConfirm) {
-      pwError = 'All fields are required.';
-      return;
-    }
-    if (pwNew.length < 8) {
-      pwError = 'New password must be at least 8 characters.';
-      return;
-    }
-    if (pwNew !== pwConfirm) {
-      pwError = 'New passwords do not match.';
-      return;
-    }
+    if (pwCurrentError || pwNewError || pwConfirmError) return;
     pwLoading = true;
     try {
       await apiFetch('/auth/password', {
@@ -94,6 +95,7 @@
         body: JSON.stringify({ current_password: pwCurrent, new_password: pwNew })
       });
       pwCurrent = pwNew = pwConfirm = '';
+      pwCurrentError = pwNewError = pwConfirmError = '';
       pwSuccess = true;
     } catch (err: any) {
       pwError = err?.message ?? 'Failed to change password.';
@@ -109,17 +111,18 @@
   let emailError = '';
   let emailSuccess = false;
 
+  let emailNewError = '';
+  let emailPwError = '';
+
+  function blurEmailNew() { emailNewError = validateEmail(emailNew); }
+  function blurEmailPw()  { emailPwError  = emailPw ? '' : 'Password is required.'; }
+
   async function submitEmail() {
+    emailNewError = validateEmail(emailNew);
+    emailPwError  = emailPw ? '' : 'Password is required.';
     emailError = '';
     emailSuccess = false;
-    if (!emailNew || !emailPw) {
-      emailError = 'All fields are required.';
-      return;
-    }
-    if (!emailNew.includes('@')) {
-      emailError = 'Enter a valid email address.';
-      return;
-    }
+    if (emailNewError || emailPwError) return;
     emailLoading = true;
     try {
       await apiFetch('/auth/email', {
@@ -128,6 +131,7 @@
       });
       authStore.updateEmail(emailNew);
       emailNew = emailPw = '';
+      emailNewError = emailPwError = '';
       emailSuccess = true;
     } catch (err: any) {
       emailError = err?.message ?? 'Failed to change email.';
@@ -324,6 +328,14 @@
       bitDepth:   16,
     },
   ];
+
+  function formatBytes(bytes: number): string {
+    if (bytes >= 1e12) return (bytes / 1e12).toFixed(2) + ' TB';
+    if (bytes >= 1e9)  return (bytes / 1e9).toFixed(2) + ' GB';
+    if (bytes >= 1e6)  return (bytes / 1e6).toFixed(1) + ' MB';
+    if (bytes >= 1e3)  return (bytes / 1e3).toFixed(1) + ' KB';
+    return bytes + ' B';
+  }
 
   function parseOptInt(s: string): number | null {
     const n = parseInt(s, 10);
@@ -625,35 +637,49 @@
 
     <div class="form-grid">
       <label class="form-label" for="pw-current">Current password</label>
-      <input
-        id="pw-current"
-        class="form-input"
-        type="password"
-        autocomplete="current-password"
-        bind:value={pwCurrent}
-        disabled={pwLoading}
-      />
+      <div class="field-col">
+        <input
+          id="pw-current"
+          class="form-input"
+          class:form-input--error={!!pwCurrentError}
+          type="password"
+          autocomplete="current-password"
+          bind:value={pwCurrent}
+          on:blur={blurPwCurrent}
+          disabled={pwLoading}
+        />
+        {#if pwCurrentError}<span class="field-error">{pwCurrentError}</span>{/if}
+      </div>
 
       <label class="form-label" for="pw-new">New password</label>
-      <input
-        id="pw-new"
-        class="form-input"
-        type="password"
-        autocomplete="new-password"
-        placeholder="min. 8 characters"
-        bind:value={pwNew}
-        disabled={pwLoading}
-      />
+      <div class="field-col">
+        <input
+          id="pw-new"
+          class="form-input"
+          class:form-input--error={!!pwNewError}
+          type="password"
+          autocomplete="new-password"
+          bind:value={pwNew}
+          on:blur={blurPwNew}
+          disabled={pwLoading}
+        />
+        {#if pwNewError}<span class="field-error">{pwNewError}</span>{/if}
+      </div>
 
       <label class="form-label" for="pw-confirm">Confirm new</label>
-      <input
-        id="pw-confirm"
-        class="form-input"
-        type="password"
-        autocomplete="new-password"
-        bind:value={pwConfirm}
-        disabled={pwLoading}
-      />
+      <div class="field-col">
+        <input
+          id="pw-confirm"
+          class="form-input"
+          class:form-input--error={!!pwConfirmError}
+          type="password"
+          autocomplete="new-password"
+          bind:value={pwConfirm}
+          on:blur={blurPwConfirm}
+          disabled={pwLoading}
+        />
+        {#if pwConfirmError}<span class="field-error">{pwConfirmError}</span>{/if}
+      </div>
     </div>
 
     {#if pwError}
@@ -676,24 +702,34 @@
 
     <div class="form-grid">
       <label class="form-label" for="email-new">New email</label>
-      <input
-        id="email-new"
-        class="form-input"
-        type="email"
-        autocomplete="email"
-        bind:value={emailNew}
-        disabled={emailLoading}
-      />
+      <div class="field-col">
+        <input
+          id="email-new"
+          class="form-input"
+          class:form-input--error={!!emailNewError}
+          type="email"
+          autocomplete="email"
+          bind:value={emailNew}
+          on:blur={blurEmailNew}
+          disabled={emailLoading}
+        />
+        {#if emailNewError}<span class="field-error">{emailNewError}</span>{/if}
+      </div>
 
       <label class="form-label" for="email-pw">Current password</label>
-      <input
-        id="email-pw"
-        class="form-input"
-        type="password"
-        autocomplete="current-password"
-        bind:value={emailPw}
-        disabled={emailLoading}
-      />
+      <div class="field-col">
+        <input
+          id="email-pw"
+          class="form-input"
+          class:form-input--error={!!emailPwError}
+          type="password"
+          autocomplete="current-password"
+          bind:value={emailPw}
+          on:blur={blurEmailPw}
+          disabled={emailLoading}
+        />
+        {#if emailPwError}<span class="field-error">{emailPwError}</span>{/if}
+      </div>
     </div>
 
     {#if emailError}
@@ -1506,10 +1542,10 @@
 
     <!-- Summary stats -->
     <div class="dl-summary">
-      <span class="dl-stat">{doneCount} track{doneCount !== 1 ? 's' : ''} · {(totalSizeBytes / 1e6).toFixed(0)} MB</span>
+      <span class="dl-stat">{doneCount} track{doneCount !== 1 ? 's' : ''} · {formatBytes(totalSizeBytes)}</span>
       {#if storageEst}
         <span class="dl-stat dl-stat--muted">
-          {((storageEst.usage ?? 0) / 1e6).toFixed(0)} MB used{#if storageEst.quota} of {(storageEst.quota / 1e6).toFixed(0)} MB{/if}
+          {formatBytes(storageEst.usage ?? 0)} used{#if storageEst.quota} of {formatBytes(storageEst.quota)}{/if}
         </span>
       {/if}
     </div>
@@ -1558,7 +1594,7 @@
           <button class="dl-album-header" on:click={() => toggleAlbumGroup(albumName)}>
             <svg class="dl-chevron" class:expanded={expandedAlbums.has(albumName)} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
             <span class="dl-album-name">{albumName || 'Unknown Album'}</span>
-            <span class="dl-album-count">{tracks.length} · {(tracks.reduce((s, e) => s + e.sizeBytes, 0) / 1e6).toFixed(1)} MB</span>
+            <span class="dl-album-count">{tracks.length} · {formatBytes(tracks.reduce((s, e) => s + e.sizeBytes, 0))}</span>
           </button>
           {#if expandedAlbums.has(albumName)}
             <ul class="dl-track-list">
@@ -1566,7 +1602,7 @@
                 <li class="dl-track-item">
                   <div class="dl-track-info">
                     <span class="dl-track-title">{entry.title}</span>
-                    <span class="dl-track-meta">{entry.artistName} · {(entry.sizeBytes / 1e6).toFixed(1)} MB</span>
+                    <span class="dl-track-meta">{entry.artistName} · {formatBytes(entry.sizeBytes)}</span>
                   </div>
                   <button class="dl-remove-btn" on:click={() => deleteDownload(entry.trackId)} title="Remove download">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1756,6 +1792,9 @@
   }
   .form-input:focus { border-color: var(--accent); }
   .form-input:disabled { opacity: 0.5; }
+  .form-input--error { border-color: #f87171 !important; }
+  .field-col { display: flex; flex-direction: column; gap: 3px; }
+  .field-error { color: #f87171; font-size: 11px; }
 
   /* ── Messages ── */
   .msg {

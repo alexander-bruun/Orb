@@ -9,17 +9,19 @@ declare const self: ServiceWorkerGlobalScope;
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
-// ── Ensure the offline page itself is cached so refreshing `/offline` works ──
-const OFFLINE_CACHE = 'orb-offline-page';
-const OFFLINE_PATHS = ['/offline', '/offline/', '/offline/index.html'];
+// ── Pre-cache key app pages so they load instantly and work offline ───────────
+// /favorites is the offline landing pivot — cache it explicitly so a hard
+// refresh works even with no network.  Other shell pages benefit as well.
+const SHELL_CACHE = 'orb-shell-pages';
+const SHELL_PATHS = ['/', '/favorites', '/login'];
 
 self.addEventListener('install', (event: ExtendableEvent) => {
   event.waitUntil(
     (async () => {
       try {
-        const cache = await caches.open(OFFLINE_CACHE);
+        const cache = await caches.open(SHELL_CACHE);
         await Promise.all(
-          OFFLINE_PATHS.map(async (p) => {
+          SHELL_PATHS.map(async (p) => {
             try {
               const resp = await fetch(p, { cache: 'no-store' });
               if (resp && resp.ok) await cache.put(p, resp.clone());
@@ -29,7 +31,7 @@ self.addEventListener('install', (event: ExtendableEvent) => {
           })
         );
       } catch {
-        // best-effort; don't fail the install if offline page can't be cached
+        // best-effort; don't fail the install
       }
     })()
   );
@@ -138,14 +140,25 @@ self.addEventListener('backgroundfetchfail', (event: Event) => {
   bgEvent.waitUntil(bgEvent.updateUI({ title: 'Download failed' }));
 });
 
-// Serve cached offline page for navigation requests to /offline
+// Serve the cached /favorites shell for navigation requests when offline,
+// and keep the /offline path alive as a redirect shim.
 registerRoute(
-  ({ request, url }) => request.mode === 'navigate' && url.pathname === '/offline',
+  ({ request, url }) =>
+    request.mode === 'navigate' &&
+    (url.pathname === '/' || url.pathname === '/favorites' || url.pathname === '/offline'),
   async ({ event }) => {
-    const cache = await caches.open(OFFLINE_CACHE);
-    const match = (await cache.match('/offline')) || (await cache.match('/offline/index.html'));
+    const req = event as FetchEvent;
+    // Try network first so the page is always fresh when online.
+    try {
+      const fresh = await fetch(req.request);
+      if (fresh.ok) return fresh;
+    } catch {
+      // Network unavailable — fall through to shell cache.
+    }
+    const cache = await caches.open(SHELL_CACHE);
+    // Prefer the cached home shell; fall back to favorites, then error.
+    const match = (await cache.match('/')) ?? (await cache.match('/favorites'));
     if (match) return match.clone();
-    // Fallback to network if we don't have it cached
-    return fetch((event as FetchEvent).request).catch(() => new Response('Offline', { status: 503 }));
+    return new Response('Offline', { status: 503 });
   }
 );

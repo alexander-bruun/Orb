@@ -99,8 +99,10 @@
 
   // Start/stop loop when modal opens/closes
   $: if ($lyricsOpen && listEl) {
-    currentScrollTop = listEl.scrollTop;
     updateTargetScroll($activeLyricIndex);
+    // Snap immediately to the current line so we don't lerp from the top on open
+    currentScrollTop = targetScrollTop;
+    listEl.scrollTop = targetScrollTop;
     startScrollLoop();
   } else {
     stopScrollLoop();

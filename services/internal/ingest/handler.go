@@ -78,6 +78,7 @@ func NewService(serverCtx context.Context, ingester *Ingester, kv *redis.Client)
 func (s *Service) Routes(r chi.Router) {
 	r.Post("/scan", s.triggerScan)
 	r.Get("/status", s.status)
+	r.Get("/stream", s.streamEvents)
 }
 
 // StartWatch is the entry point for background ingest. Call it once per instance
@@ -264,6 +265,78 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "scan started"})
+}
+
+// GET /admin/ingest/stream — SSE endpoint that streams ProgressEvents in real time.
+// Falls back to polling-style status snapshots when Redis is unavailable.
+func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	writeEvent := func(data string) {
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	// When Redis is available, subscribe to the ingest events pub/sub channel.
+	if s.kv != nil {
+		sub := s.kv.Subscribe(r.Context(), kvkeys.IngestEvents())
+		defer sub.Close()
+		ch := sub.Channel()
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				writeEvent(msg.Payload)
+			case <-ticker.C:
+				// Heartbeat to keep the connection alive through proxies.
+				fmt.Fprintf(w, ": heartbeat\n\n")
+				flusher.Flush()
+			}
+		}
+	}
+
+	// No Redis — send a status snapshot every 2 s while a scan is running.
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			lr := s.lastResult
+			s.mu.Unlock()
+			ev := ProgressEvent{
+				Type:    "progress",
+			}
+			if lr != nil {
+				ev.Done = lr.Ingested
+				ev.Errors = lr.Errors
+				ev.Skipped = lr.Skipped
+			}
+			if !s.running.Load() {
+				ev.Type = "complete"
+			}
+			data, _ := json.Marshal(ev)
+			writeEvent(string(data))
+			if ev.Type == "complete" {
+				return
+			}
+		}
+	}
 }
 
 func (s *Service) status(w http.ResponseWriter, r *http.Request) {
