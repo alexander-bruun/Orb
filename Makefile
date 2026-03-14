@@ -1,3 +1,11 @@
+# Frontend
+web-install:
+	cd web && bun install
+
+# Tauri desktop build (installs frontend deps first)
+tauri-build: web-install
+	cd web && bunx tauri build
+
 # Docker targets
 docker-build:
 	sudo docker compose build
@@ -41,6 +49,19 @@ ios-dev-sign:
 
 ios-install:
 	scripts/ios-install.sh
+
+# CI targets (no local env sourcing, no dev signing — env vars set by CI)
+android-init-ci:
+	cd web && bunx tauri android init
+
+android-build-ci:
+	cd web && bunx tauri android build --apk --aab
+
+ios-init-ci:
+	cd web && bunx tauri ios init
+
+ios-build-ci:
+	cd web && bunx tauri ios build
 
 # Helper functions for generating iOS and Android icons
 icon-generate:

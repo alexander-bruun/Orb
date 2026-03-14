@@ -158,10 +158,10 @@ jobs:
         run: make web-install
 
       - name: Initialize Tauri Android
-        run: make tauri-android-init-ci
+        run: make android-init-ci
 
       - name: Build Tauri Android
-        run: make tauri-android-build-ci
+        run: make android-build-ci
 
       - name: Standardize Android artifact names
         env:
@@ -223,10 +223,10 @@ jobs:
           fi
 
       - name: Initialize Tauri iOS
-        run: make tauri-ios-init-ci
+        run: make ios-init-ci
 
       - name: Build Tauri iOS
-        run: make tauri-ios-build-ci
+        run: make ios-build-ci
 
       - name: Standardize iOS artifact names
         env:
