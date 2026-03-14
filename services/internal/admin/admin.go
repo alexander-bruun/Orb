@@ -299,8 +299,7 @@ func (s *Service) createInvite(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := s.db.GetSiteSettings(r.Context(), smtpKeys)
 	siteURL := cfg["site_base_url"]
 	if siteURL == "" {
-		http.Error(w, "site_base_url is not configured", http.StatusInternalServerError)
-		return
+		siteURL = requestBaseURL(r)
 	}
 	inviteURL := fmt.Sprintf("%s/register?invite=%s", siteURL, token)
 
@@ -432,6 +431,29 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.db.InsertAuditLog(r.Context(), actorID, "refetch_cover", "album", albumID, nil)
 	writeJSON(w, map[string]string{"cover_art_key": coverKey})
+}
+
+// requestBaseURL derives the site base URL from the incoming HTTP request.
+// It prefers X-Forwarded-Proto + X-Forwarded-Host (set by reverse proxies), then
+// falls back to the Origin header (set by browsers on cross-origin requests),
+// and finally uses the scheme inferred from TLS + r.Host.
+func requestBaseURL(r *http.Request) string {
+	// Origin header (browsers set this on most cross-origin requests).
+	if origin := r.Header.Get("Origin"); origin != "" {
+		return origin
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	host := r.Host
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		host = fwd
+	}
+	return scheme + "://" + host
 }
 
 // ── Site settings ─────────────────────────────────────────────────────────────

@@ -127,6 +127,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/favorites/ids", s.listFavoriteIDs)
 	r.Post("/favorites/{track_id}", s.addFavorite)
 	r.Delete("/favorites/{track_id}", s.removeFavorite)
+	r.Get("/ratings", s.listRatings)
+	r.Put("/ratings/{track_id}", s.setRating)
+	r.Delete("/ratings/{track_id}", s.deleteRating)
 	r.Get("/tracks/batch", s.tracksBatch)
 	r.Get("/tracks/{id}/lyrics", s.getTrackLyrics)
 	r.Put("/tracks/{id}/lyrics", s.setTrackLyrics)
@@ -608,6 +611,50 @@ func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 		TrackID: trackID,
 	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) listRatings(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	ratings, err := s.db.ListRatings(r.Context(), userID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if ratings == nil {
+		ratings = map[string]int{}
+	}
+	writeJSON(w, http.StatusOK, ratings)
+}
+
+func (s *Service) setRating(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	trackID := chi.URLParam(r, "track_id")
+	var body struct {
+		Rating int `json:"rating"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Rating < 1 || body.Rating > 5 {
+		writeErr(w, http.StatusBadRequest, "rating must be 1–5")
+		return
+	}
+	if err := s.db.SetRating(r.Context(), store.RateTrackParams{
+		UserID:  userID,
+		TrackID: trackID,
+		Rating:  body.Rating,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) deleteRating(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	trackID := chi.URLParam(r, "track_id")
+	if err := s.db.DeleteRating(r.Context(), userID, trackID); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

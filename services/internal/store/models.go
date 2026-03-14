@@ -282,6 +282,13 @@ type FavoriteParams struct {
 	TrackID string
 }
 
+// RateTrackParams for setting a track rating.
+type RateTrackParams struct {
+	UserID  string
+	TrackID string
+	Rating  int // 1–5
+}
+
 // RecordPlayParams for recording a track play.
 type RecordPlayParams struct {
 	UserID           string

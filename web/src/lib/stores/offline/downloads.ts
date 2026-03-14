@@ -3,6 +3,7 @@ import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
 import { nativePlatform } from '$lib/utils/platform';
 import type { Track } from '$lib/types';
+import type { LyricLine } from '$lib/stores/player/lyrics';
 
 export type DownloadStatus = 'downloading' | 'done' | 'error';
 
@@ -19,11 +20,13 @@ export interface DownloadEntry {
   error?:        string;
 }
 
-const AUDIO_CACHE = 'orb-offline-audio';
-const META_KEY    = 'orb-downloads-v1';
-const IDB_NAME    = 'orb-offline-audio';
-const IDB_STORE   = 'blobs';
-const IDB_VERSION = 1;
+const AUDIO_CACHE      = 'orb-offline-audio';
+const META_KEY         = 'orb-downloads-v1';
+const IDB_NAME         = 'orb-offline-audio';
+const IDB_STORE        = 'blobs';
+const IDB_LYRICS_STORE = 'lyrics';
+const IDB_WAVE_STORE   = 'waveform';
+const IDB_VERSION      = 2;
 
 export const downloads = writable<Map<string, DownloadEntry>>(new Map());
 
@@ -36,12 +39,58 @@ function openIDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(IDB_NAME, IDB_VERSION);
     req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
-        req.result.createObjectStore(IDB_STORE);
+      const db = req.result;
+      for (const store of [IDB_STORE, IDB_LYRICS_STORE, IDB_WAVE_STORE]) {
+        if (!db.objectStoreNames.contains(store)) {
+          db.createObjectStore(store);
+        }
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
+  });
+}
+
+async function idbPutTo(store: string, key: string, value: unknown): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(JSON.stringify(value), key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function idbGetFrom<T>(store: string, key: string): Promise<T | undefined> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => {
+      db.close();
+      resolve(req.result != null ? JSON.parse(req.result as string) as T : undefined);
+    };
+    req.onerror = () => { db.close(); reject(req.error); };
+  });
+}
+
+async function idbDeleteFrom(store: string, key: string): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = () => { db.close(); reject(tx.error); };
+  });
+}
+
+async function idbClearStore(store: string): Promise<void> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -244,6 +293,18 @@ export async function downloadTrack(track: Track): Promise<void> {
     await saveToNativeStorage(track.id, blob);
     if (track.album_id) await saveCoverToNativeStorage(track.album_id);
 
+    // Cache lyrics and waveform for offline playback (best-effort).
+    const headers = { Authorization: auth.token ? `Bearer ${auth.token}` : '' };
+    const base = getApiBase();
+    await Promise.allSettled([
+      fetch(`${base}/library/tracks/${track.id}/lyrics`, { headers })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => data?.length ? idbPutTo(IDB_LYRICS_STORE, track.id, data) : null),
+      fetch(`${base}/library/tracks/${track.id}/waveform`, { headers })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => Array.isArray(data?.peaks) && data.peaks.length ? idbPutTo(IDB_WAVE_STORE, track.id, data.peaks) : null),
+    ]);
+
     downloads.update(m => {
       m.set(track.id, {
         trackId:      track.id,
@@ -379,8 +440,10 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
 // ── Delete a downloaded track ────────────────────────────────────────────────
 
 export async function deleteDownload(trackId: string): Promise<void> {
-  // Remove from IDB (primary)
+  // Remove from IDB (primary + lyrics + waveform)
   try { await idbDelete(trackId); } catch { /* ignore */ }
+  try { await idbDeleteFrom(IDB_LYRICS_STORE, trackId); } catch { /* ignore */ }
+  try { await idbDeleteFrom(IDB_WAVE_STORE, trackId); } catch { /* ignore */ }
 
   // Remove from Cache API (secondary)
   if (cacheAvailable) {
@@ -405,8 +468,10 @@ export async function deleteDownload(trackId: string): Promise<void> {
 export async function deleteAllDownloads(): Promise<void> {
   const map = get(downloads);
 
-  // Clear IDB
+  // Clear IDB (audio + lyrics + waveform)
   try { await idbClear(); } catch { /* ignore */ }
+  try { await idbClearStore(IDB_LYRICS_STORE); } catch { /* ignore */ }
+  try { await idbClearStore(IDB_WAVE_STORE); } catch { /* ignore */ }
 
   // Clear Cache API entries
   if (cacheAvailable) {
@@ -440,4 +505,24 @@ export async function isDownloaded(trackId: string): Promise<boolean> {
   }
 
   return false;
+}
+
+// ── Offline lyrics / waveform getters ────────────────────────────────────────
+
+/** Returns cached lyrics for an offline track, or null if not available. */
+export async function getOfflineLyrics(trackId: string): Promise<LyricLine[] | null> {
+  try {
+    return (await idbGetFrom<LyricLine[]>(IDB_LYRICS_STORE, trackId)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Returns cached waveform peaks for an offline track, or null if not available. */
+export async function getOfflinePeaks(trackId: string): Promise<number[] | null> {
+  try {
+    return (await idbGetFrom<number[]>(IDB_WAVE_STORE, trackId)) ?? null;
+  } catch {
+    return null;
+  }
 }

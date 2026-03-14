@@ -32,6 +32,7 @@
   }
   import { library } from '$lib/api/library';
   import { writable } from 'svelte/store';
+  import StarRating from '$lib/components/ui/StarRating.svelte';
   import { expanded } from './coverExpandStore';
   import {
     lpRole,
@@ -131,7 +132,10 @@
             <a href="/library/albums/{$currentAlbum.id}" class="album-link">{$currentAlbum.title}</a>
           </div>
         {/if}
-        <div class="song-title">{$currentTrack.title}</div>
+        <div class="song-title-row">
+          <span class="song-title">{$currentTrack.title}</span>
+          <StarRating trackId={$currentTrack.id} size={14} />
+        </div>
       </div>
     {:else}
       <!-- Skeleton placeholder when no track is loaded -->
@@ -602,12 +606,20 @@
     transition: color 0.15s;
   }
   .album-link:hover { color: var(--accent); text-decoration: underline; }
+  .song-title-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+  }
   .song-title {
     font-size: 0.9rem;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
   }
 
   /* Playback section: fills the rest, controls are the first item so they never move */

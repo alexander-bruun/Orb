@@ -24,7 +24,7 @@
 <button class="album-card" on:click={() => goto(`/library/albums/${album.id}`)}>
   <div class="cover-wrap">
     {#if album.cover_art_key}
-      <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" />
+      <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" loading="lazy" />
     {:else}
       <div class="cover placeholder album-fallback">♪</div>
     {/if}

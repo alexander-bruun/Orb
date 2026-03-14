@@ -11,6 +11,7 @@
   import LyricsModal from "$lib/components/layout/shared/LyricsModal.svelte";
   import { isAuthenticated } from "$lib/stores/auth";
   import { favorites } from "$lib/stores/library/favorites";
+  import { ratings } from "$lib/stores/library/ratings";
   import { setupRequired } from "$lib/stores/auth/setup";
   import { apiFetch } from "$lib/api/client";
   import { page } from "$app/stores";
@@ -177,6 +178,7 @@
         if (!dataLoaded) {
           dataLoaded = true;
           favorites.load();
+          ratings.load();
           loadEQProfiles().catch(() => {});
         }
       }
@@ -365,13 +367,13 @@
     .shell {
       /* Stop the scroll container (and its scrollbar) above the fixed bottom
          bars: 64px nav + 66px mini-player + safe-area. Matches padding-bottom. */
-      height: calc(100dvh - 130px - env(safe-area-inset-bottom, 0px));
+      height: calc(100dvh - 60px - env(safe-area-inset-bottom, 0px));
       grid-template-rows: 1fr;
       grid-template-columns: 1fr;
       grid-template-areas: "content";
     }
     .shell.tauri {
-      height: calc(100dvh - 130px - env(safe-area-inset-bottom, 0px) - var(--titlebar-h, 0px));
+      height: calc(100dvh - 60px - env(safe-area-inset-bottom, 0px) - var(--titlebar-h, 0px));
       grid-template-rows: var(--titlebar-h) 1fr;
       grid-template-areas:
         "titlebar"

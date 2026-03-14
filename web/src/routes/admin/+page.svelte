@@ -3,6 +3,18 @@
   import { goto } from '$app/navigation';
   import { authStore } from '$lib/stores/auth';
   import { admin as adminApi } from '$lib/api/admin';
+  import { getApiBase } from '$lib/api/base';
+  import { isNative } from '$lib/utils/platform';
+
+  /** Returns the effective site base URL to pre-fill the admin setting. */
+  function effectiveSiteURL(): string {
+    if (isNative()) {
+      // On Tauri (desktop/mobile), derive from the configured API base URL.
+      return getApiBase().replace(/\/api\/?$/, '');
+    }
+    // On the web, the frontend origin is the correct base URL.
+    return window.location.origin;
+  }
   import type {
     AdminSummary, UserPlayStat, TrackPlayCount, ArtistPlayCount,
     DailyPlayCount, StorageStats, InviteToken, AuditLog, Album,
@@ -102,6 +114,10 @@
     if (tab === 'settings' && !smtpSettings.smtp_host) {
       smtpSettings = await adminApi.getSettings().catch(() => ({}));
       smtpTestTo = $authStore.user?.email ?? '';
+      // Auto-fill site_base_url from the current origin if not yet configured.
+      if (!smtpSettings.site_base_url) {
+        smtpSettings = { ...smtpSettings, site_base_url: effectiveSiteURL() };
+      }
     }
     if (tab === 'audit' && auditLogs.length === 0) {
       await loadAuditPage();
@@ -564,7 +580,13 @@
         <div class="form-row"><label for="smtp-from">From Address</label><input id="smtp-from" bind:value={smtpSettings.smtp_from_address} placeholder="orb@example.com" /></div>
         <div class="form-row"><label for="smtp-name">From Name</label><input id="smtp-name" bind:value={smtpSettings.smtp_from_name} placeholder="Orb Music" /></div>
         <div class="form-row"><label for="smtp-tls">TLS (port 465)</label><input id="smtp-tls" type="checkbox" checked={smtpSettings.smtp_tls === 'true'} on:change={(e) => { smtpSettings = { ...smtpSettings, smtp_tls: (e.target as HTMLInputElement).checked ? 'true' : 'false' }; }} /></div>
-        <div class="form-row"><label for="smtp-url">Site Base URL</label><input id="smtp-url" bind:value={smtpSettings.site_base_url} placeholder="https://music.example.com" /></div>
+        <div class="form-row">
+          <label for="smtp-url">Site Base URL</label>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+            <input id="smtp-url" bind:value={smtpSettings.site_base_url} placeholder="https://music.example.com" />
+            <span style="font-size:0.72rem;color:var(--text-muted)">Used in invite and verification email links. Auto-detected from your browser if left blank.</span>
+          </div>
+        </div>
         <div style="padding-top:0.25rem">
           <button class="btn-accent" type="submit" disabled={smtpSaving}>{smtpSaving ? 'Saving…' : 'Save Settings'}</button>
         </div>

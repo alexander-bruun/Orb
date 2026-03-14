@@ -62,6 +62,14 @@ export const library = {
 	favoriteIDs: () => apiFetch<string[]>('/library/favorites/ids'),
 	addFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'POST' }),
 	removeFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'DELETE' }),
+	ratings: () => apiFetch<Record<string, number>>('/library/ratings'),
+	setRating: (id: string, rating: number) =>
+		apiFetch(`/library/ratings/${id}`, {
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ rating }),
+		}),
+	deleteRating: (id: string) => apiFetch(`/library/ratings/${id}`, { method: 'DELETE' }),
 	// Batch-fetch tracks by IDs in a single request (used for queue restore).
 	tracksBatch: (ids: string[]) =>
 		apiFetch<Track[]>(`/library/tracks/batch?ids=${ids.join(',')}`),

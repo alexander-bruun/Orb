@@ -1145,6 +1145,45 @@ func (s *Store) ListFavoriteIDs(ctx context.Context, userID string) ([]string, e
 	return ids, rows.Err()
 }
 
+// SetRating upserts a 1–5 star rating for a track.
+func (s *Store) SetRating(ctx context.Context, p RateTrackParams) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO track_ratings (user_id, track_id, rating)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id, track_id) DO UPDATE SET rating = EXCLUDED.rating, rated_at = now()`,
+		p.UserID, p.TrackID, p.Rating)
+	return err
+}
+
+// DeleteRating removes a track rating for a user.
+func (s *Store) DeleteRating(ctx context.Context, userID, trackID string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM track_ratings WHERE user_id = $1 AND track_id = $2`,
+		userID, trackID)
+	return err
+}
+
+// ListRatings returns a map of track_id → rating for all rated tracks of a user.
+func (s *Store) ListRatings(ctx context.Context, userID string) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT track_id, rating FROM track_ratings WHERE user_id = $1`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]int)
+	for rows.Next() {
+		var trackID string
+		var rating int
+		if err := rows.Scan(&trackID, &rating); err != nil {
+			return nil, err
+		}
+		result[trackID] = rating
+	}
+	return result, rows.Err()
+}
+
 // CountAlbums returns the number of distinct album groups (i.e. deduped by album_group_id).
 func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 	var count int

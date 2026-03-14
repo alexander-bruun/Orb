@@ -345,3 +345,13 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
     delivered_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(webhook_id, delivered_at DESC);
+
+-- Track ratings: per-user 1–5 star rating for tracks.
+CREATE TABLE IF NOT EXISTS track_ratings (
+    user_id   TEXT NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+    track_id  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    rating    SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    rated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, track_id)
+);
+CREATE INDEX IF NOT EXISTS track_ratings_user_idx ON track_ratings(user_id);

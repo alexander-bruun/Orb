@@ -1,6 +1,7 @@
 import { writable, derived } from 'svelte/store';
 import { currentTrack, positionMs } from '.';
 import { apiFetch } from '$lib/api/client';
+import { getOfflineLyrics } from '$lib/stores/offline/downloads';
 
 export interface LyricLine {
 	time_ms: number;
@@ -43,8 +44,10 @@ currentTrack.subscribe(async (track) => {
 			lyricsLines.set(lines ?? []);
 		}
 	} catch {
+		// Try offline cache before giving up.
+		const cached = await getOfflineLyrics(track.id);
 		if (loadedTrackId === track.id) {
-			lyricsLines.set([]);
+			lyricsLines.set(cached ?? []);
 		}
 	} finally {
 		if (loadedTrackId === track.id) {

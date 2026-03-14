@@ -23,6 +23,7 @@ import { audioEngine } from '$lib/audio/engine';
 import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
 import { library as libApi } from '$lib/api/library';
+import { getOfflinePeaks } from '$lib/stores/offline/downloads';
 
 export interface WaveformPeaks {
 	trackId: string;
@@ -119,7 +120,14 @@ currentTrack.subscribe(async (track) => {
 			return;
 		}
 	} catch {
-		// Server has no pre-generated data — fall through to client-side paths.
+		// Server unreachable — try offline cache before falling through to client-side paths.
+		const cached = await getOfflinePeaks(track.id);
+		if (gen !== generation) return;
+		if (cached && cached.length > 0) {
+			waveformPeaks.set({ trackId: track.id, peaks: new Float32Array(cached) });
+			waveformLoading.set(false);
+			return;
+		}
 	}
 	if (gen !== generation) return;
 

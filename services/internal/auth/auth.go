@@ -110,10 +110,19 @@ func (s *Service) loadMailer(ctx context.Context) (*mailer.Mailer, string) {
 }
 
 // sendVerificationEmail generates a token, stores it, and sends the email.
+// fallbackBaseURL is used when site_base_url is not configured in the DB
+// (callers should pass the request Origin so links work without manual setup).
 // Best-effort: errors are logged but not returned to callers.
-func (s *Service) sendVerificationEmail(ctx context.Context, user store.User) {
+func (s *Service) sendVerificationEmail(ctx context.Context, user store.User, fallbackBaseURL string) {
 	m, baseURL := s.loadMailer(ctx)
 	if m == nil {
+		return
+	}
+	if baseURL == "" {
+		baseURL = fallbackBaseURL
+	}
+	if baseURL == "" {
+		slog.Warn("auth: site_base_url not configured, skipping verification email", "user_id", user.ID)
 		return
 	}
 	token := uuid.New().String()
@@ -126,6 +135,27 @@ func (s *Service) sendVerificationEmail(ctx context.Context, user store.User) {
 	if err := m.SendVerification(ctx, user.Email, user.Username, verifyURL); err != nil {
 		slog.Warn("auth: failed to send verification email", "to", user.Email, "err", err)
 	}
+}
+
+// requestBaseURL derives the site base URL from an HTTP request's headers.
+// Prefers Origin (set by browsers on cross-origin requests), then
+// X-Forwarded-Proto/Host (reverse proxy), then falls back to scheme+r.Host.
+func requestBaseURL(r *http.Request) string {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		return origin
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	host := r.Host
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		host = fwd
+	}
+	return scheme + "://" + host
 }
 
 // GET /auth/email-config — returns whether email verification is available (SMTP configured).
@@ -171,7 +201,7 @@ func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "email verification not configured")
 		return
 	}
-	s.sendVerificationEmail(r.Context(), user)
+	s.sendVerificationEmail(r.Context(), user, requestBaseURL(r))
 	writeJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
 }
 
@@ -263,7 +293,8 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send verification email if SMTP is configured (best-effort).
-	go s.sendVerificationEmail(context.Background(), user)
+	origin := requestBaseURL(r)
+	go s.sendVerificationEmail(context.Background(), user, origin)
 
 	writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "username": user.Username})
 }
@@ -485,7 +516,8 @@ func (s *Service) changeEmail(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.ResetEmailVerification(r.Context(), userID)
 	// Send a fresh verification email (best-effort).
 	user.Email = req.NewEmail
-	go s.sendVerificationEmail(context.Background(), user)
+	origin := requestBaseURL(r)
+	go s.sendVerificationEmail(context.Background(), user, origin)
 	w.WriteHeader(http.StatusNoContent)
 }
 

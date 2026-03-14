@@ -38,6 +38,14 @@
     border-bottom: 1px solid var(--border);
   }
 
+  /* On mobile the alpha scrollbar handles navigation; sticky headers just
+     create a visible gap at the top of the screen when scrolling. */
+  @media (max-width: 640px) {
+    .section-header {
+      position: static;
+    }
+  }
+
   .album-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

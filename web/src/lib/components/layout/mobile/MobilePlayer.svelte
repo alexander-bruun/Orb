@@ -55,6 +55,7 @@
     createAndConnect,
   } from '$lib/stores/social/listenParty';
   import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
+  import StarRating from '$lib/components/ui/StarRating.svelte';
   import { waveformEnabled } from '$lib/stores/settings/theme';
   import { nativePlatform } from '$lib/utils/platform';
   import { invoke } from '@tauri-apps/api/core';
@@ -547,17 +548,20 @@
               {/if}
             </div>
           </div>
-          <button
-            class="fs-fav-btn"
-            class:active={isFavorite}
-            on:click={toggleFavorite}
-            aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-            aria-pressed={isFavorite}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-            </svg>
-          </button>
+          <div class="fs-actions">
+            <StarRating trackId={$currentTrack.id} size={22} />
+            <button
+              class="fs-fav-btn"
+              class:active={isFavorite}
+              on:click={toggleFavorite}
+              aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+              aria-pressed={isFavorite}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              </svg>
+            </button>
+          </div>
         </div>
       {/if}
 
@@ -1260,6 +1264,13 @@
     .fs-info-text {
       flex: 1;
       min-width: 0;
+    }
+
+    .fs-actions {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
     }
 
     .fs-fav-btn {
