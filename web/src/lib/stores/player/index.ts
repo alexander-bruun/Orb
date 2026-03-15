@@ -13,6 +13,7 @@ import { authStore } from '$lib/stores/auth';
 import { favorites } from '$lib/stores/library/favorites';
 import { exclusiveMode, deviceId, activeDeviceId, activeDevices, setPlayerRef, sendHeartbeat, refreshDevices as refreshDevicesFromSession } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
+import { isCurrentlyOffline } from '$lib/stores/offline/connectivity';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
 import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
 
@@ -286,7 +287,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	// The queue is embedded directly in the play command (atomic queue + play)
 	// so there is no race condition with a separate queue write.
 	const activeDev = get(activeDeviceId);
-	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		try {
 			const tracksToSend = trackList ?? get(queue);
 			await devicesApi.playCommand(
@@ -387,7 +388,7 @@ export function pauseLocal() {
 export function togglePlayPause() {
 	// Control-device mode: delegate to active device (only in exclusive mode).
 	const activeDev = get(activeDeviceId);
-	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		devicesApi.controlCommand(activeDev, 'toggle').catch(() => {});
 		return;
 	}
@@ -434,7 +435,7 @@ export function togglePlayPause() {
 export function seek(posSeconds: number) {
 	// Control-device mode: delegate seek to the active device (only in exclusive mode).
 	const activeDev = get(activeDeviceId);
-	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		const posMs = Math.round(posSeconds * 1000);
 		devicesApi.controlCommand(activeDev, 'seek', { position_ms: posMs }).catch(() => {});
 		// Optimistically update local state so the seek bar reflects the new
@@ -461,7 +462,7 @@ export function seek(posSeconds: number) {
 export function setVolume(gain: number) {
 	// Control-device mode: delegate volume to the active device (only in exclusive mode).
 	const activeDev = get(activeDeviceId);
-	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		devicesApi.controlCommand(activeDev, 'volume', { volume: gain }).catch(() => {});
 		return;
 	}
@@ -505,7 +506,7 @@ async function _replenishRadio(currentQueue: Track[]) {
 export async function next() {
 	// Control-device mode: delegate to active device (only in exclusive mode).
 	const activeDev = get(activeDeviceId);
-	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		devicesApi.controlCommand(activeDev, 'next').catch(() => {});
 		return;
 	}
@@ -597,7 +598,7 @@ export async function next() {
 export async function previous() {
 	// Control-device mode: delegate to active device (only in exclusive mode).
 	const activeDev = get(activeDeviceId);
-	if (get(exclusiveMode) && activeDev && activeDev !== deviceId) {
+	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		devicesApi.controlCommand(activeDev, 'previous').catch(() => {});
 		return;
 	}

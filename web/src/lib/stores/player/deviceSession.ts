@@ -15,6 +15,7 @@ import { devices as devicesApi, type Device, type DeviceEvent } from '$lib/api/d
 import { ApiError } from '$lib/api/client';
 import { authStore } from '$lib/stores/auth';
 import { isTauri, nativePlatform } from '$lib/utils/platform';
+import { isOffline } from '$lib/stores/offline/connectivity';
 
 // ── Local device identity ────────────────────────────────────────────────────
 
@@ -309,10 +310,11 @@ function openSSE() {
 	if (sseSource) { sseSource.close(); }
 
 	sseSource = devicesApi.openEvents(handleDeviceEvent, () => {
-		// Reconnect after 5 s on error; refresh device list on reconnect
-		// so we catch any registrations/unregistrations that happened while disconnected.
+		// Reconnect after 5 s on error, but only if we're still online.
+		// When offline, the isOffline subscription handles reconnection once
+		// the connection is restored, so we don't need to hammer the server.
 		setTimeout(() => {
-			if (get(deviceRegistered)) {
+			if (get(deviceRegistered) && !get(isOffline)) {
 				openSSE();
 				refreshDevices();
 			}
@@ -425,5 +427,29 @@ if (browser) {
 		} else if (!state.token && get(deviceRegistered)) {
 			stopSession();
 		}
+	});
+}
+
+// ── Offline / online recovery ────────────────────────────────────────────────
+
+// When the connection is restored, re-establish the device session and
+// reclaim active status if this device was playing locally while offline.
+if (browser) {
+	let _prevOffline = false;
+	isOffline.subscribe((offline) => {
+		if (_prevOffline && !offline) {
+			// Came back online — re-register, restart heartbeat and SSE.
+			const auth = get(authStore);
+			if (auth.token) {
+				startSession().then(() => {
+					// If this device was playing locally while we were offline,
+					// claim the active slot so the server reflects reality.
+					if (playerRef && get(playerRef.playbackState) === 'playing' && deviceId) {
+						devicesApi.activate(deviceId).catch(() => {});
+					}
+				});
+			}
+		}
+		_prevOffline = offline;
 	});
 }
