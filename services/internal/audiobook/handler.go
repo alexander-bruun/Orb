@@ -263,6 +263,16 @@ func (s *Service) listBySeries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromCtx(r)
+	if userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	u, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil || !u.IsAdmin || !u.IsActive {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if s.ingestService == nil {
 		http.Error(w, "audiobook ingest not configured (set AUDIOBOOK_DIRS)", http.StatusServiceUnavailable)
 		return

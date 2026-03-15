@@ -206,6 +206,23 @@ export const admin = {
 	refetchAlbumCover: (albumId: string): Promise<{ cover_art_key: string }> =>
 		apiFetch(`/admin/albums/${albumId}/refetch-cover`, { method: 'POST' }),
 
+	// Metadata editing
+	updateAlbumMeta: (id: string, body: { title: string; release_year?: number | null; label?: string | null }): Promise<void> =>
+		apiFetch(`/admin/albums/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+	updateTrackMeta: (id: string, body: { title: string; track_number?: number | null; disc_number?: number }): Promise<void> =>
+		apiFetch(`/admin/tracks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+	updateAudiobookMeta: (id: string, body: {
+		title: string;
+		author_name?: string | null;
+		description?: string | null;
+		series?: string | null;
+		series_index?: number | null;
+		published_year?: number | null;
+	}): Promise<void> =>
+		apiFetch(`/admin/audiobooks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+	refreshAudiobookMeta: (id: string): Promise<{ status: string }> =>
+		apiFetch(`/admin/audiobooks/${id}/refresh`, { method: 'POST' }),
+
 	// Ingest
 	triggerScan: (): Promise<void> => apiFetch('/admin/ingest/scan', { method: 'POST' }),
 	triggerForceScan: (): Promise<void> => apiFetch('/admin/ingest/scan?force=true', { method: 'POST' }),

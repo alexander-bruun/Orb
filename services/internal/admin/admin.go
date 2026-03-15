@@ -22,6 +22,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/mailer"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
+	"github.com/alexander-bruun/orb/services/internal/openlibrary"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
@@ -89,6 +90,12 @@ func (s *Service) Routes(r chi.Router) {
 	// Library / job control
 	r.Post("/albums/{id}/refetch-cover", s.refetchAlbumCover)
 	r.Get("/albums/no-cover", s.albumsNoCover)
+
+	// Metadata editing (admin inline-edit)
+	r.Patch("/albums/{id}", s.updateAlbumMeta)
+	r.Patch("/tracks/{id}", s.updateTrackMeta)
+	r.Patch("/audiobooks/{id}", s.updateAudiobookMeta)
+	r.Post("/audiobooks/{id}/refresh", s.refreshAudiobookMeta)
 
 	// Site settings
 	r.Get("/settings", s.getSettings)
@@ -431,6 +438,176 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.db.InsertAuditLog(r.Context(), actorID, "refetch_cover", "album", albumID, nil)
 	writeJSON(w, map[string]string{"cover_art_key": coverKey})
+}
+
+// ── Metadata editing ─────────────────────────────────────────────────────────
+
+// PATCH /admin/albums/{id} — body: {title, release_year?, label?}
+func (s *Service) updateAlbumMeta(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		Title       string  `json:"title"`
+		ReleaseYear *int    `json:"release_year"`
+		Label       *string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.Title == "" {
+		http.Error(w, "title required", http.StatusBadRequest)
+		return
+	}
+	if err := s.db.UpdateAlbumMeta(r.Context(), store.UpdateAlbumMetaParams{
+		ID:          id,
+		Title:       body.Title,
+		ReleaseYear: body.ReleaseYear,
+		Label:       body.Label,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_album_meta", "album", id,
+		map[string]any{"title": body.Title})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PATCH /admin/tracks/{id} — body: {title, track_number?, disc_number?}
+func (s *Service) updateTrackMeta(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		Title       string `json:"title"`
+		TrackNumber *int   `json:"track_number"`
+		DiscNumber  *int   `json:"disc_number"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.Title == "" {
+		http.Error(w, "title required", http.StatusBadRequest)
+		return
+	}
+	discNumber := 1
+	if body.DiscNumber != nil {
+		discNumber = *body.DiscNumber
+	}
+	if err := s.db.UpdateTrackMeta(r.Context(), store.UpdateTrackMetaParams{
+		ID:          id,
+		Title:       body.Title,
+		TrackNumber: body.TrackNumber,
+		DiscNumber:  discNumber,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_track_meta", "track", id,
+		map[string]any{"title": body.Title})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PATCH /admin/audiobooks/{id} — body: {title, author_name?, description?, series?, series_index?, published_year?}
+func (s *Service) updateAudiobookMeta(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		Title         string   `json:"title"`
+		AuthorName    *string  `json:"author_name"`
+		Description   *string  `json:"description"`
+		Series        *string  `json:"series"`
+		SeriesIndex   *float64 `json:"series_index"`
+		PublishedYear *int     `json:"published_year"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	if body.Title == "" {
+		http.Error(w, "title required", http.StatusBadRequest)
+		return
+	}
+
+	// Resolve author name → author_id if provided.
+	var authorID *string
+	if body.AuthorName != nil && *body.AuthorName != "" {
+		aid, err := s.db.FindOrCreateArtistByName(r.Context(), *body.AuthorName)
+		if err != nil {
+			http.Error(w, "resolve author: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		authorID = &aid
+	} else if body.AuthorName != nil {
+		// Empty string means clear the author.
+		empty := ""
+		authorID = &empty
+	}
+
+	if err := s.db.UpdateAudiobookMeta(r.Context(), store.UpdateAudiobookMetaParams{
+		ID:            id,
+		Title:         body.Title,
+		AuthorID:      authorID,
+		Description:   body.Description,
+		Series:        body.Series,
+		SeriesIndex:   body.SeriesIndex,
+		PublishedYear: body.PublishedYear,
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_audiobook_meta", "audiobook", id,
+		map[string]any{"title": body.Title})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// POST /admin/audiobooks/{id}/refresh — re-fetches metadata + cover from OpenLibrary.
+func (s *Service) refreshAudiobookMeta(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+
+	book, err := s.db.GetAudiobook(r.Context(), id)
+	if err != nil {
+		http.Error(w, "audiobook not found", http.StatusNotFound)
+		return
+	}
+
+	// Fetch cover from OpenLibrary using ISBN or title+author.
+	var coverData []byte
+	ol := openlibrary.New()
+	authorName := ""
+	if book.AuthorName != nil {
+		authorName = *book.AuthorName
+	}
+	meta, olErr := ol.Search(r.Context(), book.Title, authorName)
+	if olErr == nil && meta != nil {
+		if meta.CoverID > 0 {
+			coverData, _ = ol.FetchCoverArt(r.Context(), meta.CoverID)
+		}
+		// Update metadata fields returned by OpenLibrary.
+		params := store.UpdateAudiobookMetaParams{
+			ID:    id,
+			Title: book.Title, // keep existing title unless OL has one
+		}
+		if meta.Description != "" {
+			params.Description = &meta.Description
+		}
+		if meta.PublishedYear > 0 {
+			params.PublishedYear = &meta.PublishedYear
+		}
+		_ = s.db.UpdateAudiobookMeta(r.Context(), params)
+	}
+
+	// Store cover art if fetched.
+	if len(coverData) > 0 {
+		coverKey := fmt.Sprintf("covers/audiobook/%s.jpg", id)
+		if err := storeCoverArt(r.Context(), s.obj, coverKey, coverData); err == nil {
+			_ = s.db.UpdateAudiobookCoverArt(r.Context(), id, coverKey)
+		}
+	}
+
+	_ = s.db.InsertAuditLog(r.Context(), actorID, "refresh_audiobook_meta", "audiobook", id, nil)
+	writeJSON(w, map[string]string{"status": "refreshed"})
 }
 
 // requestBaseURL derives the site base URL from the incoming HTTP request.
