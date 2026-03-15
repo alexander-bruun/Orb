@@ -33,6 +33,7 @@ func (s *Service) Routes(r chi.Router) {
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
+	// EnsureSystemPlaylists is called inside ListSmartPlaylistsByUser.
 	pls, err := s.db.ListSmartPlaylistsByUser(r.Context(), userID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -98,6 +99,10 @@ func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "smart playlist not found")
 		return
 	}
+	if existing.System {
+		writeErr(w, http.StatusForbidden, "system playlists cannot be modified")
+		return
+	}
 	var req upsertReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON")
@@ -144,6 +149,15 @@ func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	existing, err := s.db.GetSmartPlaylistByID(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "smart playlist not found")
+		return
+	}
+	if existing.System {
+		writeErr(w, http.StatusForbidden, "system playlists cannot be deleted")
+		return
+	}
 	if err := s.db.DeleteSmartPlaylist(r.Context(), id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

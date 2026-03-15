@@ -364,10 +364,12 @@ CREATE TABLE IF NOT EXISTS smart_playlists (
     sort_by       TEXT        NOT NULL DEFAULT 'title',
     sort_dir      TEXT        NOT NULL DEFAULT 'asc',
     limit_count   INT,
+    system        BOOLEAN     NOT NULL DEFAULT false,
     last_built_at TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE smart_playlists ADD COLUMN IF NOT EXISTS system BOOLEAN NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS smart_playlists_user_idx ON smart_playlists(user_id);
 
 -- Track ratings: per-user 1–5 star rating for tracks.

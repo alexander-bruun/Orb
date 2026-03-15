@@ -25,6 +25,7 @@ type SmartPlaylist struct {
 	SortBy       string              `json:"sort_by"`
 	SortDir      string              `json:"sort_dir"`
 	LimitCount   *int                `json:"limit_count,omitempty"`
+	System       bool                `json:"system"`
 	LastBuiltAt  *time.Time          `json:"last_built_at,omitempty"`
 	CreatedAt    time.Time           `json:"created_at"`
 	UpdatedAt    time.Time           `json:"updated_at"`
@@ -41,6 +42,7 @@ type CreateSmartPlaylistParams struct {
 	SortBy      string
 	SortDir     string
 	LimitCount  *int
+	System      bool
 }
 
 // UpdateSmartPlaylistParams holds updatable fields for a smart playlist.

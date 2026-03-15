@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -117,9 +118,12 @@ ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.
 // ── Smart playlist CRUD ────────────────────────────────────────────────────
 
 func (s *Store) ListSmartPlaylistsByUser(ctx context.Context, userID string) ([]SmartPlaylist, error) {
+	if err := s.EnsureSystemPlaylists(ctx, userID); err != nil {
+		return nil, err
+	}
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at
-		 FROM smart_playlists WHERE user_id = $1 ORDER BY updated_at DESC`,
+		`SELECT id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, system, last_built_at, created_at, updated_at
+		 FROM smart_playlists WHERE user_id = $1 ORDER BY system DESC, updated_at DESC`,
 		userID)
 	if err != nil {
 		return nil, err
@@ -130,7 +134,7 @@ func (s *Store) ListSmartPlaylistsByUser(ctx context.Context, userID string) ([]
 
 func (s *Store) GetSmartPlaylistByID(ctx context.Context, id string) (SmartPlaylist, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at
+		`SELECT id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, system, last_built_at, created_at, updated_at
 		 FROM smart_playlists WHERE id = $1`,
 		id)
 	return scanSmartPlaylist(row)
@@ -142,10 +146,10 @@ func (s *Store) CreateSmartPlaylist(ctx context.Context, p CreateSmartPlaylistPa
 		return SmartPlaylist{}, err
 	}
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO smart_playlists (id, user_id, name, description, rules, rule_match, sort_by, sort_dir, limit_count)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 RETURNING id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at`,
-		p.ID, p.UserID, p.Name, p.Description, rulesJSON, p.RuleMatch, p.SortBy, p.SortDir, p.LimitCount)
+		`INSERT INTO smart_playlists (id, user_id, name, description, rules, rule_match, sort_by, sort_dir, limit_count, system)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		 RETURNING id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, system, last_built_at, created_at, updated_at`,
+		p.ID, p.UserID, p.Name, p.Description, rulesJSON, p.RuleMatch, p.SortBy, p.SortDir, p.LimitCount, p.System)
 	return scanSmartPlaylist(row)
 }
 
@@ -157,14 +161,103 @@ func (s *Store) UpdateSmartPlaylist(ctx context.Context, p UpdateSmartPlaylistPa
 	row := s.pool.QueryRow(ctx,
 		`UPDATE smart_playlists SET name=$2, description=$3, rules=$4, rule_match=$5, sort_by=$6, sort_dir=$7, limit_count=$8, updated_at=now()
 		 WHERE id=$1
-		 RETURNING id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, last_built_at, created_at, updated_at`,
+		 RETURNING id, user_id, name, COALESCE(description,''), rules, rule_match, sort_by, sort_dir, limit_count, system, last_built_at, created_at, updated_at`,
 		p.ID, p.Name, p.Description, rulesJSON, p.RuleMatch, p.SortBy, p.SortDir, p.LimitCount)
 	return scanSmartPlaylist(row)
 }
 
 func (s *Store) DeleteSmartPlaylist(ctx context.Context, id string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM smart_playlists WHERE id=$1`, id)
+	_, err := s.pool.Exec(ctx, `DELETE FROM smart_playlists WHERE id=$1 AND system=false`, id)
 	return err
+}
+
+// systemPlaylistDef defines an auto-generated habit-based smart playlist.
+type systemPlaylistDef struct {
+	name        string
+	description string
+	rules       []SmartPlaylistRule
+	ruleMatch   string
+	sortBy      string
+	sortDir     string
+	limitCount  *int
+}
+
+func intPtr(n int) *int { return &n }
+
+// systemPlaylistDefs are the habit-based playlists created automatically per user.
+var systemPlaylistDefs = []systemPlaylistDef{
+	{
+		name:        "Most Played",
+		description: "Your most listened-to tracks of all time",
+		rules:       []SmartPlaylistRule{{Field: "play_count", Op: "gte", Value: "1"}},
+		ruleMatch:   "all",
+		sortBy:      "play_count",
+		sortDir:     "desc",
+		limitCount:  intPtr(50),
+	},
+	{
+		name:        "Top Rated",
+		description: "Tracks you've rated 4 stars or higher",
+		rules:       []SmartPlaylistRule{{Field: "rating", Op: "gte", Value: "4"}},
+		ruleMatch:   "all",
+		sortBy:      "rating",
+		sortDir:     "desc",
+		limitCount:  intPtr(50),
+	},
+	{
+		name:        "Recently Added",
+		description: "Tracks added to your library in the last 30 days",
+		rules:       []SmartPlaylistRule{{Field: "days_since_added", Op: "lte", Value: "30"}},
+		ruleMatch:   "all",
+		sortBy:      "added_at",
+		sortDir:     "desc",
+		limitCount:  intPtr(50),
+	},
+	{
+		name:        "Never Played",
+		description: "Tracks in your library you haven't listened to yet",
+		rules:       []SmartPlaylistRule{{Field: "play_count", Op: "lte", Value: "0"}},
+		ruleMatch:   "all",
+		sortBy:      "added_at",
+		sortDir:     "desc",
+		limitCount:  intPtr(100),
+	},
+	{
+		name:        "Forgotten Favorites",
+		description: "Tracks you used to play a lot but haven't touched in over 3 months",
+		rules: []SmartPlaylistRule{
+			{Field: "play_count", Op: "gte", Value: "5"},
+			{Field: "days_since_played", Op: "gte", Value: "90"},
+		},
+		ruleMatch:  "all",
+		sortBy:     "play_count",
+		sortDir:    "desc",
+		limitCount: intPtr(50),
+	},
+}
+
+// EnsureSystemPlaylists creates the habit-based system playlists for a user if they don't exist yet.
+func (s *Store) EnsureSystemPlaylists(ctx context.Context, userID string) error {
+	for _, def := range systemPlaylistDefs {
+		var count int
+		err := s.pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM smart_playlists WHERE user_id=$1 AND system=true AND name=$2`,
+			userID, def.name).Scan(&count)
+		if err != nil || count > 0 {
+			continue
+		}
+		rulesJSON, err := json.Marshal(def.rules)
+		if err != nil {
+			continue
+		}
+		_, _ = s.pool.Exec(ctx,
+			`INSERT INTO smart_playlists (id, user_id, name, description, rules, rule_match, sort_by, sort_dir, limit_count, system)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+			 ON CONFLICT DO NOTHING`,
+			uuid.New().String(), userID, def.name, def.description,
+			rulesJSON, def.ruleMatch, def.sortBy, def.sortDir, def.limitCount)
+	}
+	return nil
 }
 
 // EvaluateSmartPlaylist executes the filter rules and returns matching tracks.
@@ -384,6 +477,21 @@ func smartRuleToCond(r SmartPlaylistRule, args []any, n int) (string, []any, int
 		}
 		sub := "(SELECT rating FROM track_ratings tr WHERE tr.track_id = t.id AND tr.user_id = $1)"
 		return fmt.Sprintf("%s %s %s", sub, op, ph), args, n
+	case "days_since_played":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		sub := "(SELECT EXTRACT(EPOCH FROM (now() - MAX(ph.played_at)))/86400 FROM play_history ph WHERE ph.track_id = t.id AND ph.user_id = $1)"
+		return fmt.Sprintf("%s %s %s", sub, op, ph), args, n
+	case "days_since_added":
+		ph, _ := placeholder(r.Value)
+		op := sqlOp(r.Op)
+		if op == "" {
+			return "", args, n
+		}
+		return fmt.Sprintf("EXTRACT(EPOCH FROM (now() - ul.added_at))/86400 %s %s", op, ph), args, n
 	}
 	return "", args, n
 }
@@ -436,7 +544,7 @@ func scanSmartPlaylistRow(scan func(...any) error) (SmartPlaylist, error) {
 	if err := scan(
 		&sp.ID, &sp.UserID, &sp.Name, &desc,
 		&rulesJSON, &sp.RuleMatch, &sp.SortBy, &sp.SortDir,
-		&limitCount, &lastBuiltAt, &sp.CreatedAt, &sp.UpdatedAt,
+		&limitCount, &sp.System, &lastBuiltAt, &sp.CreatedAt, &sp.UpdatedAt,
 	); err != nil {
 		return sp, err
 	}

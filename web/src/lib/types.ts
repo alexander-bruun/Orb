@@ -94,7 +94,8 @@ export type PlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 export type SmartPlaylistField =
 	| 'genre' | 'year' | 'artist' | 'album'
 	| 'format' | 'bit_depth' | 'duration_ms'
-	| 'play_count' | 'rating';
+	| 'play_count' | 'rating'
+	| 'days_since_played' | 'days_since_added';
 
 export type SmartPlaylistOp =
 	| 'is' | 'is_not' | 'contains' | 'not_contains'
@@ -116,6 +117,7 @@ export interface SmartPlaylist {
 	sort_by: string;
 	sort_dir: 'asc' | 'desc';
 	limit_count?: number;
+	system?: boolean;
 	last_built_at?: string;
 	created_at: string;
 	updated_at: string;
