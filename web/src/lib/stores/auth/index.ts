@@ -104,10 +104,10 @@ function createAuthStore() {
 			saveToStorage(state);
 			syncCredentialsToAndroid(state.token);
 		},
-		async register(username: string, email: string, password: string) {
+		async register(username: string, email: string, password: string, inviteToken?: string) {
 			await apiFetch('/auth/register', {
 				method: 'POST',
-				body: JSON.stringify({ username, email, password })
+				body: JSON.stringify({ username, email, password, ...(inviteToken ? { invite_token: inviteToken } : {}) })
 			});
 		},
 		logout() {

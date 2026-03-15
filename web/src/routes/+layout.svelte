@@ -153,6 +153,7 @@
       path.startsWith("/listen/") ||
       path === "/connect" ||
       path === "/verify-email" ||
+      path === "/register" ||
       path.startsWith("/share/")
     )
       return;
@@ -199,6 +200,7 @@
       path === "/setup" ||
       path === "/connect" ||
       path === "/verify-email" ||
+      path === "/register" ||
       path.startsWith("/listen/") ||
       path.startsWith("/share/")
     ) {
@@ -267,7 +269,7 @@
   <div class="window-frame" aria-hidden="true"></div>
 {/if}
 
-{#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname === "/verify-email" || $page.url.pathname.startsWith("/share/")}
+{#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname === "/verify-email" || $page.url.pathname === "/register" || $page.url.pathname.startsWith("/share/")}
   <!-- Public page: render without shell or auth guards -->
   {@render children()}
 {:else if $setupRequired === null}
