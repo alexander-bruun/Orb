@@ -271,6 +271,15 @@ func (g *Ingester) loadState(ctx context.Context) error {
 	return nil
 }
 
+// ClearState wipes the in-memory ingest state so the next scan re-processes
+// every file regardless of whether it has changed.
+func (g *Ingester) ClearState() {
+	g.stateMu.Lock()
+	g.state = make(map[string]ingestEntry)
+	g.stateMu.Unlock()
+	slog.Info("ingest: state cleared for force rescan")
+}
+
 func (g *Ingester) upToDate(path string, fi os.FileInfo) bool {
 	g.stateMu.RLock()
 	e, ok := g.state[path]

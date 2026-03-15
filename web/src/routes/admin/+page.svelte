@@ -53,6 +53,7 @@
   let artworkOffset = 0;
   let artworkLoading = false;
   let artworkRefetching: Record<string, boolean> = {};
+  let showForceScanModal = false;
 
   // Settings
   let smtpSettings: SiteSettings = {};
@@ -201,6 +202,29 @@
     ingestRunning = true; ingestLog = []; ingestProgress = null;
     try {
       await adminApi.triggerScan();
+    } catch (e: unknown) {
+      ingestLog = [`Error: ${(e as Error).message}`];
+      ingestRunning = false;
+      return;
+    }
+    ingestES?.close();
+    ingestES = adminApi.openIngestStream((ev) => {
+      ingestProgress = ev;
+      if (ev.file_path) ingestLog = [...ingestLog.slice(-99), ev.file_path];
+      if (ev.type === 'complete' || ev.type === 'error') {
+        ingestRunning = false;
+        ingestES?.close(); ingestES = null;
+        if (summary) adminApi.summary().then(s => { summary = s; }).catch(() => {});
+      }
+    });
+  }
+
+  async function startForceScan() {
+    showForceScanModal = false;
+    if (ingestRunning) return;
+    ingestRunning = true; ingestLog = []; ingestProgress = null;
+    try {
+      await adminApi.triggerForceScan();
     } catch (e: unknown) {
       ingestLog = [`Error: ${(e as Error).message}`];
       ingestRunning = false;
@@ -519,7 +543,10 @@
     <section class="panel">
       <div class="section-header">
         <h2>Ingest</h2>
-        <button class="btn-accent" disabled={ingestRunning} on:click={startScan}>{ingestRunning ? 'Scanning…' : 'Trigger Scan'}</button>
+        <div class="scan-split-btn">
+          <button class="btn-accent scan-main" disabled={ingestRunning} on:click={startScan}>{ingestRunning ? 'Scanning…' : 'Trigger Scan'}</button>
+          <button class="btn-accent scan-arrow" disabled={ingestRunning} on:click={() => showForceScanModal = true} title="Force rescan entire library" aria-label="Force rescan options">⭯</button>
+        </div>
       </div>
       {#if ingestProgress}
         <div class="progress-bar-wrap">
@@ -748,6 +775,27 @@
 </div>
 {/if}
 
+{#if showForceScanModal}
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
+<div class="modal-backdrop" on:click|self={() => showForceScanModal = false} role="dialog" aria-modal="true" tabindex="-1">
+  <div class="modal force-scan-modal">
+    <div class="force-scan-icon">⚠️</div>
+    <h2>Force Rescan Library?</h2>
+    <p class="force-scan-desc">
+      This will re-process <strong>every file</strong> in the library, overwriting existing track metadata.
+      Unchanged files that are normally skipped will also be re-ingested.
+    </p>
+    <p class="force-scan-warn">
+      This may take a long time depending on your library size and cannot be stopped once started.
+    </p>
+    <div class="modal-actions">
+      <button class="btn-xs" on:click={() => showForceScanModal = false}>Cancel</button>
+      <button class="btn-danger" on:click={startForceScan}>Yes, Force Rescan</button>
+    </div>
+  </div>
+</div>
+{/if}
+
 {#if showInviteModal}
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
 <div class="modal-backdrop" on:click|self={() => showInviteModal = false} role="dialog" aria-modal="true" tabindex="-1">
@@ -874,6 +922,19 @@
   .success { color: #34d399; font-size: 0.85rem; }
   .success-text { color: #34d399; }
   code { font-family: monospace; font-size: 0.8rem; background: var(--surface-hover, #2a2a3a); padding: 1px 5px; border-radius: 3px; }
+
+  .scan-split-btn { display: flex; align-items: stretch; border-radius: 7px; overflow: hidden; }
+  .scan-main { border-radius: 0; border-top-left-radius: 7px; border-bottom-left-radius: 7px; border-right: 1px solid rgba(255,255,255,0.2); }
+  .scan-arrow { border-radius: 0; border-top-right-radius: 7px; border-bottom-right-radius: 7px; padding: 0.42rem 0.6rem; font-size: 0.7rem; min-width: 28px; }
+  .scan-arrow:hover:not(:disabled) { opacity: 0.85; }
+
+  .force-scan-modal { width: min(440px, 100%); text-align: center; }
+  .force-scan-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  .force-scan-modal h2 { margin: 0 0 1rem; }
+  .force-scan-desc { font-size: 0.875rem; color: var(--text-primary, #fff); margin: 0 0 0.75rem; line-height: 1.5; }
+  .force-scan-warn { font-size: 0.8rem; color: #f87171; margin: 0 0 1.25rem; }
+  .btn-danger { background: #dc2626; color: #fff; border: none; border-radius: 7px; padding: 0.42rem 1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: opacity 0.15s; white-space: nowrap; }
+  .btn-danger:hover { opacity: 0.85; }
 
   .wh-url { font-family: monospace; font-size: 0.78rem; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row-actions { display: flex; gap: 0.3rem; flex-wrap: nowrap; }

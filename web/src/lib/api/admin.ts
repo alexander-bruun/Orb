@@ -208,6 +208,7 @@ export const admin = {
 
 	// Ingest
 	triggerScan: (): Promise<void> => apiFetch('/admin/ingest/scan', { method: 'POST' }),
+	triggerForceScan: (): Promise<void> => apiFetch('/admin/ingest/scan?force=true', { method: 'POST' }),
 	ingestStatus: (): Promise<Record<string, unknown>> => apiFetch('/admin/ingest/status'),
 
 	// Site settings

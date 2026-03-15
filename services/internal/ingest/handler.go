@@ -218,6 +218,11 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If ?force=true, clear the in-memory state so every file is re-processed.
+	if r.URL.Query().Get("force") == "true" {
+		s.ingester.ClearState()
+	}
+
 	// Use the root server context — not r.Context() — so the scan survives
 	// after the HTTP response has been sent.
 	scanCtx := s.rootCtx
