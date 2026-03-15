@@ -81,7 +81,7 @@
   .star-trigger {
     background: none;
     border: none;
-    padding: 4px;
+    padding: 2px;
     cursor: pointer;
     color: var(--text-muted);
     display: inline-flex;
@@ -113,7 +113,7 @@
     display: flex;
     gap: 2px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    z-index: 100;
+    z-index: 1001;
     animation: pop-in 0.12s cubic-bezier(0.22, 1, 0.36, 1);
     white-space: nowrap;
   }

@@ -519,7 +519,7 @@
     align-items: center;
     gap: 12px;
     padding: 0 8px 0 20px;
-    overflow: hidden;
+    overflow: visible;
   }
 
   /* Cover with hover-reveal expand button */
@@ -600,7 +600,7 @@
   .track-meta {
     min-width: 0;
     flex: 1;
-    overflow: hidden;
+    overflow: visible;
     display: flex;
     flex-direction: column;
     gap: 2px;
