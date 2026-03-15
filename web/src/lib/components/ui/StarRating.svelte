@@ -6,6 +6,7 @@
 
   let open = false;
   let hoverRating = 0;
+  let closeTimer: ReturnType<typeof setTimeout>;
 
   $: currentRating = $ratings.get(trackId) ?? 0;
 
@@ -15,16 +16,23 @@
     await ratings.toggle(trackId, n);
   }
 
-  function close() {
-    open = false;
-    hoverRating = 0;
+  function scheduleClose() {
+    closeTimer = setTimeout(() => {
+      open = false;
+      hoverRating = 0;
+    }, 150);
+  }
+
+  function cancelClose() {
+    clearTimeout(closeTimer);
   }
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
   class="star-root"
-  on:mouseleave={close}
+  on:mouseleave={scheduleClose}
+  on:mouseenter={cancelClose}
 >
   <!-- Trigger: single star showing current rating -->
   <button

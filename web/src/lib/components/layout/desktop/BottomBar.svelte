@@ -33,6 +33,7 @@
   import { library } from '$lib/api/library';
   import { writable } from 'svelte/store';
   import StarRating from '$lib/components/ui/StarRating.svelte';
+  import { favorites } from '$lib/stores/library/favorites';
   import { expanded } from './coverExpandStore';
   import {
     lpRole,
@@ -134,6 +135,17 @@
         {/if}
         <div class="song-title-row">
           <span class="song-title">{$currentTrack.title}</span>
+          <button
+            class="fav-btn"
+            class:fav-active={$favorites.has($currentTrack.id)}
+            on:click={() => favorites.toggle($currentTrack.id, $currentTrack)}
+            aria-label={$favorites.has($currentTrack.id) ? 'Remove from favorites' : 'Add to favorites'}
+            title={$favorites.has($currentTrack.id) ? 'Remove from favorites' : 'Add to favorites'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill={$favorites.has($currentTrack.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+          </button>
           <StarRating trackId={$currentTrack.id} size={14} />
         </div>
       </div>
@@ -621,6 +633,21 @@
     flex: 1;
     min-width: 0;
   }
+  .fav-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+    line-height: 1;
+  }
+  .fav-btn:hover { color: var(--text); }
+  .fav-btn.fav-active { color: #e05; }
 
   /* Playback section: fills the rest, controls are the first item so they never move */
   .playback-section {
