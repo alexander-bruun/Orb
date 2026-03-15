@@ -34,12 +34,14 @@ services:
       STORE_ROOT: /data/audio
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
-      INGEST_DIRS: /music
+      MUSIC_DIRS: /music
+      AUDIOBOOK_DIRS: /audiobooks
       INGEST_WATCH: "true"
       DLNA_ENABLED: "true"
     volumes:
       - audio_data:/data/audio
       - /mnt/d/Music:/music:ro
+      - /mnt/d/Audiobooks:/audiobooks:ro
     ports:
       - 3000:80 # UI
       - 8080:8080 # API

@@ -94,15 +94,11 @@ func (s *Service) Routes(r chi.Router) {
 //   - Then enters a leader-election loop; the elected leader runs RunLeader.
 //
 // In single-instance mode (kv == nil):
-//   - Runs the existing single-process watcher (cfg.Watch must be true).
+//   - Runs the single-process watcher (initial scan + polling loop).
 func (s *Service) StartWatch(ctx context.Context) {
 	if s.kv != nil {
 		// Every instance participates as a worker regardless of leadership.
 		go s.ingester.RunWorkers(ctx, s.kv, s.ingester.cfg.Workers)
-	}
-
-	if !s.ingester.cfg.Watch {
-		return
 	}
 
 	// Leader election loop — only the leader runs the directory coordinator.

@@ -5,6 +5,8 @@
   import { downloads } from '$lib/stores/offline/downloads';
   import { onMount } from 'svelte';
   import { getArtistName, preloadArtists } from '$lib/stores/library/artists';
+  import { favorites } from '$lib/stores/library/favorites';
+  import StarRating from '$lib/components/ui/StarRating.svelte';
 
   export let track: Track;
   export let trackList: Track[] = [];
@@ -127,6 +129,20 @@
   {#if track.bpm}
     <span class="bpm" title="BPM">{Math.round(track.bpm)}</span>
   {/if}
+  <span class="row-actions">
+    <button
+      class="fav-btn"
+      class:fav-active={$favorites.has(track.id)}
+      on:click|stopPropagation={() => favorites.toggle(track.id, track)}
+      aria-label={$favorites.has(track.id) ? 'Remove from favorites' : 'Add to favorites'}
+      title={$favorites.has(track.id) ? 'Remove from favorites' : 'Add to favorites'}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill={$favorites.has(track.id) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+      </svg>
+    </button>
+    <StarRating trackId={track.id} size={13} />
+  </span>
   <span class="duration">{formatDuration(track.duration_ms)}</span>
 </div>
 
@@ -170,6 +186,30 @@
   .feat-sep, .comma { color: var(--text-muted); }
   .bpm { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; opacity: 0.7; }
   .duration { font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
+  .row-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .track-row:hover .row-actions { opacity: 1; }
+  .track-row.playing .row-actions { opacity: 1; }
+  .fav-btn {
+    background: none;
+    border: none;
+    padding: 2px 3px;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+    line-height: 1;
+  }
+  .fav-btn:hover { color: var(--text); }
+  .fav-btn.fav-active { color: #e05; }
   .dl-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--accent); opacity: 0.8; }
   .dl-progress { opacity: 0.45; animation: dl-pulse 1.5s ease-in-out infinite; }
   @keyframes dl-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }

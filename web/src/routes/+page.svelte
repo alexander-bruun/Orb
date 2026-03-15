@@ -2,13 +2,16 @@
   import { onMount } from "svelte";
   import { library as libApi } from "$lib/api/library";
   import { smartPlaylists as spApi } from "$lib/api/smartPlaylists";
-  import type { Track, Album, SmartPlaylist } from "$lib/types";
+  import { audiobooks as abApi } from "$lib/api/audiobooks";
+  import type { Track, Album, SmartPlaylist, Audiobook } from "$lib/types";
   import TrackList from "$lib/components/library/TrackList.svelte";
   import AlbumCard from "$lib/components/library/AlbumCard.svelte";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
   import { playTrack, shuffle as shuffleStore } from "$lib/stores/player";
+  import { playAudiobook } from "$lib/stores/audiobookPlayer";
   import { downloads } from "$lib/stores/offline/downloads";
   import { isOffline } from "$lib/stores/offline/connectivity";
+  import { getApiBase } from "$lib/api/base";
 
   const PAGE_SIZE = 10;
 
@@ -23,6 +26,8 @@
   let recentAlbums: Album[] = [];
   let newAlbums: Album[] = [];
   let smartPls: SmartPlaylist[] = [];
+  type InProgressBook = Audiobook & { position_ms: number; progress_updated_at: string };
+  let inProgressBooks: InProgressBook[] = [];
   let loading = true;
   let playsLoading = false;
 
@@ -154,12 +159,13 @@
       return;
     }
     try {
-      [recentTracks, mostTracks, recentAlbums, newAlbums, smartPls] = await Promise.all([
+      [recentTracks, mostTracks, recentAlbums, newAlbums, smartPls, inProgressBooks] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
         libApi.mostPlayed(100).then((r) => r ?? []),
         libApi.recentlyPlayedAlbums().then((r) => r ?? []),
         libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
         spApi.list().then((r) => r ?? []),
+        abApi.inProgress(10).then((r) => r.audiobooks ?? []).catch(() => []),
       ]);
     } catch {
       // ignore — user may not be logged in
@@ -259,6 +265,47 @@
 
 <!-- ── Normal online home ───────────────────────────────────────────────────── -->
 {:else}
+  {#if inProgressBooks.length > 0}
+    <section class="home-section">
+      <div class="section-header">
+        <h2 class="section-title">Continue Listening</h2>
+        <a href="/audiobooks" class="view-all">View all</a>
+      </div>
+      <div class="ab-slider">
+        {#each inProgressBooks as book (book.id)}
+          {@const pct = book.duration_ms > 0 ? Math.min(100, (book.position_ms / book.duration_ms) * 100) : 0}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          <div class="ab-card" on:click={() => playAudiobook(book, book.position_ms)}>
+            <div class="ab-cover-wrap">
+              {#if book.cover_art_key}
+                <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
+              {:else}
+                <div class="ab-cover ab-placeholder">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                  </svg>
+                </div>
+              {/if}
+              <!-- progress strip at bottom of cover -->
+              <div class="ab-progress-strip">
+                <div class="ab-progress-fill" style="width:{pct}%"></div>
+              </div>
+              <button class="ab-play-btn" aria-label="Resume {book.title}" on:click|stopPropagation={() => playAudiobook(book, book.position_ms)}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
+              </button>
+            </div>
+            <div class="ab-info">
+              <span class="ab-title" title={book.title}>{book.title}</span>
+              {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if recentTracks.length > 0 || mostTracks.length > 0}
     <section class="home-section">
       <div class="plays-controls">
@@ -398,7 +445,7 @@
     </section>
   {/if}
 
-  {#if recentTracks.length === 0 && mostTracks.length === 0 && recentAlbums.length === 0 && newAlbums.length === 0 && smartPls.length === 0}
+  {#if recentTracks.length === 0 && mostTracks.length === 0 && recentAlbums.length === 0 && newAlbums.length === 0 && smartPls.length === 0 && inProgressBooks.length === 0}
     <p class="muted">Nothing here yet. Go find some music!</p>
   {/if}
 {/if}
@@ -643,6 +690,112 @@
   .sp-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .sp-name { font-size: 0.85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sp-meta { font-size: 0.72rem; color: var(--text-muted); }
+
+  /* ── Continue Listening audiobook cards ── */
+  .ab-slider {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .ab-slider::-webkit-scrollbar { height: 4px; }
+  .ab-slider::-webkit-scrollbar-track { background: transparent; }
+  .ab-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .ab-card {
+    flex: 0 0 140px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    cursor: pointer;
+  }
+
+  .ab-cover-wrap {
+    position: relative;
+    width: 140px;
+    height: 140px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    flex-shrink: 0;
+  }
+
+  .ab-cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.25s;
+  }
+  .ab-card:hover .ab-cover { transform: scale(1.03); }
+
+  .ab-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    opacity: 0.35;
+  }
+
+  .ab-progress-strip {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: rgba(255,255,255,0.15);
+  }
+  .ab-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .ab-play-btn {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity 0.2s, transform 0.2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .ab-card:hover .ab-play-btn { opacity: 1; transform: translateY(0); }
+  .ab-play-btn:hover { filter: brightness(1.1); }
+
+  .ab-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .ab-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+  }
+  .ab-author {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .album-slider {
     display: flex;

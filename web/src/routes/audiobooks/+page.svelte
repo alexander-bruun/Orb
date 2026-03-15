@@ -1,0 +1,418 @@
+<script lang="ts">
+  import { onMount } from "svelte";
+  import { audiobooks as abApi } from "$lib/api/audiobooks";
+  import type { Audiobook } from "$lib/types";
+  import { getApiBase } from "$lib/api/base";
+  import { playAudiobook } from "$lib/stores/audiobookPlayer";
+  import Skeleton from "$lib/components/ui/Skeleton.svelte";
+  import { goto } from "$app/navigation";
+
+  type SortMode = 'title' | 'author' | 'year';
+
+  const SORT_MODES: { mode: SortMode; label: string }[] = [
+    { mode: 'title',  label: 'Title'  },
+    { mode: 'author', label: 'Author' },
+    { mode: 'year',   label: 'Year'   },
+  ];
+
+  let books: Audiobook[] = [];
+  let loading = true;
+  let loadingMore = false;
+  let hasMore = true;
+  let sortBy: SortMode = 'title';
+  const PAGE = 48;
+
+  function fmtDuration(ms: number): string {
+    const h = Math.floor(ms / 3_600_000);
+    const m = Math.floor((ms % 3_600_000) / 60_000);
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    loadingMore = true;
+    try {
+      const res = await abApi.list(PAGE, books.length, sortBy);
+      const fetched = res.audiobooks ?? [];
+      books = [...books, ...fetched];
+      if (fetched.length < PAGE) hasMore = false;
+    } catch {
+      // ignore
+    } finally {
+      loadingMore = false;
+    }
+  }
+
+  async function changeSort(mode: SortMode) {
+    if (mode === sortBy) return;
+    sortBy = mode;
+    loading = true;
+    books = [];
+    hasMore = true;
+    try {
+      const res = await abApi.list(PAGE, 0, sortBy);
+      books = res.audiobooks ?? [];
+      if (books.length < PAGE) hasMore = false;
+    } catch {
+      // ignore
+    } finally {
+      loading = false;
+    }
+  }
+
+  onMount(async () => {
+    try {
+      const res = await abApi.list(PAGE, 0, sortBy);
+      books = res.audiobooks ?? [];
+      if (books.length < PAGE) hasMore = false;
+    } catch {
+      // ignore
+    } finally {
+      loading = false;
+    }
+  });
+</script>
+
+<svelte:head><title>Audiobooks – Orb</title></svelte:head>
+
+<div class="page">
+  <div class="page-header">
+    <div class="title-row">
+      <h1 class="page-title">Audiobooks</h1>
+      {#if !loading}
+        <span class="count">{books.length}{hasMore ? "+" : ""} book{books.length === 1 ? "" : "s"}</span>
+      {/if}
+    </div>
+    <div class="sort-controls">
+      <span class="sort-label">Sort by</span>
+      {#each SORT_MODES as { mode, label }}
+        <button
+          class="sort-btn"
+          class:active={sortBy === mode}
+          on:click={() => changeSort(mode)}
+        >
+          {label}
+        </button>
+      {/each}
+    </div>
+  </div>
+
+  {#if loading}
+    <div class="grid">
+      {#each { length: 12 } as _}
+        <div class="card-skeleton">
+          <div class="skeleton-cover"></div>
+          <Skeleton width="70%" height="0.85rem" radius="4px" />
+          <Skeleton width="50%" height="0.75rem" radius="4px" />
+        </div>
+      {/each}
+    </div>
+  {:else if books.length === 0}
+    <div class="empty">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+      <p>No audiobooks yet.</p>
+      <p class="muted">Set <code>AUDIOBOOK_DIRS</code> and trigger a scan.</p>
+    </div>
+  {:else}
+    <div class="grid">
+      {#each books as book (book.id)}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div class="book-card" on:click={() => goto(`/audiobooks/${book.id}`)}>
+          <div class="cover-wrap">
+            {#if book.cover_art_key}
+              <img
+                src="{getApiBase()}/covers/audiobook/{book.id}"
+                alt={book.title}
+                class="cover"
+                loading="lazy"
+              />
+            {:else}
+              <div class="cover placeholder">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+              </div>
+            {/if}
+            <button
+              class="play-btn"
+              aria-label="Play {book.title}"
+              on:click|stopPropagation={() => playAudiobook(book)}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
+              </svg>
+            </button>
+          </div>
+          <div class="info">
+            <span class="title" title={book.title}>{book.title}</span>
+            {#if book.author_name}
+              <span class="author" title={book.author_name}>{book.author_name}</span>
+            {/if}
+            <div class="meta-row">
+              {#if book.series}
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <span
+                  class="series"
+                  title="View series: {book.series}"
+                  on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}>
+                  {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+                </span>
+              {/if}
+              {#if book.duration_ms}
+                <span class="duration">{fmtDuration(book.duration_ms)}</span>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    {#if hasMore}
+      <div class="load-more">
+        <button class="btn-load-more" on:click={loadMore} disabled={loadingMore}>
+          {loadingMore ? "Loading…" : "Load more"}
+        </button>
+      </div>
+    {/if}
+  {/if}
+</div>
+
+<style>
+  .page { padding-top: 4px; }
+
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .page-title { font-size: 1.5rem; font-weight: 700; margin: 0; }
+  .count { font-size: 0.8rem; color: var(--text-muted); }
+
+  .sort-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .sort-label {
+    font-size: 0.6875rem;
+    color: var(--text-muted);
+    margin-right: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .sort-btn {
+    all: unset;
+    cursor: pointer;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .sort-btn:hover { color: var(--text); border-color: var(--border); }
+  .sort-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 20px 16px;
+  }
+
+  /* skeleton cards */
+  .card-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .skeleton-cover {
+    width: 100%;
+    padding-bottom: 150%;
+    border-radius: 8px;
+    background: linear-gradient(
+      90deg,
+      var(--bg-3, #2a2a2a) 25%,
+      var(--bg-2, #333) 50%,
+      var(--bg-3, #2a2a2a) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* real book cards */
+  .book-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    cursor: pointer;
+  }
+
+  .cover-wrap {
+    position: relative;
+    width: 100%;
+    padding-bottom: 150%;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+
+  .cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.25s;
+  }
+  .book-card:hover .cover { transform: scale(1.03); }
+
+  .placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    opacity: 0.4;
+  }
+
+  .play-btn {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.2s, transform 0.2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  .book-card:hover .play-btn {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .play-btn:hover { filter: brightness(1.1); }
+
+  .info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+    line-height: 1.3;
+  }
+
+  .author {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .series {
+    font-size: 0.72rem;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+    cursor: pointer;
+  }
+  .series:hover { text-decoration: underline; }
+
+  .duration {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  /* empty state */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 72px 16px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .empty svg { opacity: 0.35; }
+  .empty p { margin: 0; font-size: 0.95rem; }
+  .empty code {
+    font-size: 0.85rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .muted { color: var(--text-muted); }
+
+  /* load more */
+  .load-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 32px;
+  }
+  .btn-load-more {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.875rem;
+    padding: 8px 24px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .btn-load-more:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+  .btn-load-more:disabled { opacity: 0.5; cursor: default; }
+
+  @media (max-width: 640px) {
+    .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px 12px; }
+  }
+</style>

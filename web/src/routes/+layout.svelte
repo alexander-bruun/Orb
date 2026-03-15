@@ -34,6 +34,11 @@
   import MobileNav from "$lib/components/layout/mobile/MobileNav.svelte";
   import MobilePlayer from "$lib/components/layout/mobile/MobilePlayer.svelte";
   import MobileAvatar from "$lib/components/layout/mobile/MobileAvatar.svelte";
+  import AudiobookBottomBar from "$lib/components/layout/desktop/AudiobookBottomBar.svelte";
+  import MobileAudiobookPlayer from "$lib/components/layout/mobile/MobileAudiobookPlayer.svelte";
+  import { currentAudiobook, pauseAudiobook } from "$lib/stores/audiobookPlayer";
+  import { activePlayer } from "$lib/stores/activePlayer";
+  import { pauseLocal } from "$lib/stores/player";
   import { getServerUrl } from "$lib/api/base";
   import {
     loadEQProfiles,
@@ -227,6 +232,12 @@
     }, 2000);
   });
 
+  // ── Mutual exclusion: pause the inactive player when the active one switches ──
+  $effect(() => {
+    if ($activePlayer === 'music') pauseAudiobook();
+    else pauseLocal();
+  });
+
   // ── Per-genre EQ auto-switch ────────────────────────────
   // When the playing track changes, look up genre mappings and apply the
   // first matching EQ profile (falls back to the user's default profile).
@@ -290,10 +301,18 @@
     <main class="content">
       {@render children()}
     </main>
-    <BottomBar />
+    {#if $currentAudiobook && $activePlayer === 'audiobook'}
+      <AudiobookBottomBar />
+    {:else}
+      <BottomBar />
+    {/if}
     <ListenPartyPanel />
   </div>
-  <MobilePlayer />
+  {#if $currentAudiobook && $activePlayer === 'audiobook'}
+    <MobileAudiobookPlayer />
+  {:else}
+    <MobilePlayer />
+  {/if}
   <MobileNav />
   <MobileAvatar />
   <ContextMenu />

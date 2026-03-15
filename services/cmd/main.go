@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/admin"
+	audiobookpkg "github.com/alexander-bruun/orb/services/internal/audiobook"
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/castproxy"
 	"github.com/alexander-bruun/orb/services/internal/config"
@@ -102,6 +103,9 @@ func run(ctx context.Context) error {
 	// --- Ingest service (shared between HTTP handler and background watcher) ---
 	ingestSvc := buildIngestService(ctx, db, obj, kv)
 
+	// --- Audiobook ingest service (optional, requires AUDIOBOOK_DIRS) ---
+	audiobookIngestSvc := buildAudiobookIngestService(ctx, db, obj)
+
 	// --- Router ---
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -125,6 +129,7 @@ func run(ctx context.Context) error {
 	r.Get("/covers/artist/{artist_id}", streamSvc.ArtistImage)
 	r.Get("/covers/playlist/{id}", streamSvc.PlaylistCover)
 	r.Get("/covers/playlist/{id}/composite", streamSvc.PlaylistCoverComposite)
+	r.Get("/covers/audiobook/{id}", streamSvc.AudiobookCover)
 
 	// Protected routes
 	jwtMW := auth.JWTMiddleware(jwtSecret, kv)
@@ -139,6 +144,8 @@ func run(ctx context.Context) error {
 
 		r.Get("/stream/{track_id}", streamSvc.Stream)
 		r.Get("/stream/{track_id}/index.m3u8", streamSvc.Manifest)
+		r.Get("/stream/audiobook/{id}", streamSvc.AudiobookStream)
+		r.Get("/stream/audiobook/chapter/{chapter_id}", streamSvc.AudiobookChapterStream)
 
 		plSvc := playlist.New(db)
 		r.Route("/playlists", plSvc.Routes)
@@ -151,6 +158,9 @@ func run(ctx context.Context) error {
 
 		recSvc := recommend.New(db)
 		r.Route("/recommend", recSvc.Routes)
+
+		abSvc := audiobookpkg.New(db, obj, audiobookIngestSvc)
+		r.Route("/audiobooks", abSvc.Routes)
 
 		userSvc := user.New(db, kv)
 		deviceSvc := device.New(kv)
@@ -189,6 +199,11 @@ func run(ctx context.Context) error {
 	// --- Background ingest watcher (leader-elected, no-op if Watch=false) ---
 	if ingestSvc != nil {
 		go ingestSvc.StartWatch(ctx)
+	}
+
+	// --- Audiobook background watcher ---
+	if audiobookIngestSvc != nil {
+		go audiobookIngestSvc.StartWatch(ctx)
 	}
 
 	// --- mDNS discovery ---
@@ -240,18 +255,17 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// buildIngestService creates the ingest.Service if INGEST_DIRS is configured.
+// buildIngestService creates the ingest.Service if MUSIC_DIRS is configured.
 // Returns nil when ingest is not configured.
 // A single Service instance is shared by the HTTP handler and the background watcher.
 func buildIngestService(ctx context.Context, db *store.Store, obj objstore.ObjectStore, kv *redis.Client) *ingest.Service {
-	dirs := parseDirs(config.Env("INGEST_DIRS", ""))
+	dirs := parseDirs(config.Env("MUSIC_DIRS", ""))
 	if len(dirs) == 0 {
 		return nil
 	}
 	cfg := ingest.Config{
 		Dirs:              dirs,
 		ExcludeGlobs:      parseDirs(config.Env("INGEST_EXCLUDE", "")),
-		Watch:             config.Env("INGEST_WATCH", "false") == "true",
 		Workers:           runtime.NumCPU(),
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
@@ -342,6 +356,22 @@ func detectLANIP() string {
 		}
 	}
 	return "127.0.0.1"
+}
+
+// buildAudiobookIngestService creates the audiobook ingest service if AUDIOBOOK_DIRS is set.
+func buildAudiobookIngestService(ctx context.Context, db *store.Store, obj objstore.ObjectStore) *ingest.AudiobookIngestService {
+	dirs := parseDirs(config.Env("AUDIOBOOK_DIRS", ""))
+	if len(dirs) == 0 {
+		return nil
+	}
+	cfg := ingest.AudiobookConfig{
+		Dirs:         dirs,
+		ExcludeGlobs: parseDirs(config.Env("AUDIOBOOK_EXCLUDE", "")),
+		Workers:      runtime.NumCPU(),
+		Enrich:       config.Env("AUDIOBOOK_ENRICH", "true") == "true",
+		PollInterval: parseDuration(config.Env("AUDIOBOOK_POLL_INTERVAL", ""), 30*time.Second),
+	}
+	return ingest.NewAudiobookIngestService(ctx, db, obj, cfg)
 }
 
 // Ensure kvkeys package is used (imported for side effects in future).

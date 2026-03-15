@@ -693,3 +693,137 @@ type CreateWebhookDeliveryParams struct {
 	StatusCode *int
 	Error      *string
 }
+
+// ── Audiobook models ──────────────────────────────────────────────────────────
+
+// AudiobookNarrator is a person who narrated an audiobook.
+type AudiobookNarrator struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	SortName  string    `json:"sort_name"`
+	ImageKey  *string   `json:"image_key,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Audiobook represents a full audiobook in the database.
+type Audiobook struct {
+	ID            string     `json:"id"`
+	Title         string     `json:"title"`
+	AuthorID      *string    `json:"author_id,omitempty"`
+	AuthorName    *string    `json:"author_name,omitempty"`
+	CoverArtKey   *string    `json:"cover_art_key,omitempty"`
+	Description   *string    `json:"description,omitempty"`
+	Series        *string    `json:"series,omitempty"`
+	SeriesIndex   *float64   `json:"series_index,omitempty"`
+	PublishedYear *int       `json:"published_year,omitempty"`
+	ISBN          *string    `json:"isbn,omitempty"`
+	OLKey         *string    `json:"ol_key,omitempty"`
+	FileKey       *string    `json:"file_key,omitempty"`
+	FileSize      int64      `json:"file_size"`
+	Format        string     `json:"format"`
+	DurationMs    int64      `json:"duration_ms"`
+	Fingerprint   string     `json:"fingerprint,omitempty"`
+	Narrators     []AudiobookNarrator `json:"narrators,omitempty"`
+	Chapters      []AudiobookChapter  `json:"chapters,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+// AudiobookChapter is a single chapter within an audiobook.
+// FileKey is non-nil for multi-file (directory-based) audiobooks where each
+// chapter is stored as a separate file. Nil means the chapter is a time-range
+// inside the parent audiobook's file_key (single-file M4B mode).
+type AudiobookChapter struct {
+	ID          string  `json:"id"`
+	AudiobookID string  `json:"audiobook_id"`
+	Title       string  `json:"title"`
+	StartMs     int64   `json:"start_ms"`
+	EndMs       int64   `json:"end_ms"`
+	ChapterNum  int     `json:"chapter_num"`
+	FileKey     *string `json:"file_key,omitempty"`
+}
+
+// AudiobookProgress holds per-user playback progress for an audiobook.
+type AudiobookProgress struct {
+	UserID      string    `json:"user_id"`
+	AudiobookID string    `json:"audiobook_id"`
+	PositionMs  int64     `json:"position_ms"`
+	Completed   bool      `json:"completed"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AudiobookBookmark is a saved position within an audiobook for a user.
+type AudiobookBookmark struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	AudiobookID string    `json:"audiobook_id"`
+	PositionMs  int64     `json:"position_ms"`
+	Note        *string   `json:"note,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// UpsertAudiobookParams for inserting or updating an audiobook.
+type UpsertAudiobookParams struct {
+	ID            string
+	Title         string
+	AuthorID      *string
+	CoverArtKey   *string
+	Description   *string
+	Series        *string
+	SeriesIndex   *float64
+	PublishedYear *int
+	ISBN          *string
+	OLKey         *string
+	FileKey       *string // nil for multi-file (directory-based) audiobooks
+	FileSize      int64
+	Format        string
+	DurationMs    int64
+	Fingerprint   string
+}
+
+// UpsertAudiobookNarratorParams for inserting or updating a narrator.
+type UpsertAudiobookNarratorParams struct {
+	ID       string
+	Name     string
+	SortName string
+}
+
+// UpsertAudiobookProgressParams for updating per-user progress.
+type UpsertAudiobookProgressParams struct {
+	UserID      string
+	AudiobookID string
+	PositionMs  int64
+	Completed   bool
+}
+
+// CreateAudiobookBookmarkParams for creating a new bookmark.
+type CreateAudiobookBookmarkParams struct {
+	ID          string
+	UserID      string
+	AudiobookID string
+	PositionMs  int64
+	Note        *string
+}
+
+// AudiobookWithProgress embeds an Audiobook with the user's progress fields
+// for use in "Continue Listening" queries.
+type AudiobookWithProgress struct {
+	Audiobook
+	PositionMs        int64     `json:"position_ms"`
+	Completed         bool      `json:"completed"`
+	ProgressUpdatedAt time.Time `json:"progress_updated_at"`
+}
+
+// AudiobookIngestStateRow is a row from the audiobook_ingest_state table.
+type AudiobookIngestStateRow struct {
+	Path        string
+	MtimeUnix   int64
+	FileSize    int64
+	AudiobookID string
+}
+
+// ListAudiobooksParams for listing audiobooks with pagination.
+type ListAudiobooksParams struct {
+	Limit  int32
+	Offset int32
+	SortBy string // "title" | "author" | "year"
+}

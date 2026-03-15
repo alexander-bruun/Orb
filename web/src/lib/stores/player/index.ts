@@ -16,6 +16,13 @@ import { devices as devicesApi } from '$lib/api/devices';
 import { isCurrentlyOffline } from '$lib/stores/offline/connectivity';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
 import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
+import { activePlayer } from '$lib/stores/activePlayer';
+import {
+	toggleABPlayPause, pauseAudiobook,
+	skipForward, skipBackward, seekAudiobookMs,
+	currentAudiobook, abPlaybackState, abPositionMs, abDurationMs,
+} from '$lib/stores/audiobookPlayer';
+import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
 
 export const currentTrack = writable<Track | null>(null);
 export const playbackState = writable<PlaybackState>('idle');
@@ -314,6 +321,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		}
 	}
 	// Stop any in-progress shadow tick so it doesn't compete with real audio.
+	activePlayer.set('music');
 	stopShadowTick();
 	currentTrack.set(track);
 	playbackState.set('loading');
@@ -901,7 +909,9 @@ function writeState() {
 			autoplay: get(autoplayEnabled),
 			discord: get(discordEnabled),
 			replayGain: get(replayGainEnabled),
-			smartShuffle: get(smartShuffleEnabled)
+			smartShuffle: get(smartShuffleEnabled),
+			activePlayer: get(activePlayer),
+			audiobookId: get(currentAudiobook)?.id ?? null,
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(st));
 	} catch {
@@ -945,6 +955,8 @@ function scheduleStateSave() {
 positionMs.subscribe(() => schedulePositionSave());
 playbackState.subscribe(() => scheduleStateSave());
 currentTrack.subscribe(() => scheduleStateSave());
+currentAudiobook.subscribe(() => scheduleStateSave());
+activePlayer.subscribe(() => scheduleStateSave());
 queueIndex.subscribe(() => scheduleStateSave());
 volume.subscribe(() => scheduleStateSave());
 repeatMode.subscribe(() => scheduleStateSave());
@@ -1010,29 +1022,82 @@ function syncPositionState(posMs: number, durMs: number) {
 	}
 }
 
-if (mediaSessionSupported()) {
-	navigator.mediaSession.setActionHandler('play', () => togglePlayPause());
-	navigator.mediaSession.setActionHandler('pause', () => togglePlayPause());
-	navigator.mediaSession.setActionHandler('stop', () => {
-		audioEngine.stop();
-		positionMs.set(0);
-		playbackState.set('paused');
-	});
-	navigator.mediaSession.setActionHandler('previoustrack', () => { previous(); });
-	navigator.mediaSession.setActionHandler('nexttrack', () => { next(); });
-	navigator.mediaSession.setActionHandler('seekto', (details) => {
-		if (details.seekTime !== undefined) seek(details.seekTime);
-	});
-	navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-		seek(Math.max(0, get(positionMs) / 1000 - (details.seekOffset ?? 10)));
-	});
-	navigator.mediaSession.setActionHandler('seekforward', (details) => {
-		seek(Math.min(get(durationMs) / 1000, get(positionMs) / 1000 + (details.seekOffset ?? 10)));
+function syncAudiobookMediaMetadata() {
+	if (!mediaSessionSupported()) return;
+	const book = get(currentAudiobook);
+	if (!book) return;
+	const base = typeof location !== 'undefined' ? location.origin : '';
+	navigator.mediaSession.metadata = new MediaMetadata({
+		title: book.title,
+		artist: book.author_name ?? '',
+		album: book.series ?? '',
+		artwork: [{ src: `${base}${getApiBase()}/covers/audiobook/${book.id}`, sizes: '512x512', type: 'image/jpeg' }],
 	});
 }
 
-currentTrack.subscribe(syncMediaMetadata);
-playbackState.subscribe(syncMediaSessionPlaybackState);
+if (mediaSessionSupported()) {
+	navigator.mediaSession.setActionHandler('play', () => {
+		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
+	});
+	navigator.mediaSession.setActionHandler('pause', () => {
+		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
+	});
+	navigator.mediaSession.setActionHandler('stop', () => {
+		if (get(activePlayer) === 'audiobook') {
+			pauseAudiobook();
+		} else {
+			audioEngine.stop();
+			positionMs.set(0);
+			playbackState.set('paused');
+		}
+	});
+	navigator.mediaSession.setActionHandler('previoustrack', () => {
+		if (get(activePlayer) === 'audiobook') skipBackward(10); else previous();
+	});
+	navigator.mediaSession.setActionHandler('nexttrack', () => {
+		if (get(activePlayer) === 'audiobook') skipForward(30); else next();
+	});
+	navigator.mediaSession.setActionHandler('seekto', (details) => {
+		if (details.seekTime === undefined) return;
+		if (get(activePlayer) === 'audiobook') seekAudiobookMs(details.seekTime * 1000);
+		else seek(details.seekTime);
+	});
+	navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+		if (get(activePlayer) === 'audiobook') skipBackward(details.seekOffset ?? 10);
+		else seek(Math.max(0, get(positionMs) / 1000 - (details.seekOffset ?? 10)));
+	});
+	navigator.mediaSession.setActionHandler('seekforward', (details) => {
+		if (get(activePlayer) === 'audiobook') skipForward(details.seekOffset ?? 30);
+		else seek(Math.min(get(durationMs) / 1000, get(positionMs) / 1000 + (details.seekOffset ?? 10)));
+	});
+}
+
+currentTrack.subscribe((track) => {
+	if (get(activePlayer) === 'music') syncMediaMetadata(track);
+});
+playbackState.subscribe((state) => {
+	if (get(activePlayer) === 'music') syncMediaSessionPlaybackState(state);
+});
+currentAudiobook.subscribe(() => {
+	if (get(activePlayer) === 'audiobook') syncAudiobookMediaMetadata();
+});
+abPlaybackState.subscribe((state) => {
+	if (get(activePlayer) === 'audiobook') {
+		syncMediaSessionPlaybackState(state === 'playing' ? 'playing' : state === 'paused' ? 'paused' : 'idle');
+	}
+});
+// Re-sync media session immediately whenever the active player switches.
+activePlayer.subscribe((mode) => {
+	if (!mediaSessionSupported()) return;
+	if (mode === 'audiobook') {
+		syncAudiobookMediaMetadata();
+		const abState = get(abPlaybackState);
+		syncMediaSessionPlaybackState(abState === 'playing' ? 'playing' : 'paused');
+	} else {
+		syncMediaMetadata(get(currentTrack));
+		syncMediaSessionPlaybackState(get(playbackState));
+	}
+});
 
 // When the user returns to Chrome from another app, Android may have
 // auto-suspended AudioContexts (including the one capturing the native
@@ -1148,22 +1213,11 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (!raw) return;
 		const st = JSON.parse(raw);
-		if (!st?.trackId) return;
 
-		const res = await libraryApi.track(st.trackId).catch(() => null);
-		if (!res?.track) return;
-		const track = res.track;
-
-		currentTrack.set(track);
-		durationMs.set(track.duration_ms);
-		positionMs.set((st.pos || 0) * 1000);
-		queueIndex.set(typeof st.queueIndex === 'number' ? st.queueIndex : 0);
+		// ── Restore common settings (independent of which player was active) ──
 		let vol = typeof st.volume === 'number' ? st.volume : 1;
-		// On Android, use the system music volume instead of the saved value
 		if (nativePlatform() === 'android') {
-			try {
-				vol = await invoke<number>('get_volume');
-			} catch { /* use saved value */ }
+			try { vol = await invoke<number>('get_volume'); } catch { /* use saved */ }
 		}
 		volume.set(vol);
 		audioEngine.setVolume(vol);
@@ -1176,6 +1230,50 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		if (st.discord === true) discordEnabled.set(true);
 		if (st.replayGain === true) replayGainEnabled.set(true);
 		if (st.smartShuffle === true) smartShuffleEnabled.set(true);
+
+		// ── Restore audiobook player ──────────────────────────────────────────
+		if (st.activePlayer === 'audiobook' && st.audiobookId) {
+			const [abRes, progressRes] = await Promise.all([
+				audiobooksApi.get(st.audiobookId).catch(() => null),
+				audiobooksApi.getProgress(st.audiobookId).catch(() => null),
+			]);
+			if (abRes?.audiobook) {
+				const book = abRes.audiobook;
+				const posMs = progressRes?.progress?.position_ms ?? 0;
+				currentAudiobook.set(book);
+				abDurationMs.set(book.duration_ms ?? 0);
+				abPositionMs.set(posMs);
+				abPlaybackState.set('paused');
+				activePlayer.set('audiobook');
+			}
+			// Also restore music queue in the background so switching back to
+			// music works without a reload.
+			if (st.trackId) {
+				libraryApi.track(st.trackId).then((res) => {
+					if (!res?.track) return;
+					currentTrack.set(res.track);
+					durationMs.set(res.track.duration_ms);
+					positionMs.set((st.pos || 0) * 1000);
+					queueIndex.set(typeof st.queueIndex === 'number' ? st.queueIndex : 0);
+					if (Array.isArray(st.queue) && st.queue.length) {
+						queue.set(st.queue as Track[]);
+					}
+				}).catch(() => {});
+			}
+			return;
+		}
+
+		// ── Restore music player ──────────────────────────────────────────────
+		if (!st?.trackId) return;
+
+		const res = await libraryApi.track(st.trackId).catch(() => null);
+		if (!res?.track) return;
+		const track = res.track;
+
+		currentTrack.set(track);
+		durationMs.set(track.duration_ms);
+		positionMs.set((st.pos || 0) * 1000);
+		queueIndex.set(typeof st.queueIndex === 'number' ? st.queueIndex : 0);
 
 		if (Array.isArray(st.queue) && st.queue.length) {
 			// New format: full track objects stored directly — no API calls needed.

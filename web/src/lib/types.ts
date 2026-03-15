@@ -75,6 +75,60 @@ export interface Track {
 	bpm?: number;
 }
 
+export interface AudiobookNarrator {
+	id: string;
+	name: string;
+	sort_name: string;
+	image_key?: string;
+}
+
+export interface AudiobookChapter {
+	id: string;
+	audiobook_id: string;
+	title: string;
+	start_ms: number;
+	end_ms: number;
+	chapter_num: number;
+	file_key?: string; // non-null for multi-file (per-chapter MP3) audiobooks
+}
+
+export interface Audiobook {
+	id: string;
+	title: string;
+	author_id?: string;
+	author_name?: string;
+	cover_art_key?: string;
+	description?: string;
+	series?: string;
+	series_index?: number;
+	published_year?: number;
+	isbn?: string;
+	ol_key?: string;
+	file_key?: string; // null for multi-file (directory-based) audiobooks
+	file_size: number;
+	format: string;
+	duration_ms: number;
+	narrators?: AudiobookNarrator[];
+	chapters?: AudiobookChapter[];
+}
+
+export interface AudiobookProgress {
+	user_id: string;
+	audiobook_id: string;
+	position_ms: number;
+	completed: boolean;
+	updated_at?: string;
+}
+
+export interface AudiobookBookmark {
+	id: string;
+	user_id: string;
+	audiobook_id: string;
+	position_ms: number;
+	note?: string;
+	created_at: string;
+}
+
 export interface Playlist {
 	id: string;
 	user_id: string;

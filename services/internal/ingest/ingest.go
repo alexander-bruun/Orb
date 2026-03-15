@@ -187,7 +187,6 @@ type Config struct {
 	Dirs              []string
 	ExcludeGlobs      []string // glob patterns for directories/files to skip (supports **)
 	DryRun            bool
-	Watch             bool
 	Workers           int
 	ComputeSimilarity bool
 	Enrich            bool
@@ -262,11 +261,14 @@ func (g *Ingester) loadState(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load ingest state: %w", err)
 	}
-	g.state = make(map[string]ingestEntry, len(rows))
+	newState := make(map[string]ingestEntry, len(rows))
 	for _, r := range rows {
-		g.state[r.Path] = ingestEntry{mtimeUnix: r.MtimeUnix, fileSize: r.FileSize}
+		newState[r.Path] = ingestEntry{mtimeUnix: r.MtimeUnix, fileSize: r.FileSize}
 	}
-	slog.Info("loaded ingest state", "known_files", len(g.state))
+	g.stateMu.Lock()
+	g.state = newState
+	g.stateMu.Unlock()
+	slog.Info("loaded ingest state", "known_files", len(newState))
 	return nil
 }
 
@@ -323,6 +325,13 @@ func (g *Ingester) process(ctx context.Context, path string) (trackID string, er
 
 // Scan performs a single scan of all configured dirs and returns new track IDs, skipped count, and error count.
 func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, errs int) {
+	// Reload state from DB so already-ingested files are skipped even after a
+	// restart or when Scan is called directly (e.g. HTTP-triggered scan) rather
+	// than via Run which called loadState once at startup.
+	if err := g.loadState(ctx); err != nil {
+		slog.Warn("ingest: failed to reload state, proceeding with stale cache", "err", err)
+	}
+
 	var paths []string
 	for _, dir := range g.cfg.Dirs {
 		dir = strings.TrimSpace(dir)
@@ -432,10 +441,6 @@ func (g *Ingester) Run(ctx context.Context) error {
 		if err := g.runSimilarity(ctx, newIDs); err != nil {
 			slog.Error("similarity computation failed", "err", err)
 		}
-	}
-
-	if !g.cfg.Watch {
-		return nil
 	}
 
 	watcher, watchErr := fsnotify.NewWatcher()
@@ -1190,10 +1195,6 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 	}
 	slog.Info("ingest leader: initial scan complete", "enqueued", n)
 
-	if !g.cfg.Watch {
-		return nil
-	}
-
 	enqueue := func(path string) {
 		if err := kv.LPush(ctx, kvkeys.IngestWorkQueue(), path).Err(); err != nil {
 			slog.Warn("ingest leader: enqueue failed", "path", path, "err", err)
@@ -1370,8 +1371,12 @@ func (g *Ingester) workerLoop(ctx context.Context, kv *redis.Client) {
 			slog.Info("ingest worker: would process (dry run)", "path", path)
 			continue
 		}
-		// The leader already filtered out up-to-date files before enqueuing,
-		// so we skip the upToDate check here and process directly.
+		// Re-check upToDate: the leader may have re-enqueued a file that a
+		// concurrent worker (or a previous poll cycle) already finished.
+		if g.upToDate(path, fi) {
+			slog.Debug("ingest worker: already done, skipping", "path", path)
+			continue
+		}
 		trackID, err := g.ingestFile(ctx, path, fi)
 		if err != nil {
 			slog.Error("ingest worker: failed", "path", path, "err", err)

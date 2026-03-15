@@ -18,6 +18,8 @@
   <td><img src="docs/mobile-notification.png" alt="Orb Mobile + Notification" width="300"></td>
 </tr></table>
 
+![Orb Desktop UI + Audiobook](docs/desktop-audiobook.png)
+
 ---
 
 ## What is Orb?
@@ -27,7 +29,7 @@ Orb is a self-hosted music server built for audiophiles who want Spotify-level c
 ## Features
 
 - **Lossless streaming** — FLAC, WAV, AIFF, and more at up to 32-bit/192kHz via HTTP range requests and client-side WASM decoding
-- **Library management** — Automatic indexing, metadata extraction, MusicBrainz enrichment, and embedded album art
+- **Library management** — Automatic indexing, metadata extraction, MusicBrainz enrichment, and embedded album art for music and audiobooks
 - **Multi-user** — Individual libraries, playlists, and persistent queues per user
 - **Discovery** — Advanced search, favorites, recently played, similarity-based recommendations, and autoplay radio
 - **Listen Along** — Share a real-time listening session with guests via a shareable link

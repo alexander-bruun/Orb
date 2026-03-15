@@ -381,3 +381,96 @@ CREATE TABLE IF NOT EXISTS track_ratings (
     PRIMARY KEY (user_id, track_id)
 );
 CREATE INDEX IF NOT EXISTS track_ratings_user_idx ON track_ratings(user_id);
+
+-- ── Audiobooks ────────────────────────────────────────────────────────────────
+-- Audiobooks are a separate content type from music. They have chapters,
+-- narrators, series info, and per-user progress / bookmarks.
+
+CREATE TABLE IF NOT EXISTS audiobook_narrators (
+    id         TEXT        PRIMARY KEY,
+    name       TEXT        NOT NULL,
+    sort_name  TEXT        NOT NULL,
+    image_key  TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS audiobooks (
+    id             TEXT        PRIMARY KEY,
+    title          TEXT        NOT NULL,
+    author_id      TEXT        REFERENCES artists(id) ON DELETE SET NULL,
+    cover_art_key  TEXT,
+    description    TEXT,
+    series         TEXT,
+    series_index   REAL,
+    published_year INT,
+    isbn           TEXT,
+    ol_key         TEXT,        -- Open Library work key, e.g. "/works/OL82563W"
+    file_key       TEXT        NOT NULL,
+    file_size      BIGINT      NOT NULL,
+    format         TEXT        NOT NULL,
+    duration_ms    BIGINT      NOT NULL,
+    fingerprint    TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS audiobook_narrator_links (
+    audiobook_id TEXT NOT NULL REFERENCES audiobooks(id) ON DELETE CASCADE,
+    narrator_id  TEXT NOT NULL REFERENCES audiobook_narrators(id) ON DELETE CASCADE,
+    position     INT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (audiobook_id, narrator_id)
+);
+
+CREATE TABLE IF NOT EXISTS audiobook_chapters (
+    id           TEXT        PRIMARY KEY,
+    audiobook_id TEXT        NOT NULL REFERENCES audiobooks(id) ON DELETE CASCADE,
+    title        TEXT        NOT NULL,
+    start_ms     BIGINT      NOT NULL,
+    end_ms       BIGINT      NOT NULL,
+    chapter_num  INT         NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS audiobook_chapters_book_idx ON audiobook_chapters(audiobook_id, chapter_num);
+
+CREATE TABLE IF NOT EXISTS audiobook_progress (
+    user_id      TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audiobook_id TEXT        NOT NULL REFERENCES audiobooks(id) ON DELETE CASCADE,
+    position_ms  BIGINT      NOT NULL DEFAULT 0,
+    completed    BOOLEAN     NOT NULL DEFAULT FALSE,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, audiobook_id)
+);
+
+CREATE TABLE IF NOT EXISTS audiobook_bookmarks (
+    id           TEXT        PRIMARY KEY,
+    user_id      TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    audiobook_id TEXT        NOT NULL REFERENCES audiobooks(id) ON DELETE CASCADE,
+    position_ms  BIGINT      NOT NULL,
+    note         TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS audiobook_ingest_state (
+    path         TEXT        PRIMARY KEY,
+    mtime_unix   BIGINT      NOT NULL,
+    file_size    BIGINT      NOT NULL,
+    audiobook_id TEXT        NOT NULL,
+    ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS audiobooks_author_idx        ON audiobooks(author_id);
+CREATE INDEX IF NOT EXISTS audiobook_narrator_links_idx ON audiobook_narrator_links(audiobook_id);
+CREATE INDEX IF NOT EXISTS audiobook_progress_user_idx  ON audiobook_progress(user_id);
+CREATE INDEX IF NOT EXISTS audiobook_bookmarks_user_idx ON audiobook_bookmarks(user_id, audiobook_id);
+
+-- Full-text search for audiobooks
+ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS search_vector tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(series, ''))) STORED;
+CREATE INDEX IF NOT EXISTS audiobooks_search_idx ON audiobooks USING GIN(search_vector);
+
+-- Multi-file audiobook support: each chapter can have its own stored file.
+-- NULL means the chapter is a time-range inside the parent audiobook's file_key (M4B mode).
+-- Non-NULL means the chapter is streamed from its own file (directory/MP3 mode).
+ALTER TABLE audiobook_chapters ADD COLUMN IF NOT EXISTS file_key TEXT;
+
+-- The audiobook's file_key is now optional (NULL for directory-based multi-file books).
+ALTER TABLE audiobooks ALTER COLUMN file_key DROP NOT NULL;

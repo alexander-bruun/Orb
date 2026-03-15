@@ -3,6 +3,8 @@
   import { authStore, isAuthenticated } from '$lib/stores/auth';
   import { searchQuery } from '$lib/stores/library';
   import { formattedFormat } from '$lib/stores/player';
+  import { abFormattedFormat } from '$lib/stores/audiobookPlayer';
+  import { activePlayer } from '$lib/stores/activePlayer';
   import { avatarStore } from '$lib/stores/settings/theme';
   import { sidebarOpen } from '$lib/stores/ui/sidebar';
   import { library as libApi } from '$lib/api/library';
@@ -228,8 +230,8 @@
 
   <div class="spacer"></div>
 
-  {#if $formattedFormat}
-    <div class="format-badge">{$formattedFormat}</div>
+  {#if $activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}
+    <div class="format-badge">{$activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}</div>
   {/if}
 
   {#if $isAuthenticated}

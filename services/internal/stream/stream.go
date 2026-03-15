@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -656,6 +657,141 @@ func mimeForFormat(format string) string {
 		return "audio/wav"
 	case "aiff", "aif":
 		return "audio/aiff"
+	case "m4b", "m4a":
+		return "audio/mp4"
 	}
 	return "application/octet-stream"
+}
+
+// AudiobookStream serves an audiobook file with full HTTP range request support.
+// Route: GET /stream/audiobook/{id}
+// Only valid for single-file audiobooks (M4B/M4A). Multi-file audiobooks must
+// stream each chapter via /stream/audiobook/chapter/{chapter_id}.
+func (s *Service) AudiobookStream(w http.ResponseWriter, r *http.Request) {
+	audiobookID := chi.URLParam(r, "id")
+
+	book, err := s.db.GetAudiobook(r.Context(), audiobookID)
+	if err != nil {
+		http.Error(w, "audiobook not found", http.StatusNotFound)
+		return
+	}
+	if book.FileKey == nil {
+		http.Error(w, "multi-file audiobook: use chapter stream endpoint", http.StatusBadRequest)
+		return
+	}
+
+	fileSize := book.FileSize
+	rangeHeader := r.Header.Get("Range")
+
+	var offset, length int64
+	if rangeHeader != "" {
+		var end int64
+		offset, end, err = parseRange(rangeHeader, fileSize)
+		if err != nil {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		length = end - offset + 1
+	} else {
+		offset = 0
+		length = fileSize
+	}
+
+	rc, err := s.obj.GetRange(r.Context(), *book.FileKey, offset, length)
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	defer rc.Close()
+
+	contentType := mimeForFormat(book.Format)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+
+	if rangeHeader != "" {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, fileSize))
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
+	}
+
+	_, _ = io.Copy(w, rc)
+}
+
+// AudiobookChapterStream serves a single chapter file for multi-file audiobooks.
+// Route: GET /stream/audiobook/chapter/{chapter_id}
+func (s *Service) AudiobookChapterStream(w http.ResponseWriter, r *http.Request) {
+	chapterID := chi.URLParam(r, "chapter_id")
+
+	chapter, err := s.db.GetAudiobookChapterByID(r.Context(), chapterID)
+	if err != nil || chapter.FileKey == nil {
+		http.Error(w, "chapter not found", http.StatusNotFound)
+		return
+	}
+
+	fileSize, err := s.obj.Size(r.Context(), *chapter.FileKey)
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+
+	rangeHeader := r.Header.Get("Range")
+	var offset, length int64
+	if rangeHeader != "" {
+		var end int64
+		offset, end, err = parseRange(rangeHeader, fileSize)
+		if err != nil {
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		length = end - offset + 1
+	} else {
+		offset = 0
+		length = fileSize
+	}
+
+	rc, err := s.obj.GetRange(r.Context(), *chapter.FileKey, offset, length)
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	defer rc.Close()
+
+	// Derive content-type from file extension.
+	ext := strings.ToLower(filepath.Ext(*chapter.FileKey))
+	if len(ext) > 1 {
+		ext = ext[1:]
+	}
+	contentType := mimeForFormat(ext)
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+
+	if rangeHeader != "" {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, fileSize))
+		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.Header().Set("Content-Length", strconv.FormatInt(fileSize, 10))
+	}
+
+	_, _ = io.Copy(w, rc)
+}
+
+// AudiobookCover serves cover art for an audiobook.
+// Route: GET /covers/audiobook/{id}
+func (s *Service) AudiobookCover(w http.ResponseWriter, r *http.Request) {
+	audiobookID := chi.URLParam(r, "id")
+
+	book, err := s.db.GetAudiobook(r.Context(), audiobookID)
+	if err != nil || book.CoverArtKey == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveCover(w, r, *book.CoverArtKey)
 }

@@ -8,7 +8,8 @@ Orb is configured via environment variables. Important options:
 - `STORE_ROOT` — local object-store root (default: `/data/audio`)
 - `JWT_SECRET` — secret for signing JWTs (change in production)
 - `HTTP_PORT` — port API listens on (default: `8080`)
-- `INGEST_DIRS` — comma-separated read-only paths to music folders mounted inside container (e.g. `/music/drive-1`)
+- `MUSIC_DIRS` — comma-separated read-only paths to music folders mounted inside container (e.g. `/music/drive-1`)
+- `AUDIOBOOK_DIRS` — comma-separated read-only paths to audiobook folders mounted inside container (e.g. `/audiobooks/drive-1
 - `INGEST_WATCH` — enable background ingest watcher (`true`/`false`)
 - `DLNA_ENABLED` — enable DLNA server (`true`/`false`)
 - `DLNA_PORT` — DLNA HTTP port (default: `9090`)

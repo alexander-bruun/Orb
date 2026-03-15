@@ -2,6 +2,8 @@
   import { page } from '$app/stores';
   import { afterNavigate } from '$app/navigation';
   import { currentTrack } from '$lib/stores/player';
+  import { currentAudiobook } from '$lib/stores/audiobookPlayer';
+  import { activePlayer } from '$lib/stores/activePlayer';
   import { expanded } from './coverExpandStore';
   import { authStore } from '$lib/stores/auth';
   import { sidebarOpen } from '$lib/stores/ui/sidebar';
@@ -28,6 +30,7 @@
     <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists') && !$page.url.pathname.startsWith('/smart-playlists')}>Playlists</a>
     <a href="/smart-playlists" class:active={$page.url.pathname.startsWith('/smart-playlists')}>Smart Playlists</a>
     <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
+    <a href="/audiobooks" class:active={$page.url.pathname.startsWith('/audiobooks')}>Audiobooks</a>
     <a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>
     <a href="/settings" class:active={$page.url.pathname === '/settings'}>Settings</a>
     {#if $authStore.user?.is_admin}
@@ -37,15 +40,25 @@
 
   <div class="spacer"></div>
 
-  {#if $currentTrack && $expanded}
+  {#if $expanded && ($currentTrack || $currentAudiobook)}
     <div class="sidebar-bottom">
       <div class="cover-wrap">
-        {#if $currentTrack.album_id}
-          <img src="{getApiBase()}/covers/{$currentTrack.album_id}"
-               alt="album art"
-               class="full-image" />
-        {:else}
-          <div class="placeholder full-image"></div>
+        {#if $activePlayer === 'audiobook' && $currentAudiobook}
+          {#if $currentAudiobook.cover_art_key}
+            <img src="{getApiBase()}/covers/audiobook/{$currentAudiobook.id}"
+                 alt="audiobook cover"
+                 class="full-image" />
+          {:else}
+            <div class="placeholder full-image"></div>
+          {/if}
+        {:else if $currentTrack}
+          {#if $currentTrack.album_id}
+            <img src="{getApiBase()}/covers/{$currentTrack.album_id}"
+                 alt="album art"
+                 class="full-image" />
+          {:else}
+            <div class="placeholder full-image"></div>
+          {/if}
         {/if}
         <button class="expand-btn overlay" on:click={toggleExpand} aria-label="Shrink cover">
           <svg width="20" height="20" viewBox="0 0 20 20"><path d="M6 14h8v-8H6v8zm2-6h4v4H8v-4z" fill="currentColor"/></svg>

@@ -25,6 +25,8 @@
     transferPlayback,
     formattedFormat,
   } from '$lib/stores/player';
+  import { abFormattedFormat } from '$lib/stores/audiobookPlayer';
+  import { activePlayer } from '$lib/stores/activePlayer';
   import { library } from '$lib/api/library';
   import { favorites } from '$lib/stores/library/favorites';
   import { writable } from 'svelte/store';
@@ -496,9 +498,9 @@
           <div class="fs-title">{$currentTrack.title}</div>
         </div>
       {:else}
-        <!-- Bitrate badge -->
-        {#if $formattedFormat}
-          <div class="fs-format-badge">{$formattedFormat}</div>
+        <!-- Bitrate / format badge -->
+        {#if $activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}
+          <div class="fs-format-badge">{$activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}</div>
         {/if}
 
         <!-- Album art -->
