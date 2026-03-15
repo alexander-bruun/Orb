@@ -42,6 +42,19 @@ var featuredArtistRe = regexp.MustCompile(
 
 var featSplitRe = regexp.MustCompile(`(?i)\s*[,&]\s*|\s+and\s+`)
 
+var genreSplitRe = regexp.MustCompile(`\s*[;/\x00]\s*|\s*,\s*`)
+
+func splitGenreList(s string) []string {
+	var out []string
+	for _, g := range genreSplitRe.Split(s, -1) {
+		g = strings.TrimSpace(g)
+		if g != "" {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
 var editionBracketsRe = regexp.MustCompile(`\{[^}]+\}|\[[^\]]+\]`)
 
 func splitArtistList(s string) []string {
@@ -810,6 +823,15 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		if err := g.db.UpsertTrackFeatures(ctx, trackID, bpm, keyEst, rgain); err != nil {
 			slog.Warn("upsert track features failed", "track_id", trackID, "err", err)
 		}
+	}
+
+	if genreTag := m.Genre(); genreTag != "" {
+		genreNames := splitGenreList(genreTag)
+		g.persistGenres(ctx, genreNames, func(ids []string) {
+			if err := g.db.SetTrackGenres(ctx, trackID, ids); err != nil {
+				slog.Warn("set track genres failed", "track_id", trackID, "err", err)
+			}
+		})
 	}
 
 	if g.cfg.GenerateWaveforms {

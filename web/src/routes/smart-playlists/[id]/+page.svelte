@@ -8,15 +8,17 @@
   import { playTrack } from '$lib/stores/player';
 
   const FIELDS: { value: SmartPlaylistField; label: string }[] = [
-    { value: 'genre',       label: 'Genre' },
-    { value: 'year',        label: 'Year' },
-    { value: 'artist',      label: 'Artist' },
-    { value: 'album',       label: 'Album' },
-    { value: 'format',      label: 'Format' },
-    { value: 'bit_depth',   label: 'Bit depth' },
-    { value: 'duration_ms', label: 'Duration (ms)' },
-    { value: 'play_count',  label: 'Play count' },
-    { value: 'rating',      label: 'Rating (1–5)' },
+    { value: 'genre',            label: 'Genre' },
+    { value: 'year',             label: 'Year' },
+    { value: 'artist',           label: 'Artist' },
+    { value: 'album',            label: 'Album' },
+    { value: 'format',           label: 'Format' },
+    { value: 'bit_depth',        label: 'Bit depth' },
+    { value: 'duration_ms',      label: 'Duration (ms)' },
+    { value: 'play_count',       label: 'Play count' },
+    { value: 'rating',           label: 'Rating (1–5)' },
+    { value: 'days_since_added', label: 'Days since added' },
+    { value: 'days_since_played',label: 'Days since played' },
   ];
 
   const OPS_TEXT: { value: SmartPlaylistOp; label: string }[] = [
@@ -44,7 +46,7 @@
     { value: 'added_at',    label: 'Date added' },
   ];
 
-  const numericFields = new Set<SmartPlaylistField>(['year','bit_depth','duration_ms','play_count','rating']);
+  const numericFields = new Set<SmartPlaylistField>(['year','bit_depth','duration_ms','play_count','rating','days_since_added','days_since_played']);
 
   function opsFor(field: SmartPlaylistField) {
     return numericFields.has(field) ? OPS_NUM : OPS_TEXT;

@@ -344,13 +344,14 @@ func (s *Store) EvaluateSmartPlaylist(ctx context.Context, sp SmartPlaylist) ([]
 		var replayGain sql.NullFloat64
 		var userRating sql.NullInt64
 		var playCount int64
+		var seekTable []byte
 
 		if err := rows.Scan(
 			&t.ID, &albumID, &artistID, &t.Title,
 			&trackNumber, &t.DiscNumber, &t.DurationMs,
 			&t.FileKey, &t.FileSize, &t.Format,
 			&bitDepth, &t.SampleRate, &t.Channels, &bitrateKbps,
-			nil, &fp, &t.CreatedAt,
+			&seekTable, &fp, &t.CreatedAt,
 			&replayGain, &artistName, &albumName, &playCount, &userRating,
 		); err != nil {
 			return nil, err
