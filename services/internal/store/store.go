@@ -300,7 +300,7 @@ func (s *Store) EvaluateSmartPlaylist(ctx context.Context, sp SmartPlaylist) ([]
 	case "rating":
 		orderField = "user_rating"
 	case "added_at":
-		orderField = "ul.added_at"
+		orderField = "t.created_at"
 	}
 	dir := "ASC"
 	if sp.SortDir == "desc" {
@@ -321,7 +321,6 @@ func (s *Store) EvaluateSmartPlaylist(ctx context.Context, sp SmartPlaylist) ([]
 		       COALESCE((SELECT COUNT(*) FROM play_history ph WHERE ph.track_id = t.id AND ph.user_id = $1), 0) AS play_count,
 		       (SELECT rating FROM track_ratings tr WHERE tr.track_id = t.id AND tr.user_id = $1) AS user_rating
 		FROM tracks t
-		JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $1
 		LEFT JOIN albums a ON a.id = t.album_id
 		LEFT JOIN artists ar ON ar.id = t.artist_id
 		LEFT JOIN track_features tf ON tf.track_id = t.id
@@ -401,9 +400,22 @@ func smartRuleToCond(r SmartPlaylistRule, args []any, n int) (string, []any, int
 
 	switch r.Field {
 	case "genre":
-		ph, _ := placeholder(r.Value)
-		subq := fmt.Sprintf(`EXISTS (SELECT 1 FROM track_genres tg JOIN genres g ON g.id = tg.genre_id WHERE tg.track_id = t.id AND lower(g.name) = lower(%s))`, ph)
-		if r.Op == "is_not" {
+		// Match track_genres first; fall back to album_genres so that tracks
+		// whose genre came from MusicBrainz album enrichment are also found.
+		var cmp string
+		switch r.Op {
+		case "contains", "not_contains":
+			ph, _ := placeholder("%" + r.Value + "%")
+			cmp = fmt.Sprintf("lower(g.name) LIKE lower(%s)", ph)
+		default: // "is", "is_not"
+			ph, _ := placeholder(r.Value)
+			cmp = fmt.Sprintf("lower(g.name) = lower(%s)", ph)
+		}
+		subq := fmt.Sprintf(
+			`EXISTS (SELECT 1 FROM track_genres tg JOIN genres g ON g.id = tg.genre_id WHERE tg.track_id = t.id AND %s`+
+				` UNION SELECT 1 FROM album_genres ag JOIN genres g ON g.id = ag.genre_id WHERE ag.album_id = t.album_id AND %s)`,
+			cmp, cmp)
+		if r.Op == "is_not" || r.Op == "not_contains" {
 			return "NOT " + subq, args, n
 		}
 		return subq, args, n
@@ -492,7 +504,7 @@ func smartRuleToCond(r SmartPlaylistRule, args []any, n int) (string, []any, int
 		if op == "" {
 			return "", args, n
 		}
-		return fmt.Sprintf("EXTRACT(EPOCH FROM (now() - ul.added_at))/86400 %s %s", op, ph), args, n
+		return fmt.Sprintf("EXTRACT(EPOCH FROM (now() - t.created_at))/86400 %s %s", op, ph), args, n
 	}
 	return "", args, n
 }
@@ -623,11 +635,9 @@ func (s *Store) ListTracksByUser(ctx context.Context, p ListTracksByUserParams) 
 		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
 FROM tracks t
 LEFT JOIN track_features tf ON tf.track_id = t.id
-JOIN user_library ul ON ul.track_id = t.id
-WHERE ul.user_id = $1
 ORDER BY t.title ASC
-LIMIT $2 OFFSET $3`,
-		p.UserID, p.Limit, p.Offset)
+LIMIT $1 OFFSET $2`,
+		p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
 	}

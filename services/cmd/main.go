@@ -251,7 +251,6 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 	cfg := ingest.Config{
 		Dirs:              dirs,
 		ExcludeGlobs:      parseDirs(config.Env("INGEST_EXCLUDE", "")),
-		UserID:            config.Env("INGEST_USER_ID", ""),
 		Watch:             config.Env("INGEST_WATCH", "false") == "true",
 		Workers:           runtime.NumCPU(),
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",

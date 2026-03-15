@@ -186,7 +186,6 @@ func extractFeaturedArtists(m interface {
 type Config struct {
 	Dirs              []string
 	ExcludeGlobs      []string // glob patterns for directories/files to skip (supports **)
-	UserID            string
 	DryRun            bool
 	Watch             bool
 	Workers           int
@@ -757,7 +756,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		}
 	}
 
-	track, err := g.db.UpsertTrack(ctx, store.UpsertTrackParams{
+	_, err = g.db.UpsertTrack(ctx, store.UpsertTrackParams{
 		ID:          trackID,
 		AlbumID:     &albumID,
 		ArtistID:    &trackArtistID,
@@ -808,15 +807,6 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		}
 		if err := g.obj.Put(ctx, fileKey, f, fi.Size()); err != nil {
 			return "", fmt.Errorf("store audio: %w", err)
-		}
-	}
-
-	if g.cfg.UserID != "" {
-		if err := g.db.AddTrackToLibrary(ctx, store.AddTrackToLibraryParams{
-			UserID:  g.cfg.UserID,
-			TrackID: track.ID,
-		}); err != nil {
-			slog.Warn("add to library failed", "track_id", track.ID, "err", err)
 		}
 	}
 

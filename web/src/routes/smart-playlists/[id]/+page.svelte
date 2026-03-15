@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { smartPlaylists } from '$lib/api/smartPlaylists';
+  import { library } from '$lib/api/library';
   import type { SmartPlaylist, SmartPlaylistRule, SmartPlaylistField, SmartPlaylistOp, Track } from '$lib/types';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import { playTrack } from '$lib/stores/player';
@@ -47,6 +48,86 @@
   ];
 
   const numericFields = new Set<SmartPlaylistField>(['year','bit_depth','duration_ms','play_count','rating','days_since_added','days_since_played']);
+  const FORMATS = ['flac','mp3','aac','ogg','opus','wav','alac','aiff','wv','ape'];
+
+  // Suggestion data keyed by field
+  let suggestionData: Record<string, string[]> = {};
+
+  async function loadSuggestions() {
+    const [genres, artists, albums] = await Promise.allSettled([
+      library.genres(),
+      library.artists(),
+      library.albums(),
+    ]);
+    suggestionData = {
+      genre:  genres.status  === 'fulfilled' ? (genres.value  ?? []).map((g: any) => g.name) : [],
+      artist: artists.status === 'fulfilled' ? (artists.value ?? []).map((a: any) => a.name) : [],
+      album:  albums.status  === 'fulfilled' ? (albums.value?.items ?? []).map((a: any) => a.title) : [],
+      format: FORMATS,
+    };
+  }
+
+  // Per-rule suggestion state
+  let focusedRule: number = -1;
+  let suggestionList: string[] = [];
+  let highlightedIdx: number = -1;
+
+  function getSuggestions(field: SmartPlaylistField, query: string): string[] {
+    if (!query.trim()) return [];
+    const list = suggestionData[field] ?? [];
+    const q = query.toLowerCase();
+    const matches = list.filter(s => s.toLowerCase().includes(q));
+    // Exact match first, then starts-with, then contains
+    matches.sort((a, b) => {
+      const al = a.toLowerCase(), bl = b.toLowerCase();
+      const aExact = al === q, bExact = bl === q;
+      const aStarts = al.startsWith(q), bStarts = bl.startsWith(q);
+      if (aExact !== bExact) return aExact ? -1 : 1;
+      if (aStarts !== bStarts) return aStarts ? -1 : 1;
+      return a.localeCompare(b);
+    });
+    return matches.slice(0, 8);
+  }
+
+  function onValueInput(i: number) {
+    focusedRule = i;
+    highlightedIdx = -1;
+    suggestionList = getSuggestions(rules[i].field, rules[i].value);
+  }
+
+  function onValueFocus(i: number) {
+    focusedRule = i;
+    highlightedIdx = -1;
+    suggestionList = getSuggestions(rules[i].field, rules[i].value);
+  }
+
+  function onValueBlur() {
+    // Delay so click on suggestion registers first
+    setTimeout(() => { focusedRule = -1; suggestionList = []; }, 150);
+  }
+
+  function pickSuggestion(i: number, val: string) {
+    rules[i].value = val;
+    focusedRule = -1;
+    suggestionList = [];
+  }
+
+  function onValueKeydown(i: number, e: KeyboardEvent) {
+    if (!suggestionList.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      highlightedIdx = Math.min(highlightedIdx + 1, suggestionList.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlightedIdx = Math.max(highlightedIdx - 1, -1);
+    } else if (e.key === 'Enter' && highlightedIdx >= 0) {
+      e.preventDefault();
+      pickSuggestion(i, suggestionList[highlightedIdx]);
+    } else if (e.key === 'Escape') {
+      focusedRule = -1;
+      suggestionList = [];
+    }
+  }
 
   function opsFor(field: SmartPlaylistField) {
     return numericFields.has(field) ? OPS_NUM : OPS_TEXT;
@@ -74,6 +155,7 @@
 
   onMount(async () => {
     const id = $page.params.id;
+    loadSuggestions(); // fire-and-forget
     try {
       pl = await smartPlaylists.get(id);
       if (pl) {
@@ -204,7 +286,33 @@
               {/each}
             </select>
             <!-- Value -->
-            <input class="input-sm" bind:value={rules[i].value} placeholder="value" />
+            {#if numericFields.has(rule.field)}
+              <input class="input-sm" bind:value={rules[i].value} placeholder="value" />
+            {:else}
+              <div class="suggest-wrap">
+                <input
+                  class="input-sm"
+                  bind:value={rules[i].value}
+                  placeholder="value"
+                  autocomplete="off"
+                  on:input={() => onValueInput(i)}
+                  on:focus={() => onValueFocus(i)}
+                  on:blur={onValueBlur}
+                  on:keydown={e => onValueKeydown(i, e)}
+                />
+                {#if focusedRule === i && suggestionList.length > 0}
+                  <ul class="suggest-list">
+                    {#each suggestionList as s, si}
+                      <li
+                        class="suggest-item"
+                        class:highlighted={si === highlightedIdx}
+                        on:mousedown|preventDefault={() => pickSuggestion(i, s)}
+                      >{s}</li>
+                    {/each}
+                  </ul>
+                {/if}
+              </div>
+            {/if}
             <button class="btn-remove" title="Remove rule" on:click={() => removeRule(i)}>✕</button>
           </div>
         {/each}
@@ -395,6 +503,35 @@
     margin-top: 4px;
   }
   .btn-add-rule:hover { color: var(--text); border-color: var(--text-muted); }
+
+  .suggest-wrap { position: relative; flex: 1; min-width: 100px; }
+  .suggest-wrap .input-sm { width: 100%; box-sizing: border-box; }
+  .suggest-list {
+    position: absolute;
+    top: calc(100% + 3px);
+    left: 0;
+    right: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+    z-index: 100;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .suggest-item {
+    padding: 6px 10px;
+    font-size: 0.82rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .suggest-item:hover, .suggest-item.highlighted {
+    background: var(--bg-hover, rgba(255,255,255,0.06));
+    color: var(--accent);
+  }
 
   .options-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; }
   .opt-label {
