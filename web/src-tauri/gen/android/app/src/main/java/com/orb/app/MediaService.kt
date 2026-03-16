@@ -157,7 +157,7 @@ class MediaService : MediaLibraryService() {
 
     // ── Browse tree ──────────────────────────────────────────────────────────
 
-    private var apiClient: OrbApiClient? = null
+    var apiClient: OrbApiClient? = null
     private val ioExecutor = Executors.newCachedThreadPool()
 
     companion object {
@@ -921,7 +921,7 @@ class MediaService : MediaLibraryService() {
         val albumId: String?
     )
 
-    private fun getDownloadMetadata(): List<DownloadMeta> {
+    fun getDownloadMetadata(): List<DownloadMeta> {
         return try {
             val json = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getString(PREFS_KEY_METADATA, null) ?: return emptyList()
@@ -1144,7 +1144,7 @@ class MediaService : MediaLibraryService() {
 
     // ── Playback (called from JNI) ───────────────────────────────────────────
 
-    private fun handlePlay(url: String, title: String?, artist: String?, coverUrl: String?) {
+    fun handlePlay(url: String, title: String?, artist: String?, coverUrl: String?) {
         // Reset crossfade trigger for this new track.
         crossfadeTriggered = false
 
