@@ -17,6 +17,7 @@ type UpdateAudiobookMetaParams struct {
 	Description   *string  // nil = clear
 	Series        *string  // nil = clear
 	SeriesIndex   *float64 // nil = clear
+	Edition       *string  // nil = clear
 	PublishedYear *int     // nil = clear
 }
 
@@ -29,7 +30,10 @@ func (s *Store) UpdateAudiobookMeta(ctx context.Context, p UpdateAudiobookMetaPa
 			description    = $5,
 			series         = $6,
 			series_index   = $7,
-			published_year = $8
+			series_source  = CASE WHEN $6 IS NULL THEN NULL ELSE 'manual' END,
+			series_confidence = CASE WHEN $6 IS NULL THEN NULL ELSE 1.0 END,
+			edition        = $8,
+			published_year = $9
 		WHERE id = $1`,
 		p.ID,
 		p.Title,
@@ -37,6 +41,7 @@ func (s *Store) UpdateAudiobookMeta(ctx context.Context, p UpdateAudiobookMetaPa
 		p.Description,
 		p.Series,
 		p.SeriesIndex,
+		p.Edition,
 		p.PublishedYear,
 	)
 	return err

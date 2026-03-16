@@ -30,6 +30,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.session.MediaConstants
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -168,8 +169,11 @@ class MediaService : MediaLibraryService() {
         private const val PLAYLISTS_ID = "playlists"
         private const val FAVORITES_ID = "favorites"
         private const val ALBUMS_ID = "albums"
+        private const val ARTISTS_ID = "artists"
+        private const val MOST_PLAYED_ID = "most_played"
         private const val DOWNLOADS_ID = "downloads"
         private const val ALBUM_PREFIX = "album:"
+        private const val ARTIST_PREFIX = "artist:"
         private const val PLAYLIST_PREFIX = "playlist:"
         private const val TRACK_PREFIX = "track:"
         private const val OFFLINE_TRACK_PREFIX = "offline:"
@@ -575,6 +579,18 @@ class MediaService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<MediaItem>> {
+            // Advertise content style support so Android Auto can render
+            // grid and list sections based on per-node hints.
+            val extras = Bundle().apply {
+                putInt(
+                    MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE,
+                    MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+                )
+                putInt(
+                    MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE,
+                    MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+                )
+            }
             val root = MediaItem.Builder()
                 .setMediaId(ROOT_ID)
                 .setMediaMetadata(
@@ -583,6 +599,7 @@ class MediaService : MediaLibraryService() {
                         .setIsBrowsable(true)
                         .setIsPlayable(false)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        .setExtras(extras)
                         .build()
                 )
                 .build()
@@ -604,11 +621,14 @@ class MediaService : MediaLibraryService() {
                         parentId == ROOT_ID -> buildRootChildren()
                         parentId == RECENTLY_PLAYED_ID -> buildRecentlyPlayedChildren()
                         parentId == RECENTLY_ADDED_ID -> buildRecentlyAddedChildren()
+                        parentId == MOST_PLAYED_ID -> buildMostPlayedChildren()
                         parentId == PLAYLISTS_ID -> buildPlaylistsChildren()
                         parentId == FAVORITES_ID -> buildFavoritesChildren()
                         parentId == DOWNLOADS_ID -> buildDownloadsChildren()
                         parentId == ALBUMS_ID -> buildAlbumsChildren(page, pageSize)
+                        parentId == ARTISTS_ID -> buildArtistsChildren(page, pageSize)
                         parentId.startsWith(ALBUM_PREFIX) -> buildAlbumTracksChildren(parentId.removePrefix(ALBUM_PREFIX))
+                        parentId.startsWith(ARTIST_PREFIX) -> buildArtistAlbumsChildren(parentId.removePrefix(ARTIST_PREFIX))
                         parentId.startsWith(PLAYLIST_PREFIX) -> buildPlaylistTracksChildren(parentId.removePrefix(PLAYLIST_PREFIX))
                         else -> ImmutableList.of()
                     }
@@ -713,15 +733,57 @@ class MediaService : MediaLibraryService() {
             }
         }
 
+        // Spotify-style recommendation feed: content-driven sections with
+        // per-node content style hints for grid vs list rendering.
         val items = mutableListOf(
-            browsableItem(RECENTLY_PLAYED_ID, "Recently Played", MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
-            browsableItem(RECENTLY_ADDED_ID, "Recently Added", MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
-            browsableItem(FAVORITES_ID, "Favorites", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
-            browsableItem(PLAYLISTS_ID, "Playlists", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
-            browsableItem(ALBUMS_ID, "Albums", MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS),
+            // Grid sections — album art cards
+            styledBrowsableItem(
+                RECENTLY_PLAYED_ID, "Jump back in",
+                MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
+                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+            ),
+            styledBrowsableItem(
+                RECENTLY_ADDED_ID, "Recently added",
+                MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
+                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+            ),
+            // List section — track titles scannable
+            styledBrowsableItem(
+                MOST_PLAYED_ID, "Most played",
+                MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+            ),
+            styledBrowsableItem(
+                FAVORITES_ID, "Favorites",
+                MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+            ),
+            // Grid section — playlist artwork cards
+            styledBrowsableItem(
+                PLAYLISTS_ID, "Your playlists",
+                MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
+                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+            ),
+            // Category grid — large visual anchors for browsing
+            styledBrowsableItem(
+                ARTISTS_ID, "Artists",
+                MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS,
+                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM
+            ),
+            styledBrowsableItem(
+                ALBUMS_ID, "Albums",
+                MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
+                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+            ),
         )
         if (hasDownloads) {
-            items.add(browsableItem(DOWNLOADS_ID, "Downloads", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED))
+            items.add(styledBrowsableItem(
+                DOWNLOADS_ID, "Downloads",
+                MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+            ))
         }
         return ImmutableList.copyOf(items)
     }
@@ -813,6 +875,42 @@ class MediaService : MediaLibraryService() {
         })
     }
 
+    private fun buildMostPlayedChildren(): ImmutableList<MediaItem> {
+        val client = apiClient ?: return ImmutableList.of()
+        val tracks = client.mostPlayedTracks()
+        return ImmutableList.copyOf(tracks.map { trackToMediaItem(it, client) })
+    }
+
+    private fun buildArtistsChildren(page: Int, pageSize: Int): ImmutableList<MediaItem> {
+        val client = apiClient ?: return ImmutableList.of()
+        val offset = page * pageSize
+        val artists = client.artists(limit = pageSize, offset = offset)
+        return ImmutableList.copyOf(artists.map { artistToMediaItem(it, client) })
+    }
+
+    private fun buildArtistAlbumsChildren(artistId: String): ImmutableList<MediaItem> {
+        val client = apiClient ?: return ImmutableList.of()
+        val albums = client.artistAlbums(artistId)
+        return ImmutableList.copyOf(albums.map { albumToMediaItem(it, client) })
+    }
+
+    private fun artistToMediaItem(artist: OrbApiClient.BrowseArtist, client: OrbApiClient): MediaItem {
+        val metadataBuilder = MediaMetadata.Builder()
+            .setTitle(artist.name)
+            .setIsBrowsable(true)
+            .setIsPlayable(false)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST)
+
+        if (artist.id.isNotEmpty()) {
+            metadataBuilder.setArtworkUri(Uri.parse(client.artistCoverUrl(artist.id)))
+        }
+
+        return MediaItem.Builder()
+            .setMediaId("$ARTIST_PREFIX${artist.id}")
+            .setMediaMetadata(metadataBuilder.build())
+            .build()
+    }
+
     // ── Offline metadata ─────────────────────────────────────────────────────
 
     data class DownloadMeta(
@@ -857,6 +955,36 @@ class MediaService : MediaLibraryService() {
                     .setIsBrowsable(true)
                     .setIsPlayable(false)
                     .setMediaType(mediaType)
+                    .build()
+            )
+            .build()
+    }
+
+    /**
+     * Build a browsable item with per-node content style hints.
+     * These tell Android Auto how to render the *children* of this node
+     * (grid cards vs list rows vs category tiles).
+     */
+    private fun styledBrowsableItem(
+        id: String,
+        title: String,
+        mediaType: Int,
+        childBrowsableStyle: Int = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
+        childPlayableStyle: Int = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+    ): MediaItem {
+        val extras = Bundle().apply {
+            putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, childBrowsableStyle)
+            putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, childPlayableStyle)
+        }
+        return MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(mediaType)
+                    .setExtras(extras)
                     .build()
             )
             .build()

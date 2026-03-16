@@ -44,6 +44,7 @@ type BookResult struct {
 	PublishedYear int
 	CoverID       int64 // Open Library cover ID; 0 = no cover
 	Subjects      []string
+	Series        []string
 }
 
 // searchDoc is the per-book document from the /search.json response.
@@ -114,13 +115,14 @@ func (c *Client) Search(ctx context.Context, title, author string) (*BookResult,
 		result.ISBN = doc.ISBN[0]
 	}
 
-	// Fetch work details to get description.
+	// Fetch work details to get description and series.
 	time.Sleep(requestDelay)
-	desc, err := c.fetchDescription(ctx, doc.Key)
+	desc, series, err := c.fetchWorkDetails(ctx, doc.Key)
 	if err != nil {
-		slog.Debug("open library: description fetch failed", "key", doc.Key, "err", err)
+		slog.Debug("open library: work detail fetch failed", "key", doc.Key, "err", err)
 	} else {
 		result.Description = desc
+		result.Series = series
 	}
 
 	return result, nil
@@ -151,46 +153,71 @@ func (c *Client) FetchCoverArt(ctx context.Context, coverID int64) ([]byte, erro
 	return io.ReadAll(resp.Body)
 }
 
-// workDetail holds the description from a /works/{key}.json response.
+// workDetail holds the description/series from a /works/{key}.json response.
 type workDetail struct {
 	Description interface{} `json:"description"` // string OR {value: string}
+	Series      interface{} `json:"series"`      // string OR []string
 }
 
-func (c *Client) fetchDescription(ctx context.Context, workKey string) (string, error) {
+func (c *Client) fetchWorkDetails(ctx context.Context, workKey string) (string, []string, error) {
 	if workKey == "" {
-		return "", nil
+		return "", nil, nil
 	}
 	reqURL := baseURL + workKey + ".json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		return "", nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	var wd workDetail
 	if err := json.NewDecoder(resp.Body).Decode(&wd); err != nil {
-		return "", err
+		return "", nil, err
 	}
 
+	series := parseSeriesField(wd.Series)
 	switch v := wd.Description.(type) {
 	case string:
-		return v, nil
+		return v, series, nil
 	case map[string]interface{}:
 		if s, ok := v["value"].(string); ok {
-			return s, nil
+			return s, series, nil
 		}
 	}
-	return "", nil
+	return "", series, nil
+}
+
+func parseSeriesField(v interface{}) []string {
+	switch s := v.(type) {
+	case string:
+		if strings.TrimSpace(s) != "" {
+			return []string{strings.TrimSpace(s)}
+		}
+	case []interface{}:
+		var out []string
+		for _, item := range s {
+			if str, ok := item.(string); ok {
+				str = strings.TrimSpace(str)
+				if str != "" {
+					out = append(out, str)
+				}
+			}
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
 }
 
 func stripParens(s string) string {

@@ -1,18 +1,20 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { audiobooks as abApi } from "$lib/api/audiobooks";
   import type { Audiobook } from "$lib/types";
   import { getApiBase } from "$lib/api/base";
   import { playAudiobook } from "$lib/stores/audiobookPlayer";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
+  import AlphaScrollbar from "$lib/components/library/AlphaScrollbar.svelte";
   import { goto } from "$app/navigation";
 
-  type SortMode = 'title' | 'author' | 'year';
+  type SortMode = 'title' | 'author' | 'year' | 'series';
 
   const SORT_MODES: { mode: SortMode; label: string }[] = [
     { mode: 'title',  label: 'Title'  },
     { mode: 'author', label: 'Author' },
     { mode: 'year',   label: 'Year'   },
+    { mode: 'series', label: 'Series' },
   ];
 
   let books: Audiobook[] = [];
@@ -20,6 +22,9 @@
   let loadingMore = false;
   let hasMore = true;
   let sortBy: SortMode = 'title';
+  let activeKey = '';
+  let scrollEl: HTMLElement | null = null;
+  let lastSortBy: SortMode = sortBy;
   const PAGE = 48;
 
   function fmtDuration(ms: number): string {
@@ -27,6 +32,79 @@
     const m = Math.floor((ms % 3_600_000) / 60_000);
     if (h > 0) return `${h}h ${m}m`;
     return `${m}m`;
+  }
+
+  function getSortKey(book: Audiobook, mode: SortMode): string {
+    switch (mode) {
+      case 'title': {
+        const first = book.title.replace(/^(the |a |an )\s*/i, '').charAt(0).toUpperCase();
+        return /[A-Z]/.test(first) ? first : '#';
+      }
+      case 'author': {
+        const name = book.author_name ?? '';
+        const first = name.replace(/^(the |a |an )\s*/i, '').charAt(0).toUpperCase();
+        return first && /[A-Z]/.test(first) ? first : '#';
+      }
+      case 'year':
+        return book.published_year ? String(book.published_year) : '?';
+      case 'series':
+        return book.series ?? 'Standalone';
+    }
+  }
+
+  function computeGrouped(list: Audiobook[], mode: SortMode): Map<string, Audiobook[]> {
+    const map = new Map<string, Audiobook[]>();
+    for (const book of list) {
+      const key = getSortKey(book, mode);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(book);
+    }
+    return map;
+  }
+
+  function computeKeys(map: Map<string, Audiobook[]>, mode: SortMode): string[] {
+    return [...map.keys()].sort((a, b) => {
+      if (mode === 'year') {
+        if (a === '?') return 1;
+        if (b === '?') return -1;
+        return Number(b) - Number(a);
+      }
+      if (mode === 'series') {
+        if (a === 'Standalone') return 1;
+        if (b === 'Standalone') return -1;
+        return a.localeCompare(b);
+      }
+      if (a === '#') return -1;
+      if (b === '#') return 1;
+      return a.localeCompare(b);
+    });
+  }
+
+  $: grouped = computeGrouped(books, sortBy);
+  $: keys = computeKeys(grouped, sortBy);
+
+  $: if (sortBy !== lastSortBy) {
+    lastSortBy = sortBy;
+    activeKey = keys[0] ?? '';
+    scrollEl?.scrollTo({ top: 0 });
+  }
+
+  $: if (!activeKey && keys.length > 0) {
+    activeKey = keys[0];
+  }
+
+  function updateActive() {
+    if (!scrollEl) return;
+    const sections = scrollEl.querySelectorAll('[data-scroll-key]');
+    const containerTop = scrollEl.getBoundingClientRect().top;
+    let current = keys[0] ?? '';
+    for (const section of sections) {
+      const top = section.getBoundingClientRect().top - containerTop;
+      if (top <= 64) {
+        current = section.getAttribute('data-scroll-key') ?? current;
+      }
+    }
+    activeKey = current;
   }
 
   async function loadMore() {
@@ -62,6 +140,8 @@
   }
 
   onMount(async () => {
+    scrollEl = document.querySelector('main.content');
+    if (scrollEl) scrollEl.addEventListener('scroll', updateActive, { passive: true });
     try {
       const res = await abApi.list(PAGE, 0, sortBy);
       books = res.audiobooks ?? [];
@@ -71,6 +151,10 @@
     } finally {
       loading = false;
     }
+  });
+
+  onDestroy(() => {
+    scrollEl?.removeEventListener('scroll', updateActive);
   });
 </script>
 
@@ -118,61 +202,66 @@
       <p class="muted">Set <code>AUDIOBOOK_DIRS</code> and trigger a scan.</p>
     </div>
   {:else}
-    <div class="grid">
-      {#each books as book (book.id)}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="book-card" on:click={() => goto(`/audiobooks/${book.id}`)}>
-          <div class="cover-wrap">
-            {#if book.cover_art_key}
-              <img
-                src="{getApiBase()}/covers/audiobook/{book.id}"
-                alt={book.title}
-                class="cover"
-                loading="lazy"
-              />
-            {:else}
-              <div class="cover placeholder">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-                </svg>
+    {#each keys as key (key)}
+      <section class="group" data-scroll-key={key}>
+        <h2 class="group-label">{key}</h2>
+        <div class="grid">
+          {#each grouped.get(key) ?? [] as book (book.id)}
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <div class="book-card" on:click={() => goto(`/audiobooks/${book.id}`)}>
+              <div class="cover-wrap">
+                {#if book.cover_art_key}
+                  <img
+                    src="{getApiBase()}/covers/audiobook/{book.id}"
+                    alt={book.title}
+                    class="cover"
+                    loading="lazy"
+                  />
+                {:else}
+                  <div class="cover placeholder">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    </svg>
+                  </div>
+                {/if}
+                <button
+                  class="play-btn"
+                  aria-label="Play {book.title}"
+                  on:click|stopPropagation={() => playAudiobook(book)}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
+                  </svg>
+                </button>
               </div>
-            {/if}
-            <button
-              class="play-btn"
-              aria-label="Play {book.title}"
-              on:click|stopPropagation={() => playAudiobook(book)}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
-              </svg>
-            </button>
-          </div>
-          <div class="info">
-            <span class="title" title={book.title}>{book.title}</span>
-            {#if book.author_name}
-              <span class="author" title={book.author_name}>{book.author_name}</span>
-            {/if}
-            <div class="meta-row">
-              {#if book.series}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <span
-                  class="series"
-                  title="View series: {book.series}"
-                  on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}>
-                  {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
-                </span>
-              {/if}
-              {#if book.duration_ms}
-                <span class="duration">{fmtDuration(book.duration_ms)}</span>
-              {/if}
+              <div class="info">
+                <span class="title" title={book.title}>{book.title}</span>
+                {#if book.author_name}
+                  <span class="author" title={book.author_name}>{book.author_name}</span>
+                {/if}
+                <div class="meta-row">
+                  {#if book.series}
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-static-element-interactions -->
+                    <span
+                      class="series"
+                      title="View series: {book.series}"
+                      on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}>
+                      {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+                    </span>
+                  {/if}
+                  {#if book.duration_ms}
+                    <span class="duration">{fmtDuration(book.duration_ms)}</span>
+                  {/if}
+                </div>
+              </div>
             </div>
-          </div>
+          {/each}
         </div>
-      {/each}
-    </div>
+      </section>
+    {/each}
 
     {#if hasMore}
       <div class="load-more">
@@ -184,8 +273,13 @@
   {/if}
 </div>
 
+<AlphaScrollbar {keys} {activeKey} {scrollEl} />
+
 <style>
-  .page { padding-top: 4px; }
+  .page {
+    padding-top: 4px;
+    padding-right: 40px;
+  }
 
   .page-header {
     display: flex;
@@ -235,6 +329,21 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 20px 16px;
+  }
+
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .group-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0;
   }
 
   /* skeleton cards */
@@ -413,6 +522,7 @@
   .btn-load-more:disabled { opacity: 0.5; cursor: default; }
 
   @media (max-width: 640px) {
+    .page { padding-right: 0; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px 12px; }
   }
 </style>

@@ -53,6 +53,7 @@ func (s *Service) Routes(r chi.Router) {
 
 	// Admin: trigger audiobook scan
 	r.Post("/admin/scan", s.triggerScan)
+	r.Post("/admin/rescan/{id}", s.triggerRescanAudiobook)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -262,6 +263,29 @@ func (s *Service) listBySeries(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "series": name})
 }
 
+func (s *Service) triggerRescanAudiobook(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromCtx(r)
+	if userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	u, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil || !u.IsAdmin || !u.IsActive {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if s.ingestService == nil {
+		http.Error(w, "audiobook ingest not configured (set AUDIOBOOK_DIRS)", http.StatusServiceUnavailable)
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if err := s.ingestService.TriggerReingestAudiobook(id); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "reingest started"})
+}
+
 func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
@@ -275,6 +299,14 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.ingestService == nil {
 		http.Error(w, "audiobook ingest not configured (set AUDIOBOOK_DIRS)", http.StatusServiceUnavailable)
+		return
+	}
+	if r.URL.Query().Get("force") == "true" {
+		if err := s.ingestService.TriggerForceScan(s.ingestService.RootCtx()); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "force scan started"})
 		return
 	}
 	if err := s.ingestService.TriggerScan(s.ingestService.RootCtx()); err != nil {

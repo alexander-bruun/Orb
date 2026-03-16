@@ -416,6 +416,47 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 	return ids, int(nSkipped), int(nErrs)
 }
 
+// ReingestAlbum clears the ingest state for all tracks belonging to albumID,
+// then re-processes only those files. Unlike Scan, it does not walk all dirs.
+func (g *Ingester) ReingestAlbum(ctx context.Context, albumID string) (newTrackIDs []string, skipped, errs int) {
+	paths, err := g.db.DeleteIngestStateForAlbum(ctx, albumID)
+	if err != nil {
+		slog.Error("reingest album: delete ingest state", "album_id", albumID, "err", err)
+		return nil, 0, 1
+	}
+	if len(paths) == 0 {
+		slog.Info("reingest album: no ingest state found, nothing to do", "album_id", albumID)
+		return nil, 0, 0
+	}
+
+	// Remove paths from in-memory state so upToDate returns false.
+	g.stateMu.Lock()
+	for _, p := range paths {
+		delete(g.state, p)
+	}
+	g.stateMu.Unlock()
+
+	var mu sync.Mutex
+	var ids []string
+	for _, p := range paths {
+		id, err := g.process(ctx, p)
+		switch {
+		case errors.Is(err, ErrSkipped):
+			skipped++
+		case err != nil:
+			slog.Error("reingest album: process failed", "path", p, "err", err)
+			errs++
+		default:
+			if id != "" {
+				mu.Lock()
+				ids = append(ids, id)
+				mu.Unlock()
+			}
+		}
+	}
+	return ids, skipped, errs
+}
+
 func (g *Ingester) cachedFolderImage(dir string) []byte {
 	if v, ok := g.folderImgCache.Load(dir); ok {
 		return v.([]byte)

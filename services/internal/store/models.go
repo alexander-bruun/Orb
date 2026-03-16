@@ -709,12 +709,15 @@ type AudiobookNarrator struct {
 type Audiobook struct {
 	ID            string     `json:"id"`
 	Title         string     `json:"title"`
+	Edition       *string    `json:"edition,omitempty"`
 	AuthorID      *string    `json:"author_id,omitempty"`
 	AuthorName    *string    `json:"author_name,omitempty"`
 	CoverArtKey   *string    `json:"cover_art_key,omitempty"`
 	Description   *string    `json:"description,omitempty"`
 	Series        *string    `json:"series,omitempty"`
 	SeriesIndex   *float64   `json:"series_index,omitempty"`
+	SeriesSource  *string    `json:"series_source,omitempty"`
+	SeriesConfidence *float64 `json:"series_confidence,omitempty"`
 	PublishedYear *int       `json:"published_year,omitempty"`
 	ISBN          *string    `json:"isbn,omitempty"`
 	OLKey         *string    `json:"ol_key,omitempty"`
@@ -765,11 +768,14 @@ type AudiobookBookmark struct {
 type UpsertAudiobookParams struct {
 	ID            string
 	Title         string
+	Edition       *string
 	AuthorID      *string
 	CoverArtKey   *string
 	Description   *string
 	Series        *string
 	SeriesIndex   *float64
+	SeriesSource  *string
+	SeriesConfidence *float64
 	PublishedYear *int
 	ISBN          *string
 	OLKey         *string

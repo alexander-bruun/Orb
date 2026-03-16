@@ -62,7 +62,15 @@
     saving = true;
     saveError = "";
     try {
-      const body: Record<string, unknown> = { title: book.title };
+      // Start with all current values so unedited fields are not cleared.
+      const body: Parameters<typeof adminApi.updateAudiobookMeta>[1] = {
+        title: book.title,
+        author_name: book.author_name ?? null,
+        description: book.description ?? null,
+        series: book.series ?? null,
+        series_index: book.series_index ?? null,
+        published_year: book.published_year ?? null,
+      };
       switch (editingField) {
         case "title":
           if (!editValue.trim()) { saveError = "Title cannot be empty"; saving = false; return; }
@@ -88,14 +96,14 @@
           break;
         }
       }
-      await adminApi.updateAudiobookMeta(id, body as Parameters<typeof adminApi.updateAudiobookMeta>[1]);
+      await adminApi.updateAudiobookMeta(id, body);
       // Apply locally
-      if (editingField === "title")          book = { ...book, title: body.title as string };
-      else if (editingField === "author")         book = { ...book, author_name: body.author_name as string | undefined };
-      else if (editingField === "description")    book = { ...book, description: body.description as string | undefined };
-      else if (editingField === "series")         book = { ...book, series: body.series as string | undefined };
-      else if (editingField === "series_index")   book = { ...book, series_index: body.series_index as number | undefined };
-      else if (editingField === "published_year") book = { ...book, published_year: body.published_year as number | undefined };
+      if (editingField === "title")          book = { ...book, title: body.title };
+      else if (editingField === "author")         book = { ...book, author_name: body.author_name ?? undefined };
+      else if (editingField === "description")    book = { ...book, description: body.description ?? undefined };
+      else if (editingField === "series")         book = { ...book, series: body.series ?? undefined };
+      else if (editingField === "series_index")   book = { ...book, series_index: body.series_index ?? undefined };
+      else if (editingField === "published_year") book = { ...book, published_year: body.published_year ?? undefined };
       editingField = null;
     } catch (e) {
       saveError = e instanceof Error ? e.message : "Save failed";
@@ -122,6 +130,22 @@
   let scanning = false;
   let scanMsg = "";
 
+  async function pollForChapters(prevCount: number): Promise<boolean> {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      try {
+        const res = await abApi.get(id);
+        book = res.audiobook;
+        chapters = book.chapters ?? [];
+        if (chapters.length > 0 && chapters.length !== prevCount) return true;
+      } catch (e) {
+        // ignore and keep polling briefly
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    return false;
+  }
+
   async function handleRefresh() {
     if (refreshing || !book) return;
     refreshing = true;
@@ -145,8 +169,12 @@
     scanning = true;
     scanMsg = "";
     try {
-      await abApi.triggerScan();
-      scanMsg = "Scan started";
+      const prevCount = chapters.length;
+      await abApi.triggerRescan($page.params.id);
+      scanMsg = "Reingest started";
+      const updated = await pollForChapters(prevCount);
+      if (updated) scanMsg = "Reingest completed";
+      else scanMsg = "Reingest completed, but chapters are still empty";
     } catch (e) {
       scanMsg = e instanceof Error ? e.message : "Scan failed";
     } finally {
@@ -178,6 +206,7 @@
     const chLen = chapter.end_ms - chapter.start_ms;
     return ((progress.position_ms - chapter.start_ms) / chLen) * 100;
   }
+
 
   function handlePlay() {
     if (!book) return;
@@ -248,6 +277,7 @@
       <div class="meta-col">
         <!-- Series (editable) -->
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <p class="series-label" class:editable={isAdmin}
           on:click={() => isAdmin ? startEdit("series") : book?.series && goto(`/audiobooks/series/${encodeURIComponent(book.series)}`)}>
           {#if editingField === "series"}
@@ -265,18 +295,26 @@
 
         <!-- Title (editable) -->
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <h1 class="title" class:editable={isAdmin} on:click={() => startEdit("title")}>
           {#if editingField === "title"}
             <!-- svelte-ignore a11y-autofocus -->
             <input class="inline-input title-input" bind:value={editValue}
               on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
           {:else}
-            {book.title}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
+            <span class="title-row">
+              <span class="title-text">{book.title}</span>
+              {#if book.edition}
+                <span class="edition-badge">{book.edition}</span>
+              {/if}
+            </span>
+            {#if isAdmin}<span class="edit-hint">✎</span>{/if}
           {/if}
         </h1>
 
         <!-- Author (editable) -->
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
         <p class="author" class:editable={isAdmin} on:click={() => startEdit("author")}>
           {#if editingField === "author"}
             <!-- svelte-ignore a11y-autofocus -->
@@ -549,6 +587,21 @@
   .series-label { font-size: 0.78rem; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; cursor: pointer; }
   .series-label:not(.editable):hover { text-decoration: underline; }
   .title { font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1.2; cursor: default; }
+  .title-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .title-text { min-width: 0; }
+  .edition-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: color-mix(in srgb, var(--accent) 70%, var(--text));
+    background: color-mix(in srgb, var(--accent) 14%, var(--bg-elevated));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+    border-radius: 999px;
+    padding: 4px 10px;
+    line-height: 1;
+    white-space: nowrap;
+  }
   .title.editable { cursor: pointer; }
   .author { font-size: 1rem; color: var(--text-muted); margin: 0; font-weight: 500; cursor: default; }
   .author.editable { cursor: pointer; }

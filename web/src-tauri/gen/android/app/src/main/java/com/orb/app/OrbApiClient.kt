@@ -48,6 +48,11 @@ class OrbApiClient(
         val description: String?
     )
 
+    data class BrowseArtist(
+        val id: String,
+        val name: String
+    )
+
     data class AlbumDetail(
         val album: BrowseAlbum,
         val tracks: List<BrowseTrack>
@@ -120,6 +125,31 @@ class OrbApiClient(
         return parseTrackArray(JSONArray(json))
     }
 
+    fun mostPlayedTracks(limit: Int = 50): List<BrowseTrack> {
+        val json = get("/library/most-played?limit=$limit") ?: return emptyList()
+        return parseTrackArray(JSONArray(json))
+    }
+
+    fun artists(limit: Int = 100, offset: Int = 0): List<BrowseArtist> {
+        val json = get("/library/artists?limit=$limit&offset=$offset") ?: return emptyList()
+        val obj = JSONObject(json)
+        val arr = obj.optJSONArray("items") ?: return emptyList()
+        return (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            BrowseArtist(
+                id = o.getString("id"),
+                name = o.getString("name")
+            )
+        }
+    }
+
+    fun artistAlbums(artistId: String): List<BrowseAlbum> {
+        val json = get("/library/artists/$artistId") ?: return emptyList()
+        val obj = JSONObject(json)
+        val albumsArr = obj.optJSONArray("albums") ?: return emptyList()
+        return parseAlbumArray(albumsArr)
+    }
+
     /**
      * Quick connectivity check — hits /healthz which always returns 200.
      */
@@ -145,6 +175,9 @@ class OrbApiClient(
 
     fun coverUrl(albumId: String): String =
         "$baseUrl/covers/$albumId"
+
+    fun artistCoverUrl(artistId: String): String =
+        "$baseUrl/covers/artist/$artistId"
 
     fun playlistCoverUrl(playlistId: String): String =
         "$baseUrl/covers/playlist/$playlistId/composite"

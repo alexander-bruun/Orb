@@ -155,8 +155,8 @@
     scanning = true;
     scanMsg = "";
     try {
-      await adminApi.triggerForceScan();
-      scanMsg = "Force scan started";
+      await adminApi.reingestAlbum($page.params.id);
+      scanMsg = "Reingest started";
     } catch (e) {
       scanMsg = e instanceof Error ? e.message : "Scan failed";
     } finally {

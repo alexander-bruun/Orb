@@ -397,6 +397,7 @@ CREATE TABLE IF NOT EXISTS audiobook_narrators (
 CREATE TABLE IF NOT EXISTS audiobooks (
     id             TEXT        PRIMARY KEY,
     title          TEXT        NOT NULL,
+    edition        TEXT,
     author_id      TEXT        REFERENCES artists(id) ON DELETE SET NULL,
     cover_art_key  TEXT,
     description    TEXT,
@@ -474,3 +475,10 @@ ALTER TABLE audiobook_chapters ADD COLUMN IF NOT EXISTS file_key TEXT;
 
 -- The audiobook's file_key is now optional (NULL for directory-based multi-file books).
 ALTER TABLE audiobooks ALTER COLUMN file_key DROP NOT NULL;
+
+-- Track how series was determined.
+ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS series_source TEXT;
+ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS series_confidence REAL;
+
+-- Store edition/variant labels like "Unabridged".
+ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS edition TEXT;

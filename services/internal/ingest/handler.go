@@ -82,6 +82,7 @@ func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
 // Routes registers ingest admin endpoints. Must be mounted under JWT + admin middleware.
 func (s *Service) Routes(r chi.Router) {
 	r.Post("/scan", s.triggerScan)
+	r.Post("/album/{albumID}", s.triggerReingestAlbum)
 	r.Get("/status", s.status)
 	r.Get("/stream", s.streamEvents)
 }
@@ -279,6 +280,30 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "scan started"})
+}
+
+func (s *Service) triggerReingestAlbum(w http.ResponseWriter, r *http.Request) {
+	albumID := chi.URLParam(r, "albumID")
+	if albumID == "" {
+		http.Error(w, "missing albumID", http.StatusBadRequest)
+		return
+	}
+
+	scanCtx := s.rootCtx
+	if scanCtx == nil {
+		scanCtx = context.Background()
+	}
+
+	go func() {
+		newIDs, skipped, errs := s.ingester.ReingestAlbum(scanCtx, albumID)
+		slog.Info("album reingest complete", "album_id", albumID, "ingested", len(newIDs), "skipped", skipped, "errors", errs)
+		if s.ingester.cfg.ComputeSimilarity {
+			_ = s.ingester.runSimilarity(scanCtx, newIDs)
+		}
+	}()
+
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "reingest started"})
 }
 
 // GET /admin/ingest/stream — SSE endpoint that streams ProgressEvents in real time.

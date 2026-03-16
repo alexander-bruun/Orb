@@ -1503,6 +1503,30 @@ ON CONFLICT (path) DO UPDATE
 	return err
 }
 
+// DeleteIngestStateForAlbum removes ingest_state rows for all tracks belonging
+// to the given album and returns the filesystem paths that were deleted.
+// Call this before a targeted rescan so the files are not skipped by upToDate.
+func (s *Store) DeleteIngestStateForAlbum(ctx context.Context, albumID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`DELETE FROM ingest_state
+		 WHERE track_id IN (SELECT id FROM tracks WHERE album_id = $1)
+		 RETURNING path`,
+		albumID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, rows.Err()
+}
+
 // GetTrackByFingerprint returns a track by fingerprint.
 func (s *Store) GetTrackByFingerprint(ctx context.Context, fingerprint string) (Track, error) {
 	var t Track

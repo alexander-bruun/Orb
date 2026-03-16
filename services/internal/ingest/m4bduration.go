@@ -1,10 +1,14 @@
 package ingest
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"strings"
+
+	"github.com/alexander-bruun/orb/services/internal/objstore"
 )
 
 // m4bInfo holds the parsed duration and chapters from an M4B/M4A file.
@@ -16,6 +20,43 @@ type m4bInfo struct {
 type m4bChapter struct {
 	startMs int64
 	title   string
+}
+
+type readTextSampleFunc func(abs int64) string
+
+// ProbeM4BForDebug exposes probeM4B results for one-off debugging tools.
+// This is intentionally minimal and not part of the public API surface.
+func ProbeM4BForDebug(path string) (*struct {
+	DurationMs int64
+	Chapters   []struct {
+		StartMs int64
+		Title   string
+	}
+}, error) {
+	info, err := probeM4B(path)
+	if err != nil {
+		return nil, err
+	}
+	out := &struct {
+		DurationMs int64
+		Chapters   []struct {
+			StartMs int64
+			Title   string
+		}
+	}{
+		DurationMs: info.durationMs,
+		Chapters:   make([]struct{ StartMs int64; Title string }, len(info.chapters)),
+	}
+	for i, ch := range info.chapters {
+		out.Chapters[i] = struct{
+			StartMs int64
+			Title   string
+		}{
+			StartMs: ch.startMs,
+			Title:   ch.title,
+		}
+	}
+	return out, nil
 }
 
 // probeM4B opens an M4B/M4A file and returns its duration and chapter list
@@ -52,9 +93,13 @@ func probeM4B(path string) (*m4bInfo, error) {
 
 	info := &m4bInfo{}
 
+	readTextSample := func(abs int64) string {
+		return readQTTextSample(f, abs)
+	}
+
 	// Try moov in the first 64 MB.
 	if moovBody, ok := findBox(head, "moov"); ok {
-		parseMoov(moovBody, head, 0, info)
+		parseMoov(moovBody, head, 0, readTextSample, info)
 		return info, nil
 	}
 
@@ -75,7 +120,72 @@ func probeM4B(path string) (*m4bInfo, error) {
 
 	if moovBody, ok := findBox(tail, "moov"); ok {
 		// fileBufOff = tailOff so stco absolute file offsets map correctly into tail.
-		parseMoov(moovBody, tail, tailOff, info)
+		// Pass readTextSample so parseQTChapters can seek for titles whose stco
+		// offsets fall before tailOff (common in large non-optimised files).
+		parseMoov(moovBody, tail, tailOff, readTextSample, info)
+	}
+
+	return info, nil
+}
+
+// probeM4BFromObjectStore parses chapters from an object store key using range reads.
+// It avoids any full-file download.
+func probeM4BFromObjectStore(ctx context.Context, obj objstore.ObjectStore, key string) (*m4bInfo, error) {
+	fileSize, err := obj.Size(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read up to 64 MB from the start of the file.
+	headSize := fileSize
+	const maxHead = 64 << 20 // 64 MB
+	if headSize > maxHead {
+		headSize = maxHead
+	}
+	headRc, err := obj.GetRange(ctx, key, 0, headSize)
+	if err != nil {
+		return nil, err
+	}
+	head, err := io.ReadAll(headRc)
+	headRc.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	info := &m4bInfo{}
+
+	readTextSample := func(abs int64) string {
+		return readQTTextSampleFromObjectStore(ctx, obj, key, abs)
+	}
+
+	// Try moov in the first 64 MB.
+	if moovBody, ok := findBox(head, "moov"); ok {
+		parseMoov(moovBody, head, 0, readTextSample, info)
+		return info, nil
+	}
+
+	// moov not found in first 64 MB — it may be at the end of the file.
+	if fileSize <= maxHead {
+		return info, nil
+	}
+
+	const tailSize = 8 << 20 // 8 MB
+	tailOff := fileSize - tailSize
+	if tailOff < 0 {
+		tailOff = 0
+	}
+	tailRc, err := obj.GetRange(ctx, key, tailOff, tailSize)
+	if err != nil {
+		return info, nil
+	}
+	tail, err := io.ReadAll(tailRc)
+	tailRc.Close()
+	if err != nil {
+		return info, nil
+	}
+
+	if moovBody, ok := findBox(tail, "moov"); ok {
+		parseMoov(moovBody, tail, tailOff, readTextSample, info)
 	}
 
 	return info, nil
@@ -83,24 +193,37 @@ func probeM4B(path string) (*m4bInfo, error) {
 
 // parseMoov processes a moov box body.
 // fileBuf is the raw file data we have buffered; fileBufOff is the absolute
-// file offset of fileBuf[0]. These are forwarded to parseQTChapters so that
-// stco absolute offsets can be resolved into buffer indices.
-func parseMoov(moovBody []byte, fileBuf []byte, fileBufOff int64, info *m4bInfo) {
+// file offset of fileBuf[0]. rs is the underlying file — passed to
+// parseQTChapters so it can seek for text samples outside the buffer.
+func parseMoov(moovBody []byte, fileBuf []byte, fileBufOff int64, readTextSample readTextSampleFunc, info *m4bInfo) {
 	// Total duration.
 	if mvhd, ok := findBox(moovBody, "mvhd"); ok {
 		parseMvhdBox(mvhd, info)
 	}
 
 	// ── Nero chapters (moov/udta/chpl) ───────────────────────────────────────
+	var chplChapters []m4bChapter
 	if udta, ok := findBox(moovBody, "udta"); ok {
 		if chpl, ok := findBox(udta, "chpl"); ok {
-			parseChplBox(chpl, info)
+			chplChapters = parseChplBox(chpl)
 		}
 	}
 
-	// ── QuickTime chapter track (fallback) ────────────────────────────────────
-	if len(info.chapters) == 0 {
-		parseQTChapters(moovBody, fileBuf, fileBufOff, info)
+	// ── QuickTime chapter track ───────────────────────────────────────────────
+	qtChapters := parseQTChapters(moovBody, fileBuf, fileBufOff, readTextSample)
+
+	switch {
+	case len(chplChapters) == 0 && len(qtChapters) > 0:
+		info.chapters = qtChapters
+	case len(chplChapters) > 0:
+		// Prefer QuickTime titles if chpl titles are just numeric counters.
+		if !hasMeaningfulTitles(chplChapters) && hasMeaningfulTitles(qtChapters) {
+			info.chapters = qtChapters
+		} else {
+			info.chapters = chplChapters
+		}
+	case len(qtChapters) > 0:
+		info.chapters = qtChapters
 	}
 }
 
@@ -220,11 +343,11 @@ func parseMvhdBox(body []byte, info *m4bInfo) {
 //
 //	1 byte version + 3 bytes flags
 //	version 1: 4 bytes unknown/reserved
-//	4 bytes chapter count
+//	1 byte chapter count
 //	per chapter: 8 bytes start (100ns units) + 1 byte title len + N bytes title
-func parseChplBox(body []byte, info *m4bInfo) {
+func parseChplBox(body []byte) []m4bChapter {
 	if len(body) < 8 {
-		return
+		return nil
 	}
 	version := body[0]
 	off := 4 // skip version + flags
@@ -232,14 +355,13 @@ func parseChplBox(body []byte, info *m4bInfo) {
 	if version == 1 {
 		off += 4 // skip reserved
 	}
-	if off+4 > len(body) {
-		return
+	if off+1 > len(body) {
+		return nil
 	}
+	count := int(body[off])
+	off += 1
 
-	count := int(binary.BigEndian.Uint32(body[off:]))
-	off += 4
-
-	info.chapters = make([]m4bChapter, 0, count)
+	chapters := make([]m4bChapter, 0, count)
 	for i := 0; i < count; i++ {
 		if off+9 > len(body) {
 			break
@@ -253,14 +375,64 @@ func parseChplBox(body []byte, info *m4bInfo) {
 		title := string(body[off : off+titleLen])
 		off += titleLen
 
-		info.chapters = append(info.chapters, m4bChapter{
+		chapters = append(chapters, m4bChapter{
 			startMs: int64(startNs100) / 10_000,
 			title:   title,
 		})
 	}
+	return chapters
 }
 
 // ── parseQTChapters ──────────────────────────────────────────────────────────
+
+// readQTTextSample seeks to abs in rs and reads the 2-byte-prefixed UTF-8
+// title stored there (QuickTime text sample format). Returns "" on any error.
+func readQTTextSample(rs io.ReadSeeker, abs int64) string {
+	if _, err := rs.Seek(abs, io.SeekStart); err != nil {
+		return ""
+	}
+	var lenBuf [2]byte
+	if _, err := io.ReadFull(rs, lenBuf[:]); err != nil {
+		return ""
+	}
+	n := int(binary.BigEndian.Uint16(lenBuf[:]))
+	if n == 0 || n > 4096 {
+		return ""
+	}
+	title := make([]byte, n)
+	if _, err := io.ReadFull(rs, title); err != nil {
+		return ""
+	}
+	return string(title)
+}
+
+// readQTTextSampleFromObjectStore reads a QuickTime text sample using range reads.
+func readQTTextSampleFromObjectStore(ctx context.Context, obj objstore.ObjectStore, key string, abs int64) string {
+	rc, err := obj.GetRange(ctx, key, abs, 2)
+	if err != nil {
+		return ""
+	}
+	var lenBuf [2]byte
+	if _, err := io.ReadFull(rc, lenBuf[:]); err != nil {
+		rc.Close()
+		return ""
+	}
+	rc.Close()
+	n := int(binary.BigEndian.Uint16(lenBuf[:]))
+	if n == 0 || n > 4096 {
+		return ""
+	}
+	rc, err = obj.GetRange(ctx, key, abs+2, int64(n))
+	if err != nil {
+		return ""
+	}
+	title, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		return ""
+	}
+	return string(title)
+}
 
 // parseQTChapters looks for QuickTime-style chapter tracks inside moovBody.
 //
@@ -277,7 +449,7 @@ func parseChplBox(body []byte, info *m4bInfo) {
 //
 // fileBuf[0] corresponds to absolute file offset fileBufOff, so the buffer
 // index for a stco offset O is (O − fileBufOff).
-func parseQTChapters(moovBody []byte, fileBuf []byte, fileBufOff int64, info *m4bInfo) {
+func parseQTChapters(moovBody []byte, fileBuf []byte, fileBufOff int64, readTextSample readTextSampleFunc) []m4bChapter {
 	for _, trak := range findAllBoxes(moovBody, "trak") {
 		mdia, ok := findBox(trak, "mdia")
 		if !ok {
@@ -382,13 +554,20 @@ func parseQTChapters(moovBody []byte, fileBuf []byte, fileBufOff int64, info *m4
 
 				var title string
 				if chunkIdx < len(chunkOffsets) {
-					bufIdx := chunkOffsets[chunkIdx] - fileBufOff
+					abs := chunkOffsets[chunkIdx]
+					bufIdx := abs - fileBufOff
 					if bufIdx >= 0 && bufIdx+2 <= int64(len(fileBuf)) {
+						// Fast path: text sample is inside the in-memory buffer.
 						textLen := int(binary.BigEndian.Uint16(fileBuf[bufIdx:]))
 						end := bufIdx + 2 + int64(textLen)
 						if textLen > 0 && end <= int64(len(fileBuf)) {
 							title = string(fileBuf[bufIdx+2 : end])
 						}
+					} else if readTextSample != nil {
+						// Slow path: stco offset is outside the buffer (common when
+						// moov is at the end of a large file but mdat is at the front).
+						// Seek directly to the text sample in the file.
+						title = readTextSample(abs)
 					}
 				}
 				if title == "" {
@@ -404,8 +583,96 @@ func parseQTChapters(moovBody []byte, fileBuf []byte, fileBufOff int64, info *m4
 		}
 
 		if len(chapters) > 0 {
-			info.chapters = chapters
-			return
+			return chapters
 		}
 	}
+	return nil
+}
+
+func hasMeaningfulTitles(chapters []m4bChapter) bool {
+	for _, ch := range chapters {
+		title := strings.TrimSpace(ch.title)
+		if title == "" {
+			continue
+		}
+		isNumeric := true
+		for i := 0; i < len(title); i++ {
+			if title[i] < '0' || title[i] > '9' {
+				isNumeric = false
+				break
+			}
+		}
+		if !isNumeric {
+			return true
+		}
+	}
+	return false
+}
+
+// flacDurationMs returns the duration of a FLAC file in milliseconds by
+// reading the STREAMINFO metadata block without any external tools.
+//
+// FLAC binary layout:
+//
+//	bytes 0-3  : "fLaC" marker
+//	bytes 4-7  : metadata block header (1-byte flags+type, 3-byte length)
+//	bytes 8+   : STREAMINFO (34 bytes):
+//	             [0-1]  min block size
+//	             [2-3]  max block size
+//	             [4-6]  min frame size
+//	             [7-9]  max frame size
+//	             [10]   top 8 bits of sample_rate (20-bit field)
+//	             [11]   next 8 bits of sample_rate
+//	             [12]   low 4 bits of sample_rate | 3-bit (ch-1) | 1-bit bps
+//	             [13]   low 4 bits of bps | top 4 bits of total_samples (36-bit)
+//	             [14-17] bottom 32 bits of total_samples
+func flacDurationMs(path string) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	var magic [4]byte
+	if _, err := io.ReadFull(f, magic[:]); err != nil {
+		return 0, fmt.Errorf("flac: read magic: %w", err)
+	}
+	if magic != [4]byte{'f', 'L', 'a', 'C'} {
+		return 0, fmt.Errorf("flac: not a FLAC file")
+	}
+
+	// Metadata block header: 1-byte (last-block flag | block type) + 3-byte length.
+	var hdr [4]byte
+	if _, err := io.ReadFull(f, hdr[:]); err != nil {
+		return 0, fmt.Errorf("flac: read block header: %w", err)
+	}
+	if hdr[0]&0x7F != 0 {
+		return 0, fmt.Errorf("flac: first block is not STREAMINFO")
+	}
+	blockLen := int(hdr[1])<<16 | int(hdr[2])<<8 | int(hdr[3])
+	if blockLen < 18 {
+		return 0, fmt.Errorf("flac: STREAMINFO too short (%d bytes)", blockLen)
+	}
+
+	// Read only the first 18 bytes of STREAMINFO (all we need).
+	var si [18]byte
+	if _, err := io.ReadFull(f, si[:]); err != nil {
+		return 0, fmt.Errorf("flac: read STREAMINFO: %w", err)
+	}
+
+	// Sample rate: bits 0-19 packed into si[10..12].
+	sampleRate := (uint32(si[10]) << 12) | (uint32(si[11]) << 4) | (uint32(si[12]) >> 4)
+	if sampleRate == 0 {
+		return 0, fmt.Errorf("flac: invalid sample rate 0")
+	}
+
+	// Total samples: 36-bit field. Low nibble of si[13] holds bits 32-35;
+	// si[14-17] hold bits 0-31.
+	totalSamples := (uint64(si[13]&0x0F) << 32) |
+		(uint64(si[14]) << 24) |
+		(uint64(si[15]) << 16) |
+		(uint64(si[16]) << 8) |
+		uint64(si[17])
+
+	return int64(totalSamples) * 1000 / int64(sampleRate), nil
 }

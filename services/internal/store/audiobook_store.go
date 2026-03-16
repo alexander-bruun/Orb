@@ -13,16 +13,20 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 	var a Audiobook
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO audiobooks
-			(id, title, author_id, cover_art_key, description, series, series_index,
-			 published_year, isbn, ol_key, file_key, file_size, format, duration_ms, fingerprint)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+			(id, title, edition, author_id, cover_art_key, description, series, series_index,
+			 series_source, series_confidence, published_year, isbn, ol_key, file_key,
+			 file_size, format, duration_ms, fingerprint)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (id) DO UPDATE SET
 			title          = EXCLUDED.title,
+			edition        = COALESCE(EXCLUDED.edition, audiobooks.edition),
 			author_id      = EXCLUDED.author_id,
 			cover_art_key  = COALESCE(EXCLUDED.cover_art_key, audiobooks.cover_art_key),
 			description    = COALESCE(EXCLUDED.description, audiobooks.description),
-			series         = EXCLUDED.series,
-			series_index   = EXCLUDED.series_index,
+			series         = COALESCE(EXCLUDED.series, audiobooks.series),
+			series_index   = COALESCE(EXCLUDED.series_index, audiobooks.series_index),
+			series_source  = COALESCE(EXCLUDED.series_source, audiobooks.series_source),
+			series_confidence = COALESCE(EXCLUDED.series_confidence, audiobooks.series_confidence),
 			published_year = EXCLUDED.published_year,
 			isbn           = EXCLUDED.isbn,
 			ol_key         = COALESCE(EXCLUDED.ol_key, audiobooks.ol_key),
@@ -31,20 +35,26 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 			format         = EXCLUDED.format,
 			duration_ms    = EXCLUDED.duration_ms,
 			fingerprint    = EXCLUDED.fingerprint
-		RETURNING id, title, author_id, cover_art_key, description, series, series_index,
-		          published_year, isbn, ol_key, file_key, file_size, format, duration_ms, fingerprint, created_at`,
-		p.ID, p.Title, p.AuthorID, p.CoverArtKey, p.Description, p.Series, p.SeriesIndex,
-		p.PublishedYear, p.ISBN, p.OLKey, p.FileKey, p.FileSize, p.Format, p.DurationMs, p.Fingerprint,
+		RETURNING id, title, edition, author_id, cover_art_key, description, series, series_index,
+		          series_source, series_confidence, published_year, isbn, ol_key, file_key,
+		          file_size, format, duration_ms, fingerprint, created_at`,
+		p.ID, p.Title, p.Edition, p.AuthorID, p.CoverArtKey, p.Description, p.Series, p.SeriesIndex,
+		p.SeriesSource, p.SeriesConfidence, p.PublishedYear, p.ISBN, p.OLKey, p.FileKey,
+		p.FileSize, p.Format, p.DurationMs, p.Fingerprint,
 	)
-	var authorID, coverArtKey, description, series, isbn, olKey, fileKey, fingerprint sql.NullString
-	var seriesIndex sql.NullFloat64
+	var edition, authorID, coverArtKey, description, series, seriesSource, isbn, olKey, fileKey, fingerprint sql.NullString
+	var seriesIndex, seriesConfidence sql.NullFloat64
 	var publishedYear sql.NullInt32
 	err := row.Scan(
-		&a.ID, &a.Title, &authorID, &coverArtKey, &description, &series, &seriesIndex,
-		&publishedYear, &isbn, &olKey, &fileKey, &a.FileSize, &a.Format, &a.DurationMs, &fingerprint, &a.CreatedAt,
+		&a.ID, &a.Title, &edition, &authorID, &coverArtKey, &description, &series, &seriesIndex,
+		&seriesSource, &seriesConfidence, &publishedYear, &isbn, &olKey, &fileKey,
+		&a.FileSize, &a.Format, &a.DurationMs, &fingerprint, &a.CreatedAt,
 	)
 	if err != nil {
 		return a, err
+	}
+	if edition.Valid {
+		a.Edition = &edition.String
 	}
 	if authorID.Valid {
 		a.AuthorID = &authorID.String
@@ -60,6 +70,12 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 	}
 	if seriesIndex.Valid {
 		a.SeriesIndex = &seriesIndex.Float64
+	}
+	if seriesSource.Valid {
+		a.SeriesSource = &seriesSource.String
+	}
+	if seriesConfidence.Valid {
+		a.SeriesConfidence = &seriesConfidence.Float64
 	}
 	if publishedYear.Valid {
 		v := int(publishedYear.Int32)
@@ -84,24 +100,27 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 func (s *Store) GetAudiobook(ctx context.Context, id string) (Audiobook, error) {
 	var a Audiobook
 	row := s.pool.QueryRow(ctx, `
-		SELECT ab.id, ab.title, ab.author_id, ar.name,
-		       ab.cover_art_key, ab.description, ab.series, ab.series_index,
+		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,
+		       ab.cover_art_key, ab.description, ab.series, ab.series_index, ab.series_source, ab.series_confidence,
 		       ab.published_year, ab.isbn, ab.ol_key,
 		       ab.file_key, ab.file_size, ab.format, ab.duration_ms, ab.fingerprint, ab.created_at
 		FROM audiobooks ab
 		LEFT JOIN artists ar ON ar.id = ab.author_id
 		WHERE ab.id = $1`, id)
-	var authorID, authorName, coverArtKey, description, series, isbn, olKey, fileKey, fingerprint sql.NullString
-	var seriesIndex sql.NullFloat64
+	var edition, authorID, authorName, coverArtKey, description, series, seriesSource, isbn, olKey, fileKey, fingerprint sql.NullString
+	var seriesIndex, seriesConfidence sql.NullFloat64
 	var publishedYear sql.NullInt32
 	err := row.Scan(
-		&a.ID, &a.Title, &authorID, &authorName,
-		&coverArtKey, &description, &series, &seriesIndex,
+		&a.ID, &a.Title, &edition, &authorID, &authorName,
+		&coverArtKey, &description, &series, &seriesIndex, &seriesSource, &seriesConfidence,
 		&publishedYear, &isbn, &olKey,
 		&fileKey, &a.FileSize, &a.Format, &a.DurationMs, &fingerprint, &a.CreatedAt,
 	)
 	if err != nil {
 		return a, err
+	}
+	if edition.Valid {
+		a.Edition = &edition.String
 	}
 	if authorID.Valid {
 		a.AuthorID = &authorID.String
@@ -120,6 +139,12 @@ func (s *Store) GetAudiobook(ctx context.Context, id string) (Audiobook, error) 
 	}
 	if seriesIndex.Valid {
 		a.SeriesIndex = &seriesIndex.Float64
+	}
+	if seriesSource.Valid {
+		a.SeriesSource = &seriesSource.String
+	}
+	if seriesConfidence.Valid {
+		a.SeriesConfidence = &seriesConfidence.Float64
 	}
 	if publishedYear.Valid {
 		v := int(publishedYear.Int32)
@@ -161,12 +186,14 @@ func (s *Store) ListAudiobooks(ctx context.Context, p ListAudiobooksParams) ([]A
 		orderBy = "ar.name NULLS LAST, ab.title"
 	case "year":
 		orderBy = "ab.published_year DESC NULLS LAST, ab.title"
+	case "series":
+		orderBy = "ab.series NULLS LAST, ab.series_index NULLS LAST, ab.title"
 	default:
 		orderBy = "ab.title"
 	}
 	q := fmt.Sprintf(`
-		SELECT ab.id, ab.title, ab.author_id, ar.name,
-		       ab.cover_art_key, ab.series, ab.series_index,
+		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,
+		       ab.cover_art_key, ab.series, ab.series_index, ab.series_source, ab.series_confidence,
 		       ab.published_year, ab.duration_ms, ab.format, ab.created_at
 		FROM audiobooks ab
 		LEFT JOIN artists ar ON ar.id = ab.author_id
@@ -180,15 +207,18 @@ func (s *Store) ListAudiobooks(ctx context.Context, p ListAudiobooksParams) ([]A
 	var result []Audiobook
 	for rows.Next() {
 		var a Audiobook
-		var authorID, authorName, coverArtKey, series sql.NullString
-		var seriesIndex sql.NullFloat64
+		var edition, authorID, authorName, coverArtKey, series, seriesSource sql.NullString
+		var seriesIndex, seriesConfidence sql.NullFloat64
 		var publishedYear sql.NullInt32
 		if err := rows.Scan(
-			&a.ID, &a.Title, &authorID, &authorName,
-			&coverArtKey, &series, &seriesIndex,
+			&a.ID, &a.Title, &edition, &authorID, &authorName,
+			&coverArtKey, &series, &seriesIndex, &seriesSource, &seriesConfidence,
 			&publishedYear, &a.DurationMs, &a.Format, &a.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if edition.Valid {
+			a.Edition = &edition.String
 		}
 		if authorID.Valid {
 			a.AuthorID = &authorID.String
@@ -204,6 +234,12 @@ func (s *Store) ListAudiobooks(ctx context.Context, p ListAudiobooksParams) ([]A
 		}
 		if seriesIndex.Valid {
 			a.SeriesIndex = &seriesIndex.Float64
+		}
+		if seriesSource.Valid {
+			a.SeriesSource = &seriesSource.String
+		}
+		if seriesConfidence.Valid {
+			a.SeriesConfidence = &seriesConfidence.Float64
 		}
 		if publishedYear.Valid {
 			v := int(publishedYear.Int32)
@@ -417,6 +453,12 @@ func (s *Store) UpdateAudiobookCoverArt(ctx context.Context, audiobookID, coverK
 	return err
 }
 
+// UpdateAudiobookDuration updates the stored duration for an audiobook.
+func (s *Store) UpdateAudiobookDuration(ctx context.Context, audiobookID string, durationMs int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE audiobooks SET duration_ms = $2 WHERE id = $1`, audiobookID, durationMs)
+	return err
+}
+
 // UpdateAudiobookEnrichment sets Open Library metadata fields.
 func (s *Store) UpdateAudiobookEnrichment(ctx context.Context, audiobookID string, description, olKey, isbn *string, publishedYear *int) error {
 	_, err := s.pool.Exec(ctx, `
@@ -427,6 +469,24 @@ func (s *Store) UpdateAudiobookEnrichment(ctx context.Context, audiobookID strin
 			published_year = COALESCE($5, published_year)
 		WHERE id = $1`,
 		audiobookID, description, olKey, isbn, publishedYear)
+	return err
+}
+
+// UpdateAudiobookSeriesFromLookup sets series from a lookup only if missing.
+func (s *Store) UpdateAudiobookSeriesFromLookup(ctx context.Context, audiobookID, series string, confidence float64) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE audiobooks SET
+			series = $2,
+			series_source = 'lookup',
+			series_confidence = $3
+		WHERE id = $1 AND (series IS NULL OR series = '')`,
+		audiobookID, series, confidence)
+	return err
+}
+
+// ClearAudiobookIngestState removes all audiobook ingest state rows.
+func (s *Store) ClearAudiobookIngestState(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM audiobook_ingest_state`)
 	return err
 }
 
@@ -464,12 +524,33 @@ func (s *Store) UpsertAudiobookIngestState(ctx context.Context, r AudiobookInges
 	return err
 }
 
+// DeleteAudiobookIngestStateByID removes audiobook_ingest_state rows for the
+// given audiobook and returns the filesystem paths that were deleted.
+func (s *Store) DeleteAudiobookIngestStateByID(ctx context.Context, audiobookID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`DELETE FROM audiobook_ingest_state WHERE audiobook_id = $1 RETURNING path`,
+		audiobookID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, rows.Err()
+}
+
 // ListInProgressAudiobooks returns audiobooks that the user has started but not completed,
 // ordered by most recently updated progress. Used for "Continue Listening" on the home page.
 func (s *Store) ListInProgressAudiobooks(ctx context.Context, userID string, limit int) ([]AudiobookWithProgress, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ab.id, ab.title, ab.author_id, ar.name,
-		       ab.cover_art_key, ab.series, ab.series_index,
+		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,
+		       ab.cover_art_key, ab.series, ab.series_index, ab.series_source, ab.series_confidence,
 		       ab.published_year, ab.duration_ms, ab.format, ab.created_at,
 		       ap.position_ms, ap.completed, ap.updated_at
 		FROM audiobook_progress ap
@@ -485,16 +566,19 @@ func (s *Store) ListInProgressAudiobooks(ctx context.Context, userID string, lim
 	var result []AudiobookWithProgress
 	for rows.Next() {
 		var r AudiobookWithProgress
-		var authorID, authorName, coverArtKey, series sql.NullString
-		var seriesIndex sql.NullFloat64
+		var edition, authorID, authorName, coverArtKey, series, seriesSource sql.NullString
+		var seriesIndex, seriesConfidence sql.NullFloat64
 		var publishedYear sql.NullInt32
 		if err := rows.Scan(
-			&r.ID, &r.Title, &authorID, &authorName,
-			&coverArtKey, &series, &seriesIndex,
+			&r.ID, &r.Title, &edition, &authorID, &authorName,
+			&coverArtKey, &series, &seriesIndex, &seriesSource, &seriesConfidence,
 			&publishedYear, &r.DurationMs, &r.Format, &r.CreatedAt,
 			&r.PositionMs, &r.Completed, &r.ProgressUpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if edition.Valid {
+			r.Edition = &edition.String
 		}
 		if authorID.Valid {
 			r.AuthorID = &authorID.String
@@ -511,6 +595,12 @@ func (s *Store) ListInProgressAudiobooks(ctx context.Context, userID string, lim
 		if seriesIndex.Valid {
 			r.SeriesIndex = &seriesIndex.Float64
 		}
+		if seriesSource.Valid {
+			r.SeriesSource = &seriesSource.String
+		}
+		if seriesConfidence.Valid {
+			r.SeriesConfidence = &seriesConfidence.Float64
+		}
 		if publishedYear.Valid {
 			v := int(publishedYear.Int32)
 			r.PublishedYear = &v
@@ -523,8 +613,8 @@ func (s *Store) ListInProgressAudiobooks(ctx context.Context, userID string, lim
 // ListAudiobooksBySeries returns all audiobooks in a given series, ordered by series_index.
 func (s *Store) ListAudiobooksBySeries(ctx context.Context, series string) ([]Audiobook, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT ab.id, ab.title, ab.author_id, ar.name,
-		       ab.cover_art_key, ab.series, ab.series_index,
+		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,
+		       ab.cover_art_key, ab.series, ab.series_index, ab.series_source, ab.series_confidence,
 		       ab.published_year, ab.duration_ms, ab.format, ab.created_at
 		FROM audiobooks ab
 		LEFT JOIN artists ar ON ar.id = ab.author_id
@@ -537,15 +627,18 @@ func (s *Store) ListAudiobooksBySeries(ctx context.Context, series string) ([]Au
 	var result []Audiobook
 	for rows.Next() {
 		var a Audiobook
-		var authorID, authorName, coverArtKey, ser sql.NullString
-		var seriesIndex sql.NullFloat64
+		var edition, authorID, authorName, coverArtKey, ser, seriesSource sql.NullString
+		var seriesIndex, seriesConfidence sql.NullFloat64
 		var publishedYear sql.NullInt32
 		if err := rows.Scan(
-			&a.ID, &a.Title, &authorID, &authorName,
-			&coverArtKey, &ser, &seriesIndex,
+			&a.ID, &a.Title, &edition, &authorID, &authorName,
+			&coverArtKey, &ser, &seriesIndex, &seriesSource, &seriesConfidence,
 			&publishedYear, &a.DurationMs, &a.Format, &a.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if edition.Valid {
+			a.Edition = &edition.String
 		}
 		if authorID.Valid {
 			a.AuthorID = &authorID.String
@@ -561,6 +654,12 @@ func (s *Store) ListAudiobooksBySeries(ctx context.Context, series string) ([]Au
 		}
 		if seriesIndex.Valid {
 			a.SeriesIndex = &seriesIndex.Float64
+		}
+		if seriesSource.Valid {
+			a.SeriesSource = &seriesSource.String
+		}
+		if seriesConfidence.Valid {
+			a.SeriesConfidence = &seriesConfidence.Float64
 		}
 		if publishedYear.Valid {
 			v := int(publishedYear.Int32)

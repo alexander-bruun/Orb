@@ -95,12 +95,15 @@ export interface AudiobookChapter {
 export interface Audiobook {
 	id: string;
 	title: string;
+	edition?: string;
 	author_id?: string;
 	author_name?: string;
 	cover_art_key?: string;
 	description?: string;
 	series?: string;
 	series_index?: number;
+	series_source?: string;
+	series_confidence?: number;
 	published_year?: number;
 	isbn?: string;
 	ol_key?: string;

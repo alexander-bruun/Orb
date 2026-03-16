@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { authStore } from '$lib/stores/auth';
   import { admin as adminApi } from '$lib/api/admin';
+  import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
   import { getApiBase } from '$lib/api/base';
   import { isNative } from '$lib/utils/platform';
 
@@ -54,6 +55,8 @@
   let artworkLoading = false;
   let artworkRefetching: Record<string, boolean> = {};
   let showForceScanModal = false;
+  let showForceAudiobookModal = false;
+  let audiobookScanMsg = '';
 
   // Settings
   let smtpSettings: SiteSettings = {};
@@ -240,6 +243,19 @@
         if (summary) adminApi.summary().then(s => { summary = s; }).catch(() => {});
       }
     });
+  }
+
+  async function startForceAudiobookScan() {
+    showForceAudiobookModal = false;
+    if (ingestRunning) return;
+    try {
+      const res = await audiobooksApi.triggerScan(true);
+      audiobookScanMsg = res?.status ?? 'Audiobook re-ingest started';
+      setTimeout(() => { if (audiobookScanMsg) audiobookScanMsg = ''; }, 4000);
+    } catch (e: unknown) {
+      audiobookScanMsg = `Error: ${(e as Error).message}`;
+      setTimeout(() => { if (audiobookScanMsg) audiobookScanMsg = ''; }, 6000);
+    }
   }
 
   async function loadArtworkPage() {
@@ -547,6 +563,10 @@
           <button class="btn-accent scan-main" disabled={ingestRunning} on:click={startScan}>{ingestRunning ? 'Scanning…' : 'Trigger Scan'}</button>
           <button class="btn-accent scan-arrow" disabled={ingestRunning} on:click={() => showForceScanModal = true} title="Force rescan entire library" aria-label="Force rescan options">⭯</button>
         </div>
+        <div class="scan-split-btn" style="margin-left:auto">
+          <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceScanModal = true}>Re-ingest Music</button>
+          <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceAudiobookModal = true}>Re-ingest Audiobooks</button>
+        </div>
       </div>
       {#if ingestProgress}
         <div class="progress-bar-wrap">
@@ -559,6 +579,9 @@
       {/if}
       {#if ingestLog.length > 0}
         <div class="ingest-log">{#each ingestLog as line}<div class="log-line">{line}</div>{/each}</div>
+      {/if}
+      {#if audiobookScanMsg}
+        <p class="progress-info muted" style="margin-top:0.5rem">{audiobookScanMsg}</p>
       {/if}
     </section>
 
@@ -791,6 +814,27 @@
     <div class="modal-actions">
       <button class="btn-xs" on:click={() => showForceScanModal = false}>Cancel</button>
       <button class="btn-danger" on:click={startForceScan}>Yes, Force Rescan</button>
+    </div>
+  </div>
+</div>
+{/if}
+
+{#if showForceAudiobookModal}
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
+<div class="modal-backdrop" on:click|self={() => showForceAudiobookModal = false} role="dialog" aria-modal="true" tabindex="-1">
+  <div class="modal force-scan-modal">
+    <div class="force-scan-icon">⚠️</div>
+    <h2>Re-ingest All Audiobooks?</h2>
+    <p class="force-scan-desc">
+      This will re-process <strong>every audiobook</strong> in your library and refresh metadata.
+      Unchanged files that are normally skipped will also be re-ingested.
+    </p>
+    <p class="force-scan-warn">
+      This may take a long time depending on your audiobook library size and cannot be stopped once started.
+    </p>
+    <div class="modal-actions">
+      <button class="btn-xs" on:click={() => showForceAudiobookModal = false}>Cancel</button>
+      <button class="btn-danger" on:click={startForceAudiobookScan}>Yes, Re-ingest Audiobooks</button>
     </div>
   </div>
 </div>

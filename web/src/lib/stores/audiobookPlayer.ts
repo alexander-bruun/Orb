@@ -157,6 +157,11 @@ function getAudio(): HTMLAudioElement {
 				abPlaybackState.set(_audio?.paused ? 'paused' : 'playing');
 			}
 		});
+		_audio.addEventListener('error', () => {
+			if (get(abPlaybackState) === 'loading') {
+				abPlaybackState.set('paused');
+			}
+		});
 	}
 	return _audio;
 }

@@ -46,7 +46,12 @@ export const audiobooks = {
 		return apiFetch(`/audiobooks/series/${encodeURIComponent(series)}`);
 	},
 
-	triggerScan(): Promise<{ status: string }> {
-		return apiFetch('/audiobooks/admin/scan', { method: 'POST' });
+	triggerScan(force = false): Promise<{ status: string }> {
+		const qs = force ? '?force=true' : '';
+		return apiFetch(`/audiobooks/admin/scan${qs}`, { method: 'POST' });
+	},
+
+	triggerRescan(id: string): Promise<{ status: string }> {
+		return apiFetch(`/audiobooks/admin/rescan/${id}`, { method: 'POST' });
 	},
 };
