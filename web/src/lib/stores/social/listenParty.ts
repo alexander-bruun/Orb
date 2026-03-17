@@ -10,6 +10,13 @@ import {
 	playbackState,
 	positionMs as playerPositionMs,
 } from '$lib/stores/player';
+import {
+	currentAudiobook,
+	abPlaybackState,
+	abPositionMs,
+	abCurrentChapter,
+} from '$lib/stores/audiobookPlayer';
+import { activePlayer } from '$lib/stores/activePlayer';
 
 import { getApiBase, getWsBase } from '$lib/api/base';
 
@@ -33,8 +40,29 @@ export interface TrackInfo {
 	duration_ms: number;
 }
 
+export interface AudiobookChapter {
+	id: string;
+	audiobook_id: string;
+	title: string;
+	start_ms: number;
+	end_ms: number;
+	chapter_num: number;
+	file_key?: string;
+}
+
+export interface AudiobookInfo {
+	id: string;
+	title: string;
+	author_name: string;
+	duration_ms: number;
+	chapters?: AudiobookChapter[];
+}
+
 export interface SyncState {
-	track_id: string;
+	item_type: 'track' | 'audiobook';
+	track_id?: string; // compat
+	item_id: string;
+	chapter_id?: string;
 	position_ms: number;
 	playing: boolean;
 	server_time_ms: number;
@@ -57,13 +85,17 @@ export const lpAccessCode  = writable<string | null>(null);
 
 /** Guest-only: auth token for stream URLs */
 export const lpGuestToken     = writable<string | null>(null);
+/** Guest-only: currently playing item type */
+export const lpGuestItemType  = writable<'track' | 'audiobook' | null>(null);
 /** Guest-only: currently playing track metadata */
 export const lpGuestTrack     = writable<TrackInfo | null>(null);
+/** Guest-only: currently playing audiobook metadata */
+export const lpGuestAudiobook = writable<AudiobookInfo | null>(null);
 /** Guest-only: latest position in ms (updated from audio + ticks) */
 export const lpGuestPositionMs = writable(0);
 /** Guest-only: whether the host is playing */
 export const lpGuestPlaying   = writable(false);
-/** Guest-only: duration ms of the current track */
+/** Guest-only: duration ms of the current track/book */
 export const lpGuestDurationMs = writable(0);
 /** True when the guest has been kicked */
 export const lpKicked         = writable(false);
@@ -81,8 +113,11 @@ let guestAudio: HTMLAudioElement | null = null;
 let positionTick: ReturnType<typeof setInterval> | null = null;
 let hostSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let playerUnsubscribers: Array<() => void> = [];
-let lastSentTrackId = '';
-let lastGuestTrackId = '';
+let lastSentItemId = '';
+let lastSentChapterId = '';
+let lastGuestItemId = '';
+let lastGuestChapterId = '';
+let guestChapterStartMs = 0;
 /** Desired play/pause state for the guest — read by onMeta to avoid race conditions */
 let guestWantsPlaying = false;
 /** Desired volume for the guest audio element */
@@ -153,57 +188,80 @@ function _handleHostMessage(msg: Record<string, unknown>) {
 }
 
 function _watchPlayerForHost() {
-	// Track changes: subscribe directly so guests are notified immediately when
-	// the host switches tracks. We send position 0 because the audio engine
-	// hasn't started producing position updates for the new track yet.
-	let lastHostTrackId = get(currentTrack)?.id ?? '';
+	// Track / Audiobook changes
+	const unsubActive = activePlayer.subscribe(() => _hostSendSync());
+
+	let lastHostItemId = '';
 	const unsubTrack = currentTrack.subscribe((track) => {
+		if (get(activePlayer) !== 'music') return;
 		const tid = track?.id ?? '';
-		if (tid && tid !== lastHostTrackId) {
-			lastHostTrackId = tid;
-			lastSentTrackId = tid;
+		if (tid && tid !== lastHostItemId) {
+			lastHostItemId = tid;
+			lastSentItemId = tid;
 			lastSentPositionMs = 0;
-			// Clear any pending periodic sync so it doesn't fire with stale data.
 			if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
-			// Immediately notify guests of the new track.
-			_wsSend({ type: 'sync_state', state: { track_id: tid, position_ms: 0, playing: true } });
-		} else {
-			lastHostTrackId = tid;
+			_wsSend({ type: 'sync_state', state: { item_type: 'track', item_id: tid, position_ms: 0, playing: true } });
+		}
+	});
+
+	const unsubBook = currentAudiobook.subscribe((book) => {
+		if (get(activePlayer) !== 'audiobook') return;
+		const bid = book?.id ?? '';
+		if (bid && bid !== lastHostItemId) {
+			lastHostItemId = bid;
+			lastSentItemId = bid;
+			lastSentPositionMs = 0;
+			if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
+			_wsSend({ type: 'sync_state', state: { item_type: 'audiobook', item_id: bid, position_ms: 0, playing: true } });
+		}
+	});
+	
+	const unsubChapter = abCurrentChapter.subscribe((ch) => {
+		if (get(activePlayer) !== 'audiobook') return;
+		const cid = ch?.id ?? '';
+		if (cid && cid !== lastSentChapterId) {
+			_hostSendSync();
 		}
 	});
 
 	// Playback state changes (play/pause) — sync immediately.
-	const unsubState = playbackState.subscribe((st) => {
-		// Skip 'loading' — it's a transient state between tracks. The track
-		// subscriber above handles the new-track notification.
+	const unsubMusicState = playbackState.subscribe((st) => {
+		if (get(activePlayer) !== 'music') return;
+		if (st !== 'loading') _hostSendSync();
+	});
+	const unsubABState = abPlaybackState.subscribe((st) => {
+		if (get(activePlayer) !== 'audiobook') return;
 		if (st !== 'loading') _hostSendSync();
 	});
 
-	// Position updates — compare against last SENT position (not last tick) so
-	// that even incremental slider drags are detected as seeks once the
-	// cumulative distance from the last broadcast exceeds the threshold.
-	// Normal playback advances ~1000 ms/s, so a 3 s threshold avoids false
-	// positives while still catching any meaningful seek.
-	const unsubPos = playerPositionMs.subscribe((posMs) => {
-		if (get(lpRole) !== 'host') return;
-		const drift = Math.abs(posMs - lastSentPositionMs);
-
-		// Seek detected: position jumped >3 s from what guests last heard.
-		if (drift > 3000) {
-			if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
-			_hostSendSync();
-			return;
-		}
-
-		// Periodic position sync — keep guests within ~2 s of the host.
-		if (hostSyncTimer) return;
-		hostSyncTimer = setTimeout(() => {
-			hostSyncTimer = null;
-			_hostSendSync();
-		}, 2000);
+	// Position updates
+	const unsubMusicPos = playerPositionMs.subscribe((posMs) => {
+		if (get(activePlayer) !== 'music') return;
+		_handlePosDrift(posMs);
+	});
+	const unsubABPos = abPositionMs.subscribe((posMs) => {
+		if (get(activePlayer) !== 'audiobook') return;
+		_handlePosDrift(posMs);
 	});
 
-	playerUnsubscribers = [unsubTrack, unsubState, unsubPos];
+	playerUnsubscribers = [unsubActive, unsubTrack, unsubBook, unsubChapter, unsubMusicState, unsubABState, unsubMusicPos, unsubABPos];
+}
+
+function _handlePosDrift(posMs: number) {
+	if (get(lpRole) !== 'host') return;
+	const drift = Math.abs(posMs - lastSentPositionMs);
+
+	if (drift > 3000) {
+		if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
+		_hostSendSync();
+		return;
+	}
+
+	if (hostSyncTimer) return;
+	hostSyncTimer = setTimeout(() => {
+		hostSyncTimer = null;
+		_hostSendSync();
+	}, 2000);
 }
 
 function _stopPlayerWatch() {
@@ -211,6 +269,8 @@ function _stopPlayerWatch() {
 	playerUnsubscribers = [];
 	if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
 	lastSentPositionMs = 0;
+	lastSentItemId = '';
+	lastSentChapterId = '';
 }
 
 /** Safe WebSocket send — catches errors so a failed write never breaks
@@ -227,18 +287,44 @@ function _wsSend(payload: Record<string, unknown>): boolean {
 
 function _hostSendSync() {
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	const track  = get(currentTrack);
-	const state  = get(playbackState);
-	if (state === 'loading') return;
-	const posMs  = get(playerPositionMs);
-	const trackId = track?.id ?? '';
-	if (trackId === lastSentTrackId && state === 'idle') return;
-	lastSentTrackId = trackId;
-	lastSentPositionMs = posMs;
-	_wsSend({
-		type: 'sync_state',
-		state: { track_id: trackId, position_ms: Math.round(posMs), playing: state === 'playing' },
-	});
+	const mode = get(activePlayer);
+	
+	if (mode === 'music') {
+		const track  = get(currentTrack);
+		const state  = get(playbackState);
+		if (state === 'loading') return;
+		const posMs  = get(playerPositionMs);
+		const trackId = track?.id ?? '';
+		if (trackId === lastSentItemId && state === 'idle') return;
+		lastSentItemId = trackId;
+		lastSentPositionMs = posMs;
+		_wsSend({
+			type: 'sync_state',
+			state: { item_type: 'track', item_id: trackId, position_ms: Math.round(posMs), playing: state === 'playing' },
+		});
+	} else {
+		const book = get(currentAudiobook);
+		const chapter = get(abCurrentChapter);
+		const state = get(abPlaybackState);
+		if (state === 'loading') return;
+		const posMs = get(abPositionMs);
+		const bookId = book?.id ?? '';
+		const chapterId = chapter?.id ?? '';
+		if (bookId === lastSentItemId && chapterId === lastSentChapterId && state === 'idle') return;
+		lastSentItemId = bookId;
+		lastSentChapterId = chapterId;
+		lastSentPositionMs = posMs;
+		_wsSend({
+			type: 'sync_state',
+			state: {
+				item_type: 'audiobook',
+				item_id: bookId,
+				chapter_id: chapterId,
+				position_ms: Math.round(posMs),
+				playing: state === 'playing'
+			},
+		});
+	}
 }
 
 export function hostKick(participantId: string) {
@@ -300,10 +386,13 @@ export async function connectAsGuest(sessionId: string, nickname: string, code?:
 					lpGuestToken.set(token);
 					lpGuestParticipantId.set((msg.participant_id as string) ?? null);
 					if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
+					if (msg.audiobook_info) lpGuestAudiobook.set(msg.audiobook_info as AudiobookInfo);
+					
 					if (msg.current_state) {
 						_applyGuestSync(
 							msg.current_state as SyncState,
 							(msg.track_info as TrackInfo) ?? null,
+							(msg.audiobook_info as AudiobookInfo) ?? null,
 							sessionId,
 							token,
 							true,
@@ -347,9 +436,12 @@ function _handleGuestMessage(msg: Record<string, unknown>, sessionId: string) {
 		case 'sync':
 			if (msg.state) {
 				if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
+				if (msg.audiobook_info) lpGuestAudiobook.set(msg.audiobook_info as AudiobookInfo);
+				
 				_applyGuestSync(
 					msg.state as SyncState,
 					(msg.track_info as TrackInfo) ?? null,
+					(msg.audiobook_info as AudiobookInfo) ?? null,
 					sessionId,
 					guestToken,
 					false,
@@ -385,10 +477,17 @@ function _handleGuestMessage(msg: Record<string, unknown>, sessionId: string) {
 function _applyGuestSync(
 	state: SyncState,
 	trackInfo: TrackInfo | null,
+	audiobookInfo: AudiobookInfo | null,
 	sessionId: string,
 	guestToken: string,
 	isJoin: boolean,
 ) {
+	// Compat
+	if (!state.item_id && state.track_id) {
+		state.item_id = state.track_id;
+		state.item_type = 'track';
+	}
+
 	// Update desired play state before any async audio operations so that the
 	// loadedmetadata callback reads the latest value rather than a stale closure.
 	guestWantsPlaying = state.playing;
@@ -398,24 +497,53 @@ function _applyGuestSync(
 
 	lpGuestPositionMs.set(adjustedMs);
 	lpGuestPlaying.set(state.playing);
-	if (trackInfo) {
+	lpGuestItemType.set(state.item_type);
+
+	if (state.item_type === 'track' && trackInfo) {
 		lpGuestDurationMs.set(trackInfo.duration_ms);
+		guestChapterStartMs = 0;
+	} else if (state.item_type === 'audiobook' && audiobookInfo) {
+		lpGuestDurationMs.set(audiobookInfo.duration_ms);
+		guestChapterStartMs = 0;
 	}
 
-	if (!state.track_id) return;
+	if (!state.item_id) return;
 
-	const trackChanged = state.track_id !== lastGuestTrackId;
-	lastGuestTrackId = state.track_id;
+	const itemChanged = state.item_id !== lastGuestItemId || state.chapter_id !== lastGuestChapterId;
+	lastGuestItemId = state.item_id;
+	lastGuestChapterId = state.chapter_id ?? '';
 
-	const streamUrl = `${getApiBase()}/listen/${sessionId}/stream/${state.track_id}?guest_token=${encodeURIComponent(guestToken)}`;
+	// If streaming a chapter, calculate the relative seek position and offset.
+	let targetSeconds = adjustedMs / 1000;
+	if (state.item_type === 'audiobook' && state.chapter_id) {
+		const book = audiobookInfo || get(lpGuestAudiobook);
+		if (book?.chapters) {
+			const ch = book.chapters.find((c) => c.id === state.chapter_id);
+			if (ch) {
+				guestChapterStartMs = ch.start_ms;
+				targetSeconds = Math.max(0, (adjustedMs - ch.start_ms) / 1000);
+			}
+		}
+	}
 
-	if (trackChanged || isJoin) {
-		_guestPlay(streamUrl, adjustedMs / 1000, state.playing);
+	let streamUrl = '';
+	if (state.item_type === 'track') {
+		streamUrl = `${getApiBase()}/listen/${sessionId}/stream/${state.item_id}?guest_token=${encodeURIComponent(guestToken)}`;
+	} else {
+		if (state.chapter_id) {
+			streamUrl = `${getApiBase()}/listen/${sessionId}/stream/audiobook/chapter/${state.chapter_id}?guest_token=${encodeURIComponent(guestToken)}`;
+		} else {
+			streamUrl = `${getApiBase()}/listen/${sessionId}/stream/audiobook/${state.item_id}?guest_token=${encodeURIComponent(guestToken)}`;
+		}
+	}
+
+	if (itemChanged || isJoin) {
+		_guestPlay(streamUrl, targetSeconds, state.playing);
 	} else if (guestAudio) {
 		// Seek if position drifted — covers both playing and paused states.
-		const drift = Math.abs(guestAudio.currentTime * 1000 - adjustedMs);
+		const drift = Math.abs(guestAudio.currentTime * 1000 - targetSeconds * 1000);
 		if (drift > 500) {
-			guestAudio.currentTime = adjustedMs / 1000;
+			guestAudio.currentTime = targetSeconds;
 		}
 		// Sync play/pause state.
 		if (state.playing && guestAudio.paused) {
@@ -438,11 +566,15 @@ function _ensureGuestAudio(): HTMLAudioElement {
 		guestAudio = new Audio();
 		guestAudio.volume = guestVolume;
 		guestAudio.addEventListener('timeupdate', () => {
-			lpGuestPositionMs.set(guestAudio!.currentTime * 1000);
+			lpGuestPositionMs.set(guestChapterStartMs + guestAudio!.currentTime * 1000);
 		});
 		guestAudio.addEventListener('loadedmetadata', () => {
 			if (guestAudio!.duration && isFinite(guestAudio!.duration)) {
-				lpGuestDurationMs.set(guestAudio!.duration * 1000);
+				// For tracks/single-file books, we can use the element duration.
+				// For multi-file audiobooks, lpGuestDurationMs is set from the book metadata.
+				if (get(lpGuestItemType) === 'track') {
+					lpGuestDurationMs.set(guestAudio!.duration * 1000);
+				}
 			}
 		});
 		guestAudio.addEventListener('ended', () => {
@@ -482,7 +614,7 @@ function _startPositionTick(playing: boolean) {
 	positionTick = setInterval(() => {
 		// Keep store in sync between timeupdate events.
 		if (guestAudio && !guestAudio.paused) {
-			lpGuestPositionMs.set(guestAudio.currentTime * 1000);
+			lpGuestPositionMs.set(guestChapterStartMs + guestAudio.currentTime * 1000);
 		}
 	}, 250);
 }
@@ -496,8 +628,8 @@ export function disconnect() {
 	_clearPositionTick();
 	if (ws) { ws.onclose = null; ws.close(); ws = null; }
 	if (guestAudio) { guestAudio.pause(); guestAudio.src = ''; guestAudio = null; }
-	lastGuestTrackId = '';
-	lastSentTrackId = '';
+	lastGuestItemId = '';
+	lastSentItemId = '';
 	lpConnected.set(false);
 }
 
@@ -515,7 +647,9 @@ function _resetState() {
 	lpCodeEnabled.set(false);
 	lpAccessCode.set(null);
 	lpGuestToken.set(null);
+	lpGuestItemType.set(null);
 	lpGuestTrack.set(null);
+	lpGuestAudiobook.set(null);
 	lpGuestPositionMs.set(0);
 	lpGuestDurationMs.set(0);
 	lpGuestPlaying.set(false);

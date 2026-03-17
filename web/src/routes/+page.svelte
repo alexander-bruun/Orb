@@ -276,7 +276,7 @@
           {@const pct = book.duration_ms > 0 ? Math.min(100, (book.position_ms / book.duration_ms) * 100) : 0}
           <!-- svelte-ignore a11y-click-events-have-key-events -->
           <!-- svelte-ignore a11y-no-static-element-interactions -->
-          <div class="ab-card" on:click={() => playAudiobook(book, book.position_ms)}>
+          <a class="ab-card" href="/audiobooks/{book.id}">
             <div class="ab-cover-wrap">
               {#if book.cover_art_key}
                 <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
@@ -292,7 +292,7 @@
               <div class="ab-progress-strip">
                 <div class="ab-progress-fill" style="width:{pct}%"></div>
               </div>
-              <button class="ab-play-btn" aria-label="Resume {book.title}" on:click|stopPropagation={() => playAudiobook(book, book.position_ms)}>
+              <button class="ab-play-btn" aria-label="Resume {book.title}" on:click|preventDefault|stopPropagation={() => playAudiobook(book, book.position_ms)}>
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
               </button>
             </div>
@@ -300,7 +300,7 @@
               <span class="ab-title" title={book.title}>{book.title}</span>
               {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
             </div>
-          </div>
+          </a>
         {/each}
       </div>
     </section>
@@ -710,6 +710,8 @@
     flex-direction: column;
     gap: 7px;
     cursor: pointer;
+    text-decoration: none;
+    color: inherit;
   }
 
   .ab-cover-wrap {
@@ -788,6 +790,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--text);
+    max-width: 140px;
   }
   .ab-author {
     font-size: 0.72rem;
@@ -795,6 +798,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 140px;
   }
 
   .album-slider {

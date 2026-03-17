@@ -9,6 +9,8 @@
     setGuestVolume,
     lpParticipants,
     lpGuestTrack,
+    lpGuestAudiobook,
+    lpGuestItemType,
     lpGuestPositionMs,
     lpGuestDurationMs,
     lpGuestPlaying,
@@ -35,11 +37,14 @@
   let joining = $state(false);
   let volume = $state(1);
 
-  // Lyrics state
+  // Lyrics state (for tracks)
   type LyricLine = { time_ms: number; text: string };
   let lyricsLines = $state<LyricLine[]>([]);
   let lyricsOpen = $state(true);
   let lyricsTrackId = $state('');
+
+  // Audiobook chapters
+  let abChaptersOpen = $state(true);
 
   // Active lyric index: last line where time_ms <= current position
   let activeLyricIndex = $derived.by(() => {
@@ -52,6 +57,18 @@
     return idx;
   });
 
+  // Active chapter index
+  let activeChapterIndex = $derived.by(() => {
+    const pos = $lpGuestPositionMs;
+    const chapters = $lpGuestAudiobook?.chapters ?? [];
+    let idx = -1;
+    for (let i = 0; i < chapters.length; i++) {
+      if (pos >= chapters[i].start_ms) idx = i;
+      else break;
+    }
+    return idx;
+  });
+
   // Derived progress percentage.
   let progress = $derived(
     $lpGuestDurationMs > 0 ? ($lpGuestPositionMs / $lpGuestDurationMs) * 100 : 0
@@ -59,8 +76,11 @@
 
   function formatTime(ms: number): string {
     const s = Math.floor(ms / 1000);
-    const m = Math.floor(s / 60);
-    return `${m}:${(s % 60).toString().padStart(2, '0')}`;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    return `${m}:${(sec).toString().padStart(2, '0')}`;
   }
 
   onMount(async () => {
@@ -316,21 +336,39 @@
 
   {:else if phase === 'playing'}
     <div class="player-layout">
-      <!-- Track cover with overlays -->
+      <!-- Track/Book cover with overlays -->
       <div class="cover-area">
-        {#if $lpGuestTrack?.album_id && $lpGuestToken}
-          <img
-            class="cover-art"
-            src="{getApiBase()}/listen/{sessionId}/cover/{$lpGuestTrack.album_id}?guest_token={encodeURIComponent($lpGuestToken)}"
-            alt="Album art"
-          />
-        {:else}
-          <div class="cover-placeholder">
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
-              <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
-            </svg>
-          </div>
+        {#if $lpGuestItemType === 'track'}
+          {#if $lpGuestTrack?.album_id && $lpGuestToken}
+            <img
+              class="cover-art"
+              src="{getApiBase()}/listen/{sessionId}/cover/{$lpGuestTrack.album_id}?guest_token={encodeURIComponent($lpGuestToken)}"
+              alt="Album art"
+            />
+          {:else}
+            <div class="cover-placeholder">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </div>
+          {/if}
+        {:else if $lpGuestItemType === 'audiobook'}
+          {#if $lpGuestAudiobook?.id && $lpGuestToken}
+            <img
+              class="cover-art"
+              src="{getApiBase()}/listen/{sessionId}/cover/audiobook/{$lpGuestAudiobook.id}?guest_token={encodeURIComponent($lpGuestToken)}"
+              alt="Book cover"
+            />
+          {:else}
+            <div class="cover-placeholder">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              </svg>
+            </div>
+          {/if}
         {/if}
+
         <!-- Playback state overlay — top left -->
         <div class="cover-overlay-tl">
           {#if $lpGuestPlaying}
@@ -343,8 +381,8 @@
             </span>
           {/if}
         </div>
-        <!-- Format badge overlay — top right -->
-        {#if $lpGuestTrack}
+        <!-- Format badge overlay — top right (tracks only) -->
+        {#if $lpGuestItemType === 'track' && $lpGuestTrack}
           {@const bd = $lpGuestTrack.bit_depth ? `${$lpGuestTrack.bit_depth}bit` : ''}
           {@const sr = `${($lpGuestTrack.sample_rate / 1000).toFixed(1)}kHz`}
           <div class="cover-overlay-tr">
@@ -353,20 +391,46 @@
         {/if}
       </div>
 
-      <!-- Track info -->
+      <!-- Item info -->
       <div class="track-info">
-        <div class="track-title">{$lpGuestTrack?.title ?? '—'}</div>
-        <div class="track-artist">{$lpGuestTrack?.artist_name ?? ''}</div>
+        {#if $lpGuestItemType === 'track'}
+          <div class="track-title">{$lpGuestTrack?.title ?? '—'}</div>
+          <div class="track-artist">{$lpGuestTrack?.artist_name ?? ''}</div>
+        {:else}
+          <div class="track-title">{$lpGuestAudiobook?.title ?? '—'}</div>
+          <div class="track-artist">{$lpGuestAudiobook?.author_name ?? ''}</div>
+        {/if}
       </div>
 
       <!-- Progress bar (read-only) -->
       <div class="progress-area">
         <span class="time">{formatTime($lpGuestPositionMs)}</span>
-        <div class="progress-track">
-          <div class="progress-fill" style="width:{progress}%"></div>
+        <div class="progress-wrap">
+          <div class="progress-track">
+            <div class="progress-fill" style="width:{progress}%"></div>
+          </div>
+          
+          <!-- Chapter markers for audiobooks -->
+          {#if $lpGuestItemType === 'audiobook' && $lpGuestAudiobook?.chapters}
+            {#each $lpGuestAudiobook.chapters as ch}
+              {@const startPct = (ch.start_ms / $lpGuestDurationMs) * 100}
+              {#if startPct > 0}
+                <div class="chapter-marker" style="left: {startPct}%">
+                  <span class="chapter-marker-label">{ch.title}</span>
+                </div>
+              {/if}
+            {/each}
+          {/if}
         </div>
         <span class="time">{formatTime($lpGuestDurationMs)}</span>
       </div>
+
+      <!-- Current chapter info (audiobook only) -->
+      {#if $lpGuestItemType === 'audiobook' && activeChapterIndex >= 0}
+        <div class="chapter-info">
+          Chapter {activeChapterIndex + 1}: {$lpGuestAudiobook?.chapters?.[activeChapterIndex]?.title ?? ''}
+        </div>
+      {/if}
 
       <!-- Volume control (below progress) -->
       <div class="volume-row">
@@ -386,8 +450,8 @@
         />
       </div>
 
-      <!-- Lyrics -->
-      {#if lyricsLines.length > 0}
+      <!-- Lyrics (tracks) -->
+      {#if $lpGuestItemType === 'track' && lyricsLines.length > 0}
         <div class="lyrics-section">
           <button class="lyrics-toggle" onclick={() => lyricsOpen = !lyricsOpen}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -409,6 +473,31 @@
                   data-idx={i}
                 >
                   {line.text || '\u00A0'}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Chapters (audiobooks) -->
+      {#if $lpGuestItemType === 'audiobook' && $lpGuestAudiobook?.chapters && $lpGuestAudiobook.chapters.length > 0}
+        <div class="lyrics-section">
+          <button class="lyrics-toggle" onclick={() => abChaptersOpen = !abChaptersOpen}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+            </svg>
+            Chapters
+            <span class="chevron" class:open={abChaptersOpen}>{@html '&#9662;'}</span>
+          </button>
+          {#if abChaptersOpen}
+            <div class="lyrics-list chapters-list">
+              {#each $lpGuestAudiobook.chapters as ch, i}
+                <div class="chapter-item" class:active={i === activeChapterIndex}>
+                  <span class="ch-num">{i + 1}</span>
+                  <span class="ch-title">{ch.title}</span>
+                  <span class="ch-time">{formatTime(ch.start_ms)}</span>
                 </div>
               {/each}
             </div>
@@ -658,17 +747,15 @@
     font-size: 1.2rem;
     font-weight: 700;
     color: var(--text, #fff);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.3;
+    text-align: center;
   }
   .track-artist {
     font-size: 0.9rem;
     color: var(--text-muted, #888);
     margin-top: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.3;
+    text-align: center;
   }
 
   .progress-area {
@@ -678,8 +765,17 @@
     gap: 8px;
   }
   .time { font-size: 0.75rem; color: var(--text-muted, #888); width: 36px; flex-shrink: 0; text-align: center; }
-  .progress-track {
+  .progress-wrap {
     flex: 1;
+    position: relative;
+    height: 20px;
+    display: flex;
+    align-items: center;
+  }
+  .progress-track {
+    position: absolute;
+    left: 0;
+    right: 0;
     height: 4px;
     background: var(--bg-hover, #333);
     border-radius: 2px;
@@ -689,6 +785,62 @@
     height: 100%;
     background: var(--accent, #7c3aed);
     transition: width 0.25s linear;
+  }
+
+  .chapter-marker {
+    position: absolute;
+    top: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 14px;
+    height: 20px;
+    cursor: default;
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .chapter-marker::before {
+    content: "";
+    width: 1px;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.4);
+    transition: background 0.15s, height 0.15s;
+  }
+  .chapter-marker:hover::before {
+    background: var(--accent, #7c3aed);
+    height: 12px;
+    width: 2px;
+  }
+  .chapter-marker-label {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    background: var(--bg-elevated, #222);
+    border: 1px solid var(--border, #333);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.72rem;
+    color: var(--text, #fff);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 10;
+  }
+  .chapter-marker:hover .chapter-marker-label { opacity: 1; }
+
+  .chapter-info {
+    font-size: 0.85rem;
+    color: var(--accent, #7c3aed);
+    font-weight: 500;
+    margin-top: -10px;
+    text-align: center;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   @keyframes pulse {
@@ -728,6 +880,7 @@
     align-items: center;
     gap: 10px;
     padding: 6px 0;
+    min-width: 0;
   }
   .avatar {
     width: 28px;
@@ -743,7 +896,15 @@
     flex-shrink: 0;
     border: 1px solid var(--border, #333);
   }
-  .pname { font-size: 0.85rem; color: var(--text, #fff); }
+  .pname { 
+    font-size: 0.85rem; 
+    color: var(--text, #fff);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
+  }
   .pname em { color: var(--text-muted, #888); font-style: normal; }
   .self .avatar { border-color: var(--accent, #7c3aed); }
   .host .avatar { border-color: #f59e0b; color: #f59e0b; }
@@ -821,5 +982,42 @@
   }
   .lyric-line.next {
     color: var(--text, #fff);
+  }
+
+  /* Chapters List */
+  .chapters-list {
+    gap: 0;
+    padding: 8px 0;
+  }
+  .chapter-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    font-size: 0.85rem;
+    color: var(--text-muted, #888);
+    transition: background 0.2s, color 0.2s;
+    border-left: 3px solid transparent;
+  }
+  .chapter-item.active {
+    background: var(--accent-dim, rgba(192,132,252,0.12));
+    color: var(--accent, #7c3aed);
+    border-left-color: var(--accent, #7c3aed);
+  }
+  .ch-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.75rem;
+    opacity: 0.5;
+    width: 20px;
+  }
+  .ch-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ch-time {
+    font-size: 0.75rem;
+    opacity: 0.6;
   }
 </style>

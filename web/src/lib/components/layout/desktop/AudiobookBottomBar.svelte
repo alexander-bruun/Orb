@@ -37,6 +37,12 @@
     AB_SPEEDS,
     SLEEP_PRESETS,
   } from "$lib/stores/audiobookPlayer";
+  import {
+    lpRole,
+    lpPanelOpen,
+    lpParticipants,
+    createAndConnect,
+  } from "$lib/stores/social/listenParty";
   import { getApiBase } from "$lib/api/base";
   import type { AudiobookChapter } from "$lib/types";
   import { expanded } from "./coverExpandStore";
@@ -367,6 +373,64 @@
       </div>
 
       <!-- Volume -->
+      <!-- Listen Along button -->
+      {#if $lpRole === "host"}
+        <button
+          class="ctrl-btn icon-btn party-btn"
+          class:active={$lpPanelOpen}
+          on:click={() => lpPanelOpen.update((v) => !v)}
+          title="Listen Along"
+          aria-label="Listen Along panel"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="9" cy="7" r="3" /><path
+              d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
+            />
+            <circle cx="18" cy="7" r="2.5" /><path
+              d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"
+            />
+          </svg>
+          {#if $lpParticipants.length > 0}
+            <span class="party-count">{$lpParticipants.length}</span>
+          {/if}
+        </button>
+      {:else if $lpRole === null}
+        <button
+          class="ctrl-btn icon-btn party-btn"
+          on:click={createAndConnect}
+          title="Start Listen Along"
+          aria-label="Start Listen Along"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="9" cy="7" r="3" /><path
+              d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
+            />
+            <circle cx="18" cy="7" r="2.5" /><path
+              d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"
+            />
+          </svg>
+        </button>
+      {/if}
       <input
         type="range"
         min="0"
@@ -893,6 +957,26 @@
     top: 1px;
     right: 0;
     font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    pointer-events: none;
+  }
+
+  /* Listen Along button */
+  .party-btn {
+    position: relative;
+    padding: 6px;
+  }
+  .party-btn svg {
+    overflow: hidden;
+    display: block;
+  }
+  .party-count {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    font-size: 9px;
     font-weight: 700;
     line-height: 1;
     color: var(--accent);

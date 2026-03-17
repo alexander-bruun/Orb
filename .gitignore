@@ -65,6 +65,3 @@ coverage/
 .parcel-cache/
 .DS_Store
 scripts/dev-keystore.jks
-
-# Temporary
-music-demo/

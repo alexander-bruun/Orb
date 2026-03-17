@@ -21,6 +21,7 @@ import {
 	toggleABPlayPause, pauseAudiobook,
 	skipForward, skipBackward, seekAudiobookMs,
 	currentAudiobook, abPlaybackState, abPositionMs, abDurationMs,
+	restoreAudiobookState,
 } from '$lib/stores/audiobookPlayer';
 import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
 
@@ -1240,11 +1241,7 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 			if (abRes?.audiobook) {
 				const book = abRes.audiobook;
 				const posMs = progressRes?.progress?.position_ms ?? 0;
-				currentAudiobook.set(book);
-				abDurationMs.set(book.duration_ms ?? 0);
-				abPositionMs.set(posMs);
-				abPlaybackState.set('paused');
-				activePlayer.set('audiobook');
+				restoreAudiobookState(book, posMs);
 			}
 			// Also restore music queue in the background so switching back to
 			// music works without a reload.

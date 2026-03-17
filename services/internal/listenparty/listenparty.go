@@ -47,7 +47,10 @@ var upgrader = websocket.Upgrader{
 // PlaybackState holds the current playback snapshot stored in Redis and
 // broadcast to guests on join and on each sync_state from the host.
 type PlaybackState struct {
-	TrackID      string  `json:"track_id"`
+	ItemType     string  `json:"item_type"` // "track" or "audiobook"
+	TrackID      string  `json:"track_id"`  // kept for compatibility
+	ItemID       string  `json:"item_id"`
+	ChapterID    string  `json:"chapter_id,omitempty"`
 	PositionMs   float64 `json:"position_ms"`
 	Playing      bool    `json:"playing"`
 	ServerTimeMs int64   `json:"server_time_ms"` // unix ms when state was set
@@ -83,6 +86,14 @@ type TrackInfo struct {
 	DurationMs int32  `json:"duration_ms"`
 }
 
+type AudiobookInfo struct {
+	ID         string                   `json:"id"`
+	Title      string                   `json:"title"`
+	AuthorName string                   `json:"author_name"`
+	DurationMs int64                    `json:"duration_ms"`
+	Chapters   []store.AudiobookChapter `json:"chapters,omitempty"`
+}
+
 // --- WebSocket message types ---
 
 type inMsg struct {
@@ -102,6 +113,7 @@ type outMsg struct {
 	CurrentState  *PlaybackState `json:"current_state,omitempty"`
 	State         *PlaybackState `json:"state,omitempty"`
 	TrackInfo     *TrackInfo     `json:"track_info,omitempty"`
+	AudiobookInfo *AudiobookInfo `json:"audiobook_info,omitempty"`
 	Participants  []Participant  `json:"participants,omitempty"`
 	Participant   *Participant   `json:"participant,omitempty"`
 	Message       string         `json:"message,omitempty"`
@@ -317,8 +329,11 @@ func (s *Service) Routes(r chi.Router) {
 	r.Delete("/{id}/code", s.disableCode)           // requires JWT (host); disables access code
 	r.Get("/{id}/ws", s.ws)                         // host=JWT guest=open
 	r.Get("/{id}/stream/{track_id}", s.guestStream) // guest token
-	r.Get("/{id}/cover/{album_id}", s.guestCover)   // guest token
-	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics) // guest token
+	r.Get("/{id}/stream/audiobook/{audiobook_id}", s.guestAudiobookStream)
+	r.Get("/{id}/stream/audiobook/chapter/{chapter_id}", s.guestAudiobookChapterStream)
+	r.Get("/{id}/cover/{album_id}", s.guestCover)           // guest token
+	r.Get("/{id}/cover/audiobook/{audiobook_id}", s.guestAudiobookCover) // guest token
+	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics)         // guest token
 }
 
 // --- REST handlers ---
@@ -564,9 +579,9 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 	}
 	h.register <- c
 
-	// Send joined confirmation with current playback state and track info.
+	// Send joined confirmation with current playback state and metadata.
 	currentState := sess.State
-	ti := s.fetchTrackInfo(currentState.TrackID)
+	ti, ai := s.fetchMetadata(currentState)
 	joined := mustMarshal(outMsg{
 		Type:          "joined",
 		Role:          "guest",
@@ -575,6 +590,7 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 		GuestToken:    guestToken,
 		CurrentState:  &currentState,
 		TrackInfo:     ti,
+		AudiobookInfo: ai,
 	})
 	c.send <- joined
 
@@ -628,9 +644,10 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	// Cache track info so we only hit the DB when the track changes.
-	var cachedTrackID string
+	// Cache metadata info so we only hit the DB when the track/book changes.
+	var cachedItemID string
 	var cachedTrackInfo *TrackInfo
+	var cachedAudiobookInfo *AudiobookInfo
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
@@ -648,6 +665,13 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 			}
 			st := *msg.State
 			st.ServerTimeMs = time.Now().UnixMilli()
+
+			// Fill ItemID if missing but TrackID is present (compat)
+			if st.ItemID == "" && st.TrackID != "" {
+				st.ItemID = st.TrackID
+				st.ItemType = "track"
+			}
+
 			sess.State = st
 
 			// Update Redis with a timeout so a slow Redis never blocks the loop.
@@ -659,18 +683,21 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 				}
 			}()
 
-			// Only fetch track info from the DB when the track actually changes.
+			// Only fetch metadata info from the DB when the item actually changes.
 			var ti *TrackInfo
-			if st.TrackID != cachedTrackID {
-				ti = s.fetchTrackInfoWithTimeout(st.TrackID)
-				cachedTrackID = st.TrackID
+			var ai *AudiobookInfo
+			if st.ItemID != cachedItemID {
+				ti, ai = s.fetchMetadataWithTimeout(st)
+				cachedItemID = st.ItemID
 				cachedTrackInfo = ti
+				cachedAudiobookInfo = ai
 			} else {
 				ti = cachedTrackInfo
+				ai = cachedAudiobookInfo
 			}
 
 			// Broadcast to guests.
-			out := mustMarshal(outMsg{Type: "sync", State: &st, TrackInfo: ti})
+			out := mustMarshal(outMsg{Type: "sync", State: &st, TrackInfo: ti, AudiobookInfo: ai})
 			select {
 			case h.broadcast <- out:
 			default:
@@ -767,6 +794,46 @@ func (s *Service) guestStream(w http.ResponseWriter, r *http.Request) {
 	s.streamSvc.ServeByTrackID(w, r, trackID)
 }
 
+func (s *Service) guestAudiobookStream(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	audiobookID := chi.URLParam(r, "audiobook_id")
+	guestToken := r.URL.Query().Get("guest_token")
+	if guestToken == "" {
+		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		return
+	}
+	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
+	if err != nil || storedSessionID != sessionID {
+		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		return
+	}
+	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	s.streamSvc.ServeByAudiobookID(w, r, audiobookID)
+}
+
+func (s *Service) guestAudiobookChapterStream(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	chapterID := chi.URLParam(r, "chapter_id")
+	guestToken := r.URL.Query().Get("guest_token")
+	if guestToken == "" {
+		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		return
+	}
+	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
+	if err != nil || storedSessionID != sessionID {
+		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		return
+	}
+	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	s.streamSvc.ServeByAudiobookChapterID(w, r, chapterID)
+}
+
 // --- Guest cover handler ---
 
 func (s *Service) guestCover(w http.ResponseWriter, r *http.Request) {
@@ -790,6 +857,26 @@ func (s *Service) guestCover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.streamSvc.ServeCover(w, r, albumID)
+}
+
+func (s *Service) guestAudiobookCover(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	audiobookID := chi.URLParam(r, "audiobook_id")
+	guestToken := r.URL.Query().Get("guest_token")
+	if guestToken == "" {
+		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		return
+	}
+	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
+	if err != nil || storedSessionID != sessionID {
+		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		return
+	}
+	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	s.streamSvc.ServeAudiobookCover(w, r, audiobookID)
 }
 
 // --- Guest lyrics handler ---
@@ -893,17 +980,38 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 
 // --- Helpers ---
 
-// fetchTrackInfoWithTimeout looks up minimal track metadata with a timeout so
-// a slow or exhausted DB pool never blocks the WebSocket read loop.
-func (s *Service) fetchTrackInfoWithTimeout(trackID string) *TrackInfo {
-	if trackID == "" {
-		return nil
+func (s *Service) fetchMetadataWithTimeout(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+	if st.ItemID == "" && st.TrackID == "" {
+		return nil, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+
+	if st.ItemType == "audiobook" {
+		book, err := s.db.GetAudiobook(ctx, st.ItemID)
+		if err != nil {
+			return nil, nil
+		}
+		ai := &AudiobookInfo{
+			ID:         book.ID,
+			Title:      book.Title,
+			DurationMs: book.DurationMs,
+			Chapters:   book.Chapters,
+		}
+		if book.AuthorName != nil {
+			ai.AuthorName = *book.AuthorName
+		}
+		return nil, ai
+	}
+
+	// Default to track
+	trackID := st.ItemID
+	if trackID == "" {
+		trackID = st.TrackID
+	}
 	track, err := s.db.GetTrackByID(ctx, trackID)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	ti := &TrackInfo{
 		ID:         track.ID,
@@ -926,6 +1034,17 @@ func (s *Service) fetchTrackInfoWithTimeout(trackID string) *TrackInfo {
 			ti.ArtistName = artist.Name
 		}
 	}
+	return ti, nil
+}
+
+func (s *Service) fetchMetadata(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+	return s.fetchMetadataWithTimeout(st)
+}
+
+// fetchTrackInfoWithTimeout looks up minimal track metadata with a timeout so
+// a slow or exhausted DB pool never blocks the WebSocket read loop.
+func (s *Service) fetchTrackInfoWithTimeout(trackID string) *TrackInfo {
+	ti, _ := s.fetchMetadataWithTimeout(PlaybackState{ItemID: trackID, ItemType: "track"})
 	return ti
 }
 

@@ -236,6 +236,16 @@ export function setSleepTimer(minutes: number) {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+export function restoreAudiobookState(book: Audiobook, posMs: number) {
+	currentAudiobook.set(book);
+	abDurationMs.set(book.duration_ms ?? 0);
+	abPositionMs.set(posMs);
+	abPlaybackState.set('paused');
+	activePlayer.set('audiobook');
+	_isMultiFile = _isMultiFileBook(book);
+	_currentChapterIndex = _findChapterIndex(book, posMs);
+}
+
 export async function playAudiobook(book: Audiobook, startMs?: number) {
 	const audio = getAudio();
 
@@ -300,7 +310,12 @@ export async function playAudiobook(book: Audiobook, startMs?: number) {
 
 export function toggleABPlayPause() {
 	const audio = getAudio();
+	const book = get(currentAudiobook);
 	if (audio.paused) {
+		if (book && !audio.src) {
+			playAudiobook(book, get(abPositionMs));
+			return;
+		}
 		activePlayer.set('audiobook');
 		audio.play().catch(() => {});
 		_startSaveInterval();

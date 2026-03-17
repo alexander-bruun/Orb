@@ -321,11 +321,43 @@ func (s *Service) ServeByTrackID(w http.ResponseWriter, r *http.Request, trackID
 		http.Error(w, "track not found", http.StatusNotFound)
 		return
 	}
+	s.serveAudio(w, r, meta.FileKey, meta.FileSize, meta.Format, int(meta.BitDepth), int(meta.SampleRate))
+}
 
-	fileSize := meta.FileSize
+// ServeByAudiobookID serves a single-file audiobook by its ID.
+func (s *Service) ServeByAudiobookID(w http.ResponseWriter, r *http.Request, id string) {
+	book, err := s.db.GetAudiobook(r.Context(), id)
+	if err != nil || book.FileKey == nil {
+		http.Error(w, "audiobook not found or multi-file", http.StatusNotFound)
+		return
+	}
+	s.serveAudio(w, r, *book.FileKey, book.FileSize, book.Format, 0, 0)
+}
+
+// ServeByAudiobookChapterID serves a single chapter file.
+func (s *Service) ServeByAudiobookChapterID(w http.ResponseWriter, r *http.Request, chapterID string) {
+	chapter, err := s.db.GetAudiobookChapterByID(r.Context(), chapterID)
+	if err != nil || chapter.FileKey == nil {
+		http.Error(w, "chapter not found", http.StatusNotFound)
+		return
+	}
+	size, err := s.obj.Size(r.Context(), *chapter.FileKey)
+	if err != nil {
+		http.Error(w, "storage error", http.StatusInternalServerError)
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(*chapter.FileKey))
+	if len(ext) > 1 {
+		ext = ext[1:]
+	}
+	s.serveAudio(w, r, *chapter.FileKey, size, ext, 0, 0)
+}
+
+func (s *Service) serveAudio(w http.ResponseWriter, r *http.Request, key string, fileSize int64, format string, bitDepth, sampleRate int) {
 	rangeHeader := r.Header.Get("Range")
 
 	var offset, length int64
+	var err error
 	if rangeHeader != "" {
 		var end int64
 		offset, end, err = parseRange(rangeHeader, fileSize)
@@ -340,19 +372,23 @@ func (s *Service) ServeByTrackID(w http.ResponseWriter, r *http.Request, trackID
 		length = fileSize
 	}
 
-	rc, err := s.obj.GetRange(r.Context(), meta.FileKey, offset, length)
+	rc, err := s.obj.GetRange(r.Context(), key, offset, length)
 	if err != nil {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
 	defer rc.Close()
 
-	contentType := mimeForFormat(meta.Format)
+	contentType := mimeForFormat(format)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
-	w.Header().Set("X-Orb-Bit-Depth", strconv.Itoa(int(meta.BitDepth)))
-	w.Header().Set("X-Orb-Sample-Rate", strconv.Itoa(int(meta.SampleRate)))
+	if bitDepth > 0 {
+		w.Header().Set("X-Orb-Bit-Depth", strconv.Itoa(bitDepth))
+	}
+	if sampleRate > 0 {
+		w.Header().Set("X-Orb-Sample-Rate", strconv.Itoa(sampleRate))
+	}
 
 	if rangeHeader != "" {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", offset, offset+length-1, fileSize))
@@ -787,7 +823,13 @@ func (s *Service) AudiobookChapterStream(w http.ResponseWriter, r *http.Request)
 // Route: GET /covers/audiobook/{id}
 func (s *Service) AudiobookCover(w http.ResponseWriter, r *http.Request) {
 	audiobookID := chi.URLParam(r, "id")
+	s.ServeAudiobookCover(w, r, audiobookID)
+}
 
+// ServeAudiobookCover serves cover art for an audiobook by ID — intended for
+// use by other packages (e.g. listenparty) that need to serve covers without
+// chi URL params.
+func (s *Service) ServeAudiobookCover(w http.ResponseWriter, r *http.Request, audiobookID string) {
 	book, err := s.db.GetAudiobook(r.Context(), audiobookID)
 	if err != nil || book.CoverArtKey == nil {
 		http.NotFound(w, r)

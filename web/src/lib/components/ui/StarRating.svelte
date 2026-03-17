@@ -38,7 +38,7 @@
   <button
     class="star-trigger"
     class:rated={currentRating > 0}
-    on:click={() => { open = !open; hoverRating = currentRating; }}
+    on:click|stopPropagation={() => { open = !open; hoverRating = currentRating; }}
     aria-label={currentRating > 0 ? `Rated ${currentRating} stars` : 'Rate this track'}
     title={currentRating > 0 ? `${currentRating}/5 stars` : 'Rate'}
   >
@@ -59,7 +59,7 @@
           class:lit={n <= (hoverRating || currentRating)}
           on:mouseenter={() => hoverRating = n}
           on:mouseleave={() => hoverRating = 0}
-          on:click={() => pick(n)}
+          on:click|stopPropagation={() => pick(n)}
           aria-label="{n} star{n > 1 ? 's' : ''}"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill={n <= (hoverRating || currentRating) ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
