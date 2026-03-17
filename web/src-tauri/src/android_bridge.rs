@@ -11,6 +11,8 @@ use jni::sys;
 #[cfg(target_os = "android")]
 use jni::sys::jint;
 #[cfg(target_os = "android")]
+use jni::sys::jlong;
+#[cfg(target_os = "android")]
 use once_cell::sync::OnceCell;
 #[cfg(target_os = "android")]
 use std::os::raw::c_void;
@@ -136,6 +138,24 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnVolumeChange(
     use tauri::Emitter;
     if let Some(handle) = APP_HANDLE.get() {
         let _ = handle.emit("native-volume-change", volume as f64);
+    }
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnDownloadProgress(
+    mut env: JNIEnv,
+    _class: JClass,
+    track_id: jni::objects::JString,
+    progress: jint,
+    total_bytes: jlong,
+) {
+    use tauri::Emitter;
+    if let Some(handle) = APP_HANDLE.get() {
+        if let Ok(id) = env.get_string(&track_id) {
+            let id_str: String = id.into();
+            let _ = handle.emit("download-progress", (id_str, progress as i32, total_bytes as i64));
+        }
     }
 }
 
@@ -411,6 +431,54 @@ pub fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, Stri
             "(Ljava/lang/String;[B)Ljava/lang/String;",
             &[JValue::Object(&id_jstring), JValue::Object(&byte_array)],
         )?.l()?;
+
+        let path: String = env.get_string((&result).into())?.into();
+        Ok(path)
+    })();
+
+    res.map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn download_track_native(
+    track_id: String,
+    url: String,
+    token: Option<String>,
+) -> Result<String, String> {
+    let jvm = get_jvm();
+    let res: Result<String, jni::errors::Error> = (|| {
+        let guard = jvm.attach_current_thread()?;
+        let mut env = guard;
+
+        let cls = get_companion_class(&mut env)?;
+        let id_jstring = env.new_string(&track_id)?;
+        let url_jstring = env.new_string(&url)?;
+
+        // 👇 give this a real lifetime
+        let null_token = JObject::null();
+
+        // 👇 also store the optional string so it lives long enough
+        let token_jstring;
+
+        let token_obj = if let Some(ref t) = token {
+            token_jstring = env.new_string(t)?;
+            JObject::from(token_jstring)
+        } else {
+            null_token
+        };
+
+        let result = env
+            .call_static_method(
+                cls,
+                "downloadTrackNative",
+                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+                &[
+                    JValue::Object(&id_jstring),
+                    JValue::Object(&url_jstring),
+                    JValue::Object(&token_obj),
+                ],
+            )?
+            .l()?;
 
         let path: String = env.get_string((&result).into())?.into();
         Ok(path)

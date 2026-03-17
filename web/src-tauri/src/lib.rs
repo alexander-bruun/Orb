@@ -86,6 +86,16 @@ async fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, St
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+async fn download_track_native(track_id: String, url: String, token: Option<String>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        android_bridge::download_track_native(track_id, url, token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn delete_offline_file(track_id: String) -> Result<(), String> {
     android_bridge::delete_offline_file(track_id)
 }
@@ -174,6 +184,7 @@ pub fn run() {
             set_api_credentials,
             sync_downloads,
             save_offline_file,
+            download_track_native,
             delete_offline_file,
             save_cover_art,
             delete_cover_art,

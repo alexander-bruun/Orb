@@ -27,7 +27,8 @@ class MainActivity : TauriActivity() {
         super.onCreate(savedInstanceState)
 
         val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: ""
-        nativeInit(this.javaClass.classLoader, deviceId)
+        val classLoader = this.javaClass.classLoader ?: throw IllegalStateException("ClassLoader not found")
+        nativeInit(classLoader, deviceId)
 
         requestNotificationPermission()
         startMediaService()

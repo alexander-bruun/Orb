@@ -36,7 +36,7 @@ class MainScreen(carContext: CarContext) : Screen(carContext) {
                 val apiClient = svc?.apiClient
 
                 if (apiClient != null) {
-                    val reachable = apiClient.isReachable()
+                    val reachable = try { apiClient.isReachable() } catch (e: Exception) { false }
                     if (reachable) {
                         isOffline = false
                         // If we were forced into OFFLINE tab, switch back to HOME
@@ -73,7 +73,7 @@ class MainScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     override fun onGetTemplate(): Template {
-        val tabBuilder = TabTemplate.Builder(object : TabCallback {
+        val tabBuilder = TabTemplate.Builder(object : TabTemplate.TabCallback {
             override fun onTabSelected(tabId: String) {
                 if (tabId != activeTabId) {
                     activeTabId = tabId
@@ -86,79 +86,92 @@ class MainScreen(carContext: CarContext) : Screen(carContext) {
             tabBuilder.addTab(
                 Tab.Builder()
                     .setTitle("Downloads")
-                    .setTabId("OFFLINE")
+                    .setContentId("OFFLINE")
                     .setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext, R.drawable.ic_check)).build())
                     .build()
             )
-            tabBuilder.setActiveTabId("OFFLINE")
+            tabBuilder.setActiveTabContentId("OFFLINE")
         } else {
             tabBuilder.addTab(
                 Tab.Builder()
                     .setTitle("Home")
-                    .setTabId("HOME")
+                    .setContentId("HOME")
                     .setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext, R.drawable.ic_play_arrow)).build())
                     .build()
             )
             tabBuilder.addTab(
                 Tab.Builder()
                     .setTitle("Albums")
-                    .setTabId("ALBUMS")
+                    .setContentId("ALBUMS")
                     .setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext, R.drawable.ic_notification)).build())
                     .build()
             )
             tabBuilder.addTab(
                 Tab.Builder()
                     .setTitle("Playlists")
-                    .setTabId("PLAYLISTS")
+                    .setContentId("PLAYLISTS")
                     .setIcon(CarIcon.Builder(IconCompat.createWithResource(carContext, R.drawable.ic_plus)).build())
                     .build()
             )
-            tabBuilder.setActiveTabId(activeTabId)
+            tabBuilder.setActiveTabContentId(activeTabId)
         }
 
+        tabBuilder.setTabContents(createTabContent())
         tabBuilder.setHeaderAction(Action.APP_ICON)
 
+        return tabBuilder.build()
+    }
+
+    private fun createTabContent(): TabContents {
         if (isLoading) {
-            tabBuilder.setLoading(true)
-        } else {
-            val gridBuilder = ItemList.Builder()
-            if (items.isEmpty()) {
-                gridBuilder.setNoItemsMessage(if (isOffline) "No downloaded music found" else "No items found")
-            } else {
-                for (item in items) {
-                    val gridItem = when (item) {
-                        is OrbApiClient.BrowseAlbum -> {
-                            GridItem.Builder()
-                                .setTitle(item.title)
-                                .setText(item.artistName ?: "")
-                                .setImage(createPlaceholderIcon())
-                                .setOnClickListener { onAlbumSelected(item) }
-                                .build()
-                        }
-                        is OrbApiClient.BrowsePlaylist -> {
-                            GridItem.Builder()
-                                .setTitle(item.name)
-                                .setImage(createPlaceholderIcon())
-                                .setOnClickListener { onPlaylistSelected(item) }
-                                .build()
-                        }
-                        is MediaService.DownloadMeta -> {
-                            GridItem.Builder()
-                                .setTitle(item.title)
-                                .setText(item.artistName ?: "Downloaded")
-                                .setImage(createPlaceholderIcon())
-                                .setOnClickListener { onOfflineTrackSelected(item) }
-                                .build()
-                        }
-                        else -> null
-                    }
-                    gridItem?.let { gridBuilder.addItem(it) }
-                }
-            }
-            tabBuilder.setTabContents(gridBuilder.build())
+            // Note: GridTemplate or ListTemplate within TabContents might need special handling
+            // based on the library version. Usually TabContents takes a Template.
+            val gridTemplate = GridTemplate.Builder()
+                .setLoading(true)
+                .build()
+            return TabContents.Builder(gridTemplate).build()
         }
 
-        return tabBuilder.build()
+        val gridBuilder = ItemList.Builder()
+        if (items.isEmpty()) {
+            gridBuilder.setNoItemsMessage(if (isOffline) "No downloaded music found" else "No items found")
+        } else {
+            for (item in items) {
+                val gridItem = when (item) {
+                    is OrbApiClient.BrowseAlbum -> {
+                        GridItem.Builder()
+                            .setTitle(item.title)
+                            .setText(item.artistName ?: "")
+                            .setImage(createPlaceholderIcon())
+                            .setOnClickListener { onAlbumSelected(item) }
+                            .build()
+                    }
+                    is OrbApiClient.BrowsePlaylist -> {
+                        GridItem.Builder()
+                            .setTitle(item.name)
+                            .setImage(createPlaceholderIcon())
+                            .setOnClickListener { onPlaylistSelected(item) }
+                            .build()
+                    }
+                    is MediaService.DownloadMeta -> {
+                        GridItem.Builder()
+                            .setTitle(item.title)
+                            .setText(item.artistName ?: "Downloaded")
+                            .setImage(createPlaceholderIcon())
+                            .setOnClickListener { onOfflineTrackSelected(item) }
+                            .build()
+                    }
+                    else -> null
+                }
+                gridItem?.let { gridBuilder.addItem(it) }
+            }
+        }
+
+        val gridTemplate = GridTemplate.Builder()
+            .setSingleList(gridBuilder.build())
+            .build()
+            
+        return TabContents.Builder(gridTemplate).build()
     }
 
     private fun createPlaceholderIcon(): CarIcon {

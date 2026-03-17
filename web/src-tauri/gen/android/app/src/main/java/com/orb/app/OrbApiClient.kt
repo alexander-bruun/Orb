@@ -100,7 +100,7 @@ class OrbApiClient(
             BrowsePlaylist(
                 id = o.getString("id"),
                 name = o.getString("name"),
-                description = o.optString("description", null)
+                description = optNullableString(o, "description")
             )
         }
     }
@@ -114,7 +114,7 @@ class OrbApiClient(
             playlist = BrowsePlaylist(
                 id = playlistObj.getString("id"),
                 name = playlistObj.getString("name"),
-                description = playlistObj.optString("description", null)
+                description = optNullableString(playlistObj, "description")
             ),
             tracks = parseTrackArray(tracksArr)
         )
@@ -216,8 +216,8 @@ class OrbApiClient(
         return BrowseAlbum(
             id = o.getString("id"),
             title = o.getString("title"),
-            artistName = o.optString("artist_name", null),
-            coverArtKey = o.optString("cover_art_key", null)
+            artistName = optNullableString(o, "artist_name"),
+            coverArtKey = optNullableString(o, "cover_art_key")
         )
     }
 
@@ -227,11 +227,15 @@ class OrbApiClient(
             BrowseTrack(
                 id = o.getString("id"),
                 title = o.getString("title"),
-                artistName = o.optString("artist_name", null),
-                albumId = o.optString("album_id", null),
-                albumName = o.optString("album_name", null),
+                artistName = optNullableString(o, "artist_name"),
+                albumId = optNullableString(o, "album_id"),
+                albumName = optNullableString(o, "album_name"),
                 durationMs = o.optLong("duration_ms", 0)
             )
         }
+    }
+
+    private fun optNullableString(o: JSONObject, key: String): String? {
+        return if (o.isNull(key)) null else o.optString(key, null)
     }
 }

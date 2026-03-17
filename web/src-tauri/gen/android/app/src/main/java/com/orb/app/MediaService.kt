@@ -38,6 +38,8 @@ import com.google.common.util.concurrent.SettableFuture
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 
@@ -183,7 +185,7 @@ class MediaService : MediaLibraryService() {
         private const val OFFLINE_COVERS_DIR = "offline_covers"
 
         @Volatile
-        private var instance: MediaService? = null
+        var instance: MediaService? = null
 
         // ── JNI callbacks (Kotlin → Rust → JS) ──────────────────────────────
         @JvmStatic
@@ -200,6 +202,8 @@ class MediaService : MediaLibraryService() {
         private external fun nativeOnPause()
         @JvmStatic
         private external fun nativeOnPlay()
+        @JvmStatic
+        private external fun nativeOnDownloadProgress(trackId: String, progress: Int, totalBytes: Long)
 
         init {
             System.loadLibrary("orb_lib")
@@ -296,9 +300,70 @@ class MediaService : MediaLibraryService() {
         }
 
         /**
+         * Download a track directly to disk to avoid OutOfMemoryError.
+         * Streams content directly from URL to File.
+         */
+        @JvmStatic
+        fun downloadTrackNative(trackId: String, url: String, authToken: String?): String {
+            val svc = instance ?: throw IllegalStateException("MediaService not running")
+            val dir = File(svc.filesDir, OFFLINE_DIR)
+            dir.mkdirs()
+            val file = File(dir, trackId)
+            val tempFile = File(dir, "${trackId}.tmp")
+
+            var connection: HttpURLConnection? = null
+            try {
+                val u = URL(url)
+                connection = u.openConnection() as HttpURLConnection
+                if (authToken != null) {
+                    connection.setRequestProperty("Authorization", "Bearer $authToken")
+                }
+                connection.connect()
+
+                if (connection.responseCode !in 200..299) {
+                    throw Exception("Server returned ${connection.responseCode}")
+                }
+
+                val totalLength = connection.contentLength.toLong()
+                val input = connection.inputStream
+                val output = FileOutputStream(tempFile)
+
+                val buffer = ByteArray(64 * 1024)
+                var bytesRead: Int
+                var totalRead = 0L
+                var lastProgress = -1
+
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    totalRead += bytesRead
+
+                    if (totalLength > 0) {
+                        val progress = ((totalRead * 100) / totalLength).toInt()
+                        if (progress != lastProgress) {
+                            lastProgress = progress
+                            try { nativeOnDownloadProgress(trackId, progress, totalRead) } catch (_: Exception) {}
+                        }
+                    }
+                }
+
+                output.flush()
+                output.close()
+                input.close()
+
+                if (tempFile.renameTo(file)) {
+                    return file.absolutePath
+                } else {
+                    throw Exception("Failed to rename temp file")
+                }
+            } finally {
+                connection?.disconnect()
+                if (tempFile.exists()) tempFile.delete()
+            }
+        }
+
+        /**
          * Save an audio file to internal storage for offline playback.
-         * Called from Rust after downloading a track.
-         * Returns the absolute file path.
+         * @deprecated Use downloadTrackNative to avoid OOM for large files.
          */
         @JvmStatic
         fun saveOfflineFile(trackId: String, data: ByteArray): String {
@@ -933,9 +998,9 @@ class MediaService : MediaLibraryService() {
                 DownloadMeta(
                     trackId = trackId,
                     title = o.optString("title", "Unknown"),
-                    artistName = o.optString("artistName", null),
-                    albumName = o.optString("albumName", null),
-                    albumId = o.optString("albumId", null)
+                    artistName = optNullableString(o, "artistName"),
+                    albumName = optNullableString(o, "albumName"),
+                    albumId = optNullableString(o, "albumId")
                 )
             }
         } catch (e: Exception) {
@@ -1031,14 +1096,14 @@ class MediaService : MediaLibraryService() {
 
     private fun buildCustomLayout(): ImmutableList<CommandButton> {
         val shuffleIcon = if (isShuffled) R.drawable.ic_shuffle else R.drawable.ic_shuffle_off
-        val shuffleButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        val shuffleButton = CommandButton.Builder()
             .setDisplayName("Shuffle")
             .setIconResId(shuffleIcon)
             .setSessionCommand(SessionCommand(SHUFFLE_COMMAND, Bundle.EMPTY))
             .build()
 
         val favoriteIcon = if (isFavorited) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
-        val favoriteButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        val favoriteButton = CommandButton.Builder()
             .setDisplayName("Favorite")
             .setIconResId(favoriteIcon)
             .setSessionCommand(SessionCommand(FAVORITE_COMMAND, Bundle.EMPTY))
@@ -1306,8 +1371,16 @@ class MediaService : MediaLibraryService() {
         return stream.toByteArray()
     }
 
+    fun runOnUiThread(action: Runnable) {
+        mainHandler.post(action)
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         return mediaSession
+    }
+
+    private fun optNullableString(o: JSONObject, key: String): String? {
+        return if (o.isNull(key)) null else o.optString(key, null)
     }
 
     override fun onDestroy() {

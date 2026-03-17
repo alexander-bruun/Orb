@@ -237,68 +237,72 @@ export async function downloadTrack(track: Track): Promise<void> {
     const auth = get(authStore);
     const url  = `${getApiBase()}/stream/${track.id}`;
 
-    const res = await fetch(url, {
-      headers: { Authorization: auth.token ? `Bearer ${auth.token}` : '' },
-    });
-    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    // On Android, use the native downloader to avoid OutOfMemoryError for large files.
+    // This streams directly to disk on the Kotlin side.
+    if (nativePlatform() === 'android') {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('download_track_native', {
+        trackId: track.id,
+        url,
+        token: auth.token
+      });
+      // Native download handles saving to filesystem.
+    } else {
+      const res = await fetch(url, {
+        headers: { Authorization: auth.token ? `Bearer ${auth.token}` : '' },
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
 
-    let blob: Blob;
+      let blob: Blob;
 
-    if (res.body) {
-      // Stream with progress tracking
-      const contentLength = Number(res.headers.get('Content-Length') ?? 0);
-      const contentType   = res.headers.get('Content-Type') ?? 'audio/flac';
-      const reader        = res.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-      let lastReportedProgress = -1;
+      if (res.body) {
+        // Stream with progress tracking
+        const contentLength = Number(res.headers.get('Content-Length') ?? 0);
+        const contentType   = res.headers.get('Content-Type') ?? 'audio/flac';
+        const reader        = res.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+        let lastReportedProgress = -1;
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        received += value.byteLength;
-        const progress = contentLength ? Math.round((received / contentLength) * 100) : 0;
-        // Throttle store updates: only fire when progress changes by ≥1% to avoid
-        // thousands of re-renders per download on slow mobile hardware.
-        if (progress !== lastReportedProgress) {
-          lastReportedProgress = progress;
-          downloads.update(m => {
-            const entry = m.get(track.id);
-            if (entry) {
-              m.set(track.id, { ...entry, progress, sizeBytes: received });
-            }
-            return m;
-          });
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.byteLength;
+          const progress = contentLength ? Math.round((received / contentLength) * 100) : 0;
+          if (progress !== lastReportedProgress) {
+            lastReportedProgress = progress;
+            downloads.update(m => {
+              const entry = m.get(track.id);
+              if (entry) {
+                m.set(track.id, { ...entry, progress, sizeBytes: received });
+              }
+              return m;
+            });
+          }
         }
+
+        blob = new Blob(chunks, { type: contentType });
+      } else {
+        blob = await res.blob();
       }
 
-      blob = new Blob(chunks, { type: contentType });
-    } else {
-      // Fallback for browsers without ReadableStream body (some mobile WebViews)
-      blob = await res.blob();
+      await idbPut(track.id, blob);
+
+      if (cacheAvailable) {
+        try {
+          const cacheResp = new Response(blob.slice(), {
+            headers: {
+              'Content-Type':   blob.type || 'audio/flac',
+              'Content-Length':  String(blob.size),
+              'Accept-Ranges':  'bytes',
+            },
+          });
+          const cache = await caches.open(AUDIO_CACHE);
+          await cache.put(new URL(url, location.href).pathname, cacheResp);
+        } catch { /* ignore */ }
+      }
     }
-
-    // Primary storage: IndexedDB (works on ALL origins, secure or insecure)
-    await idbPut(track.id, blob);
-
-    // Secondary storage: Cache API (when available — enables SW offline serving)
-    if (cacheAvailable) {
-      try {
-        const cacheResp = new Response(blob.slice(), {
-          headers: {
-            'Content-Type':   blob.type || 'audio/flac',
-            'Content-Length':  String(blob.size),
-            'Accept-Ranges':  'bytes',
-          },
-        });
-        const cache = await caches.open(AUDIO_CACHE);
-        await cache.put(new URL(url, location.href).pathname, cacheResp);
-      } catch { /* Cache API unavailable — IDB is the source of truth */ }
-    }
-
-    // Android: save audio + cover art to native filesystem for Android Auto offline playback
-    await saveToNativeStorage(track.id, blob);
 
     // Cache lyrics and waveform for offline playback (best-effort).
     const headers = { Authorization: auth.token ? `Bearer ${auth.token}` : '' };
@@ -313,6 +317,7 @@ export async function downloadTrack(track: Track): Promise<void> {
     ]);
 
     downloads.update(m => {
+      const existing = m.get(track.id);
       m.set(track.id, {
         trackId:      track.id,
         title:        track.title,
@@ -321,7 +326,7 @@ export async function downloadTrack(track: Track): Promise<void> {
         albumId:      track.album_id ?? undefined,
         status:       'done',
         progress:     100,
-        sizeBytes:    blob.size,
+        sizeBytes:    existing?.sizeBytes ?? 0,
         downloadedAt: Date.now(),
       });
       persist(m);
@@ -346,6 +351,22 @@ export async function downloadTrack(track: Track): Promise<void> {
       return m;
     });
   }
+}
+
+/** Listen for native download progress events on Android. */
+if (typeof window !== 'undefined' && nativePlatform() === 'android') {
+  import('@tauri-apps/api/event').then(({ listen }) => {
+    listen<[string, number, number]>('download-progress', (event) => {
+      const [trackId, progress, totalBytes] = event.payload;
+      downloads.update(m => {
+        const entry = m.get(trackId);
+        if (entry) {
+          m.set(trackId, { ...entry, progress, sizeBytes: totalBytes });
+        }
+        return m;
+      });
+    });
+  });
 }
 
 // ── Batch download (sequential to avoid hammering the server) ─────────────────

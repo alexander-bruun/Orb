@@ -57,11 +57,15 @@ class MediaGridScreen(
     }
 
     override fun onGetTemplate(): Template {
+        val header = Header.Builder()
+            .setTitle(title)
+            .setStartHeaderAction(Action.BACK)
+            .build()
+
         if (isLoading) {
             return GridTemplate.Builder()
-                .setTitle(title)
                 .setLoading(true)
-                .setHeaderAction(Action.BACK)
+                .setHeader(header)
                 .build()
         }
 
@@ -100,9 +104,8 @@ class MediaGridScreen(
         }
 
         return GridTemplate.Builder()
-            .setTitle(title)
             .setSingleList(gridBuilder.build())
-            .setHeaderAction(Action.BACK)
+            .setHeader(header)
             .build()
     }
 

@@ -5,7 +5,6 @@ import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.*
 import androidx.car.app.model.Action
-import androidx.core.graphics.drawable.IconCompat
 import java.util.concurrent.Executors
 
 class TrackListScreen(
@@ -46,11 +45,15 @@ class TrackListScreen(
     }
 
     override fun onGetTemplate(): Template {
+        val header = Header.Builder()
+            .setTitle(title)
+            .setStartHeaderAction(Action.BACK)
+            .build()
+
         if (isLoading) {
             return ListTemplate.Builder()
-                .setTitle(title)
                 .setLoading(true)
-                .setHeaderAction(Action.BACK)
+                .setHeader(header)
                 .build()
         }
 
@@ -69,9 +72,8 @@ class TrackListScreen(
         }
 
         return ListTemplate.Builder()
-            .setTitle(title)
             .setSingleList(listBuilder.build())
-            .setHeaderAction(Action.BACK)
+            .setHeader(header)
             .build()
     }
 
@@ -85,9 +87,5 @@ class TrackListScreen(
         svc.runOnUiThread {
             svc.handlePlay(url, track.title, track.artistName, coverUrl)
         }
-    }
-    
-    private fun MediaService.runOnUiThread(action: () -> Unit) {
-        android.os.Handler(android.os.Looper.getMainLooper()).post(action)
     }
 }
