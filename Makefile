@@ -70,16 +70,16 @@ ios-install:
 
 # CI targets (no local env sourcing, no dev signing — env vars set by CI)
 android-init-ci:
-	cd web && cargo tauri android init
+	cd web && bunx tauri android init
 
 android-build-ci:
-	cd web && cargo tauri android build --apk --aab
+	cd web && bunx tauri android build --apk --aab
 
 ios-init-ci:
-	cd web && cargo tauri ios init
+	cd web && bunx tauri ios init
 
 ios-build-ci:
-	cd web && cargo tauri ios build
+	cd web && bunx tauri ios build
 
 # Helper functions for generating iOS and Android icons
 icon-generate:
