@@ -29,7 +29,7 @@
       <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-player-music.png" alt="Orb Mobile Player UI" width="300">
     </td>
     <td>
-      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-music-lyrics.png" alt="Orb Mobile Lyrics UI" width="300">
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-player-music-lyrics.png" alt="Orb Mobile Lyrics UI" width="300">
     </td>
     <td>
       <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-player-audiobook.png" alt="Orb Mobile Audiobook Player UI" width="300">
