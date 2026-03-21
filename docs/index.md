@@ -9,21 +9,42 @@
 
 ---
 
-![Orb Desktop UI](https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/desktop.png)
+<table align="center">
+  <tr>
+    <td>
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/desktop.png" alt="Orb Mobile Home UI" width="300">
+    </td>
+    <td>
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/desktop-audiobook.png" alt="Orb Mobile Player UI" width="300">
+    </td>
+  </tr>
+</table>
 
 <table align="center">
   <tr>
     <td>
-      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-home.png" alt="Orb Mobile Home UI" width="300">
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile.png" alt="Orb Mobile Home UI" width="300">
     </td>
     <td>
-      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-player.png" alt="Orb Mobile Player UI" width="300">
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-player-music.png" alt="Orb Mobile Player UI" width="300">
     </td>
     <td>
-      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-lyrics.png" alt="Orb Mobile Lyrics UI" width="300">
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-music-lyrics.png" alt="Orb Mobile Lyrics UI" width="300">
     </td>
     <td>
-      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-notification.png" alt="Orb Mobile Native Notification" width="300">
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-player-audiobook.png" alt="Orb Mobile Audiobook Player UI" width="300">
+    </td>
+  </tr>
+</table>
+
+<table align="center">
+  <tr>
+    <td>
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-notification-music.png" alt="Orb Mobile Music Notification
+      " width="300">
+    </td>
+    <td>
+      <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile-notification-audiobook.png" alt="Orb Mobile Audiobook Notification" width="300">
     </td>
   </tr>
 </table>

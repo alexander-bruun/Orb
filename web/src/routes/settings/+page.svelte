@@ -561,11 +561,18 @@
     expandedAlbums = expandedAlbums; // trigger reactivity
   }
 
-  $: doneEntries = [...$downloads.values()].filter(d => d.status === 'done');
+  $: allDoneEntries = [...$downloads.values()].filter(d => d.status === 'done');
   $: activeEntries = [...$downloads.values()].filter(d => d.status === 'downloading');
   $: errorEntries = [...$downloads.values()].filter(d => d.status === 'error');
+
+  // Split music vs audiobook
+  $: doneEntries = allDoneEntries.filter(e => !e.isAudiobook);
+  $: abDoneEntries = allDoneEntries.filter(e => e.isAudiobook);
+
   $: doneCount = doneEntries.length;
   $: totalSizeBytes = doneEntries.reduce((s, e) => s + e.sizeBytes, 0);
+  $: abDoneCount = abDoneEntries.length;
+  $: abTotalSizeBytes = abDoneEntries.reduce((s, e) => s + e.sizeBytes, 0);
 
   $: filteredDone = dlSearch.trim()
     ? doneEntries.filter(e => {
@@ -574,7 +581,7 @@
       })
     : doneEntries;
 
-  // Group by album
+  // Group music by album
   $: albumGroups = (() => {
     const map = new Map<string, typeof doneEntries>();
     for (const entry of filteredDone) {
@@ -583,22 +590,118 @@
       if (arr) arr.push(entry);
       else map.set(key, [entry]);
     }
-    // Sort album groups alphabetically
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   })();
 
+  // Group audiobooks by albumId (book id) → book title
+  $: audiobookGroups = (() => {
+    const map = new Map<string, typeof abDoneEntries>();
+    for (const entry of abDoneEntries) {
+      const key = entry.albumId || entry.albumName || '';
+      const arr = map.get(key);
+      if (arr) arr.push(entry);
+      else map.set(key, [entry]);
+    }
+    return [...map.entries()].sort((a, b) => {
+      const nameA = a[1][0]?.albumName || '';
+      const nameB = b[1][0]?.albumName || '';
+      return nameA.localeCompare(nameB);
+    });
+  })();
+
+  let expandedABGroups = new Set<string>();
+  function toggleABGroup(key: string) {
+    if (expandedABGroups.has(key)) expandedABGroups.delete(key);
+    else expandedABGroups.add(key);
+    expandedABGroups = expandedABGroups;
+  }
+
+  async function deleteAlbumGroup(tracks: { trackId: string }[]) {
+    for (const t of tracks) await deleteDownload(t.trackId);
+    storageEst = await getStorageEstimate().catch(() => null);
+  }
+
+  let confirmDeleteAll = false;
+
   async function handleDeleteAll() {
+    confirmDeleteAll = false;
     await deleteAllDownloads();
     storageEst = await getStorageEstimate().catch(() => null);
   }
+
+  // ── Version info ──────────────────────────────────────────
+  let serverVersion = '';
+  let serverSha = '';
+  let versionFetchError = '';
+
+  async function fetchServerVersion() {
+    try {
+      const res = await apiFetch('/version');
+      const data = await res.json();
+      serverVersion = data.version || '';
+      serverSha = data.sha || '';
+      versionFetchError = '';
+    } catch (err) {
+      versionFetchError = 'Unable to fetch version';
+      serverVersion = '';
+      serverSha = '';
+    }
+  }
+
+  import { onMount } from 'svelte';
+
+  let activeSection = 'profile';
+
+  onMount(() => {
+    fetchServerVersion();
+
+    // Setup scroll spy for nav active state
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.page > section[id]'));
+    if (sections.length === 0) return;
+
+    const scroller = document.querySelector<HTMLElement>('main.content') ?? document.documentElement;
+
+    function updateActiveSection() {
+      const scrollTop = scroller.scrollTop;
+      const clientHeight = scroller.clientHeight;
+
+      // Activate the last section whose top has crossed 30% down the scroller
+      const threshold = scrollTop + clientHeight * 0.3;
+      let current = sections[0];
+      for (const section of sections) {
+        if (section.getBoundingClientRect().top + scrollTop <= threshold) current = section;
+      }
+      activeSection = current.id;
+    }
+
+    scroller.addEventListener('scroll', updateActiveSection, { passive: true });
+    updateActiveSection();
+
+    return () => scroller.removeEventListener('scroll', updateActiveSection);
+  });
 </script>
+
+<div class="settings-shell">
+  <nav class="settings-nav">
+    <span class="settings-nav-title">Settings</span>
+    {#if isNative()}<a class="settings-nav-link" class:active={activeSection === 'server'} href="#server">Server</a>{/if}
+    <a class="settings-nav-link" class:active={activeSection === 'profile'} href="#profile">Profile</a>
+    <a class="settings-nav-link" class:active={activeSection === 'account'} href="#account">Account</a>
+    <a class="settings-nav-link" class:active={activeSection === 'streaming'} href="#streaming">Streaming</a>
+    <a class="settings-nav-link" class:active={activeSection === 'eq'} href="#eq">Equalizer</a>
+    <a class="settings-nav-link" class:active={activeSection === 'playback'} href="#playback">Playback</a>
+    <a class="settings-nav-link" class:active={activeSection === 'devices'} href="#devices">Devices</a>
+    <a class="settings-nav-link" class:active={activeSection === 'appearance'} href="#appearance">Appearance</a>
+    <a class="settings-nav-link" class:active={activeSection === 'downloads'} href="#downloads">Downloads</a>
+    <a class="settings-nav-link" class:active={activeSection === 'about'} href="#about">About</a>
+  </nav>
 
 <div class="page">
   <h1 class="page-title">Settings</h1>
 
   <!-- ── Server (native shells only) ─────────────────────── -->
   {#if isNative()}
-  <section class="card">
+  <section id="server" class="card">
     <h2 class="section-title">Server</h2>
 
     <div class="setting-row setting-row--col" style="border-top:none;padding-top:0">
@@ -629,7 +732,7 @@
   {/if}
 
   <!-- ── Profile ──────────────────────────────────────────── -->
-  <section class="card">
+  <section id="profile" class="card">
     <h2 class="section-title">Profile</h2>
 
     <div class="avatar-area">
@@ -694,7 +797,7 @@
   </section>
 
   <!-- ── Change password ────────────────────────────────────── -->
-  <section class="card">
+  <section id="account" class="card">
     <h2 class="section-title">Change password</h2>
 
     <div class="form-grid">
@@ -915,7 +1018,7 @@
   </section>
 
   <!-- ── Streaming Quality ──────────────────────────────── -->
-  <section class="card">
+  <section id="streaming" class="card">
     <h2 class="section-title">Streaming quality</h2>
     <p class="sq-hint">Server-enforced quality limits. Set a different level per connection type to save mobile data while keeping full quality at home.</p>
 
@@ -1250,13 +1353,13 @@
   </section>
 
   <!-- ── Equalizer ──────────────────────────────────────── -->
-  <section class="card">
+  <section id="eq" class="card">
     <h2 class="section-title">Equalizer</h2>
     <EQEditor genres={allGenres} />
   </section>
 
   <!-- ── Playback ───────────────────────────────────────── -->
-  <section class="card">
+  <section id="playback" class="card">
     <h2 class="section-title">Playback</h2>
 
     <div class="setting-row" style="border-top:none;padding-top:0">
@@ -1423,7 +1526,7 @@
   </section>
 
   <!-- ── Devices ────────────────────────────────────────── -->
-  <section class="card">
+  <section id="devices" class="card">
     <h2 class="section-title">Devices</h2>
 
     <!-- Exclusive mode toggle -->
@@ -1572,7 +1675,7 @@
   </section>
 
   <!-- ── Appearance ─────────────────────────────────────── -->
-  <section class="card">
+  <section id="appearance" class="card">
     <h2 class="section-title">Appearance</h2>
 
     <div class="setting-row">
@@ -1640,13 +1743,12 @@
   </section>
 
   <!-- ── Downloads ─────────────────────────────────────── -->
-  <section class="card">
+  <section id="downloads" class="card">
     <h2 class="section-title">Downloads</h2>
-    <p class="sq-hint">Tracks saved for offline playback.</p>
 
-    <!-- Summary stats -->
+    <!-- Storage summary -->
     <div class="dl-summary">
-      <span class="dl-stat">{doneCount} track{doneCount !== 1 ? 's' : ''} · {formatBytes(totalSizeBytes)}</span>
+      <span class="dl-stat">{doneCount + abDoneCount} file{doneCount + abDoneCount !== 1 ? 's' : ''} · {formatBytes(totalSizeBytes + abTotalSizeBytes)}</span>
       {#if storageEst}
         <span class="dl-stat dl-stat--muted">
           {formatBytes(storageEst.usage ?? 0)} used{#if storageEst.quota} of {formatBytes(storageEst.quota)}{/if}
@@ -1662,7 +1764,7 @@
           <div class="dl-active-item">
             <div class="dl-active-info">
               <span class="dl-active-title">{entry.title}</span>
-              <span class="dl-active-meta">{entry.artistName} · {entry.progress}%</span>
+              <span class="dl-active-meta">{entry.albumName || entry.artistName || ''} · {entry.progress}%</span>
             </div>
             <div class="dl-progress-bar">
               <div class="dl-progress-fill" style="width:{entry.progress}%"></div>
@@ -1686,27 +1788,35 @@
       </div>
     {/if}
 
+    <!-- ── Music ─────────────────── -->
     {#if doneCount > 0}
-      <!-- Search filter (shown only when useful) -->
+      <div class="dl-section-head">
+        <h3 class="dl-subhead">Music</h3>
+        <span class="dl-section-stat">{doneCount} track{doneCount !== 1 ? 's' : ''} · {formatBytes(totalSizeBytes)}</span>
+      </div>
       {#if doneCount > 10}
-        <input class="dl-search" type="text" placeholder="Search downloads…" bind:value={dlSearch} />
+        <input class="dl-search" type="text" placeholder="Search music…" bind:value={dlSearch} />
       {/if}
 
-      <!-- Grouped by album -->
       {#each albumGroups as [albumName, tracks] (albumName)}
         <div class="dl-album-group">
-          <button class="dl-album-header" on:click={() => toggleAlbumGroup(albumName)}>
-            <svg class="dl-chevron" class:expanded={expandedAlbums.has(albumName)} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            <span class="dl-album-name">{albumName || 'Unknown Album'}</span>
-            <span class="dl-album-count">{tracks.length} · {formatBytes(tracks.reduce((s, e) => s + e.sizeBytes, 0))}</span>
-          </button>
+          <div class="dl-album-header-row">
+            <button class="dl-album-header" on:click={() => toggleAlbumGroup(albumName)}>
+              <svg class="dl-chevron" class:expanded={expandedAlbums.has(albumName)} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="dl-album-name">{albumName || 'Unknown Album'}</span>
+              <span class="dl-album-count">{tracks.length} · {formatBytes(tracks.reduce((s, e) => s + e.sizeBytes, 0))}</span>
+            </button>
+            <button class="dl-remove-btn dl-remove-btn--album" on:click={() => deleteAlbumGroup(tracks)} title="Delete album downloads">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            </button>
+          </div>
           {#if expandedAlbums.has(albumName)}
             <ul class="dl-track-list">
               {#each tracks as entry (entry.trackId)}
                 <li class="dl-track-item">
                   <div class="dl-track-info">
                     <span class="dl-track-title">{entry.title}</span>
-                    <span class="dl-track-meta">{entry.artistName} · {formatBytes(entry.sizeBytes)}</span>
+                    <span class="dl-track-meta">{entry.artistName || '—'} · {formatBytes(entry.sizeBytes)}</span>
                   </div>
                   <button class="dl-remove-btn" on:click={() => deleteDownload(entry.trackId)} title="Remove download">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1721,21 +1831,155 @@
       {#if filteredDone.length === 0 && dlSearch.trim()}
         <p class="msg" style="color:var(--text-2)">No downloads match "{dlSearch}"</p>
       {/if}
-
-      <div style="padding-top:8px">
-        <button class="btn-danger" on:click={handleDeleteAll}>Delete all downloads</button>
-      </div>
-    {:else if activeEntries.length === 0 && errorEntries.length === 0}
+    {:else if activeEntries.length === 0 && errorEntries.length === 0 && abDoneCount === 0}
       <p class="msg" style="color:var(--text-2)">No tracks downloaded yet. Right-click any track and choose "Download offline".</p>
     {/if}
+
+    <!-- ── Audiobooks ─────────────── -->
+    {#if abDoneCount > 0}
+      <div class="dl-section-head" style="margin-top: {doneCount > 0 ? '8px' : '0'}">
+        <h3 class="dl-subhead">Audiobooks</h3>
+        <span class="dl-section-stat">{audiobookGroups.length} book{audiobookGroups.length !== 1 ? 's' : ''} · {formatBytes(abTotalSizeBytes)}</span>
+      </div>
+
+      {#each audiobookGroups as [abKey, chapters] (abKey)}
+        {@const bookTitle = chapters[0]?.albumName || 'Unknown Audiobook'}
+        {@const bookAuthor = chapters[0]?.artistName || ''}
+        <div class="dl-album-group">
+          <div class="dl-album-header-row">
+            <button class="dl-album-header" on:click={() => toggleABGroup(abKey)}>
+              <svg class="dl-chevron" class:expanded={expandedABGroups.has(abKey)} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <span class="dl-album-name">{bookTitle}</span>
+              <span class="dl-album-count">{bookAuthor ? bookAuthor + ' · ' : ''}{chapters.length} ch · {formatBytes(chapters.reduce((s, e) => s + e.sizeBytes, 0))}</span>
+            </button>
+            <button class="dl-remove-btn dl-remove-btn--album" on:click={() => deleteAlbumGroup(chapters)} title="Delete audiobook downloads">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            </button>
+          </div>
+          {#if expandedABGroups.has(abKey)}
+            <ul class="dl-track-list">
+              {#each chapters.sort((a, b) => a.title.localeCompare(b.title)) as entry (entry.trackId)}
+                <li class="dl-track-item">
+                  <div class="dl-track-info">
+                    <span class="dl-track-title">{entry.title}</span>
+                    <span class="dl-track-meta">{formatBytes(entry.sizeBytes)}</span>
+                  </div>
+                  <button class="dl-remove-btn" on:click={() => deleteDownload(entry.trackId)} title="Remove chapter">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/each}
+    {/if}
+
+    {#if doneCount + abDoneCount > 0}
+      <div style="padding-top:8px;display:flex;align-items:center;gap:8px">
+        {#if confirmDeleteAll}
+          <span style="font-size:13px;color:var(--text-2)">Delete all downloads?</span>
+          <button class="btn-danger" on:click={handleDeleteAll}>Confirm</button>
+          <button class="btn-ghost" on:click={() => (confirmDeleteAll = false)}>Cancel</button>
+        {:else}
+          <button class="btn-danger" on:click={() => (confirmDeleteAll = true)}>Delete all downloads</button>
+        {/if}
+      </div>
+    {/if}
   </section>
+
+  <!-- ── About ─────────────────────────────────────────────── -->
+  <section id="about" class="card">
+    <h2 class="section-title">About</h2>
+    {#if versionFetchError}
+      <p class="msg" style="color:var(--text-2)">{versionFetchError}</p>
+    {:else if serverVersion}
+      <div class="about-item">
+        <span class="about-label">Version</span>
+        <span class="about-value">{serverVersion}</span>
+      </div>
+      {#if serverSha}
+        <div class="about-item">
+          <span class="about-label">Commit</span>
+          <span class="about-value about-value--mono">{serverSha}</span>
+        </div>
+      {/if}
+    {:else}
+      <p class="msg" style="color:var(--text-2)">Loading version…</p>
+    {/if}
+  </section>
+</div>
 </div>
 
 <svelte:head><title>Settings – Orb</title></svelte:head>
 
 <style>
+  /* ── Settings shell: desktop 2-col layout ── */
+  .settings-shell {
+    display: flex;
+    align-items: flex-start;
+    gap: 32px;
+    max-width: 960px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .settings-nav {
+    position: sticky;
+    top: 24px;
+    flex-shrink: 0;
+    width: 148px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: 10px;
+  }
+
+  .settings-nav-title {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    padding: 0 10px 8px;
+  }
+
+  .settings-nav-link {
+    display: block;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-2);
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .settings-nav-link:hover {
+    background: var(--bg-2, rgba(255,255,255,0.06));
+    color: var(--text);
+  }
+
+  .settings-nav-link.active {
+    background: var(--accent, #6366f1);
+    color: white;
+    font-weight: 600;
+  }
+
+  /* On mobile: hide sidebar nav, full-width layout */
+  @media (max-width: 640px) {
+    .settings-shell {
+      flex-direction: column;
+      gap: 0;
+    }
+    .settings-nav {
+      display: none;
+    }
+  }
+
   .page {
-    max-width: 560px;
+    flex: 1;
+    min-width: 0;
+    max-width: 720px;
     padding: 8px 0 32px;
     display: flex;
     flex-direction: column;
@@ -2664,5 +2908,62 @@
   .dl-remove-btn:hover {
     background: var(--bg-2, rgba(255,255,255,0.08));
     color: var(--error, #ef4444);
+  }
+  .dl-remove-btn--album {
+    flex-shrink: 0;
+    margin-right: 6px;
+  }
+
+  /* Album header row (chevron button + delete button side by side) */
+  .dl-album-header-row {
+    display: flex;
+    align-items: center;
+  }
+  .dl-album-header-row .dl-album-header {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Section sub-headings (Music / Audiobooks) */
+  .dl-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dl-section-head .dl-subhead {
+    margin: 0;
+  }
+  .dl-section-stat {
+    font-size: 11px;
+    color: var(--text-2);
+    font-weight: 400;
+  }
+
+  /* ── About section ── */
+  .about-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .about-item:last-child {
+    border-bottom: none;
+  }
+  .about-label {
+    font-size: 13px;
+    color: var(--text-2);
+    font-weight: 500;
+  }
+  .about-value {
+    font-size: 13px;
+    color: var(--text);
+  }
+  .about-value--mono {
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+    font-size: 12px;
+    letter-spacing: 0.5px;
   }
 </style>

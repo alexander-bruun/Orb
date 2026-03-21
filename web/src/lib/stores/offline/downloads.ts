@@ -2,7 +2,7 @@ import { writable, get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
 import { nativePlatform } from '$lib/utils/platform';
-import type { Track } from '$lib/types';
+import type { Track, Audiobook, AudiobookChapter } from '$lib/types';
 import type { LyricLine } from '$lib/stores/player/lyrics';
 
 export type DownloadStatus = 'downloading' | 'done' | 'error';
@@ -13,6 +13,7 @@ export interface DownloadEntry {
   artistName:    string;
   albumName:     string;
   albumId?:      string;
+  isAudiobook?:  boolean;
   status:        DownloadStatus;
   progress:      number;   // 0–100
   sizeBytes:     number;
@@ -539,6 +540,232 @@ export async function isDownloaded(trackId: string): Promise<boolean> {
   }
 
   return false;
+}
+
+// ── Audiobook downloads ──────────────────────────────────────────────────────
+
+/** Download a single audiobook chapter. */
+export async function downloadAudiobookChapter(
+  chapter: AudiobookChapter,
+  book: { id: string; title: string; author_name?: string },
+  token: string
+): Promise<void> {
+  const url = `${getApiBase()}/stream/audiobook/chapter/${chapter.id}?token=${encodeURIComponent(token)}`;
+  const audiobookId = book.id;
+  const albumName = book.title;
+  const artistName = book.author_name ?? '';
+
+  if (nativePlatform() === 'android') {
+    // Use native download on Android
+    try {
+      const { invoke: tauriInvoke } = await import('@tauri-apps/api/core');
+
+      // Mark as downloading first so the UI shows progress
+      downloads.update((map) => {
+        map.set(chapter.id, {
+          trackId: chapter.id,
+          title: chapter.title,
+          artistName,
+          albumName,
+          albumId: audiobookId,
+          isAudiobook: true,
+          status: 'downloading',
+          progress: 0,
+          sizeBytes: 0,
+        });
+        return map;
+      });
+
+      await tauriInvoke('download_track_native', {
+        trackId: chapter.id,
+        url,
+        token
+      });
+
+      // Mark as done
+      downloads.update((map) => {
+        map.set(chapter.id, {
+          trackId: chapter.id,
+          title: chapter.title,
+          artistName,
+          albumName,
+          albumId: audiobookId,
+          isAudiobook: true,
+          status: 'done',
+          progress: 100,
+          sizeBytes: 0,
+          downloadedAt: Date.now()
+        });
+        persist(map);
+        return map;
+      });
+
+      // Sync metadata to Android MediaService
+      const meta = get(downloads);
+      const metaArray = Array.from(meta.values())
+        .filter(e => e.status === 'done' && e.albumId)
+        .map(e => ({
+          trackId: e.trackId,
+          title: e.title,
+          artistName: e.artistName,
+          albumName: e.albumName,
+          albumId: e.albumId
+        }));
+      await tauriInvoke('sync_downloads', {
+        metadataJson: JSON.stringify(metaArray)
+      });
+    } catch (e) {
+      console.error(`Failed to download chapter ${chapter.id}:`, e);
+      downloads.update((map) => {
+        map.set(chapter.id, {
+          trackId: chapter.id,
+          title: chapter.title,
+          artistName,
+          albumName,
+          albumId: audiobookId,
+          isAudiobook: true,
+          status: 'error',
+          progress: 0,
+          sizeBytes: 0,
+          error: String(e)
+        });
+        return map;
+      });
+    }
+  } else {
+    // Use fetch + IndexedDB on web
+    try {
+      downloads.update((map) => {
+        map.set(chapter.id, {
+          trackId: chapter.id,
+          title: chapter.title,
+          artistName,
+          albumName,
+          albumId: audiobookId,
+          isAudiobook: true,
+          status: 'downloading',
+          progress: 0,
+          sizeBytes: 0
+        });
+        return map;
+      });
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const contentLength = response.headers.get('content-length');
+      const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
+
+      if (!response.body) throw new Error('No response body');
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let downloadedBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        downloadedBytes += value.length;
+
+        const progress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+        downloads.update((map) => {
+          const entry = map.get(chapter.id);
+          if (entry) {
+            entry.progress = progress;
+            entry.sizeBytes = downloadedBytes;
+          }
+          return map;
+        });
+      }
+
+      const blob = new Blob(chunks);
+      await idbPut(chapter.id, blob);
+
+      downloads.update((map) => {
+        map.set(chapter.id, {
+          trackId: chapter.id,
+          title: chapter.title,
+          artistName,
+          albumName,
+          albumId: audiobookId,
+          isAudiobook: true,
+          status: 'done',
+          progress: 100,
+          sizeBytes: downloadedBytes,
+          downloadedAt: Date.now()
+        });
+        return map;
+      });
+    } catch (e) {
+      console.error(`Failed to download chapter ${chapter.id}:`, e);
+      downloads.update((map) => {
+        map.set(chapter.id, {
+          trackId: chapter.id,
+          title: chapter.title,
+          artistName,
+          albumName,
+          albumId: audiobookId,
+          isAudiobook: true,
+          status: 'error',
+          progress: 0,
+          sizeBytes: 0,
+          error: String(e)
+        });
+        return map;
+      });
+    }
+  }
+}
+
+/** Download all chapters of an audiobook sequentially. */
+export async function downloadAudiobook(
+  book: Audiobook,
+  token: string
+): Promise<void> {
+  const chapters = book.chapters ?? [];
+  for (const chapter of chapters) {
+    await downloadAudiobookChapter(chapter, book, token);
+  }
+}
+
+/** Check if all chapters of a book are downloaded. */
+export function isAudiobookDownloaded(
+  audiobookId: string,
+  chapters: AudiobookChapter[]
+): boolean {
+  const meta = get(downloads);
+  return chapters.every(ch => {
+    const entry = meta.get(ch.id);
+    return entry?.status === 'done';
+  });
+}
+
+/** Get offline chapter URL for playback (blob URL on web, file:// path on Android). */
+export async function getOfflineChapterUrl(chapterId: string): Promise<string | null> {
+  if (nativePlatform() === 'android') {
+    try {
+      const { invoke: tauriInvoke } = await import('@tauri-apps/api/core');
+      const path = await tauriInvoke<string | null>('get_offline_file_path', { trackId: chapterId });
+      if (path) return `file://${path}`;
+    } catch { /* fall through */ }
+    return null;
+  }
+
+  const blob = await getOfflineBlob(chapterId);
+  if (!blob) return null;
+
+  return URL.createObjectURL(blob);
+}
+
+/** Delete all downloaded chapters for a book. */
+export async function deleteAudiobookDownload(
+  audiobookId: string,
+  chapters: AudiobookChapter[]
+): Promise<void> {
+  for (const chapter of chapters) {
+    await deleteDownload(chapter.id);
+  }
 }
 
 // ── Offline lyrics / waveform getters ────────────────────────────────────────

@@ -2,8 +2,8 @@
   import { page } from '$app/stores';
   import { afterNavigate } from '$app/navigation';
   import { currentTrack } from '$lib/stores/player';
-  import { currentAudiobook } from '$lib/stores/audiobookPlayer';
-  import { activePlayer } from '$lib/stores/activePlayer';
+  import { currentAudiobook } from '$lib/stores/player/audiobookPlayer';
+  import { activePlayer } from '$lib/stores/player/engine';
   import { expanded } from './coverExpandStore';
   import { authStore } from '$lib/stores/auth';
   import { sidebarOpen } from '$lib/stores/ui/sidebar';
@@ -26,16 +26,11 @@
 <aside class="sidebar" class:mobile-open={$sidebarOpen}>
   <nav class="nav">
     <a href="/" class:active={$page.url.pathname === '/'}>Home</a>
-    <a href="/library" class:active={$page.url.pathname.startsWith('/library')}>Library</a>
-    <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists') && !$page.url.pathname.startsWith('/smart-playlists')}>Playlists</a>
-    <a href="/smart-playlists" class:active={$page.url.pathname.startsWith('/smart-playlists')}>Smart Playlists</a>
-    <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
+    <a href="/library" class:active={$page.url.pathname.startsWith('/library')}>Music</a>
     <a href="/audiobooks" class:active={$page.url.pathname.startsWith('/audiobooks')}>Audiobooks</a>
+    <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists') || $page.url.pathname.startsWith('/smart-playlists')}>Playlists</a>
+    <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
     <a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>
-    <a href="/settings" class:active={$page.url.pathname === '/settings'}>Settings</a>
-    {#if $authStore.user?.is_admin}
-      <a href="/admin" class:active={$page.url.pathname.startsWith('/admin')} class="admin-link">Admin</a>
-    {/if}
   </nav>
 
   <div class="spacer"></div>

@@ -13,7 +13,11 @@ import (
 type UpdateAudiobookMetaParams struct {
 	ID            string
 	Title         string
-	AuthorID      *string  // nil = leave unchanged
+	// UpdateAuthor controls whether author_id is modified at all.
+	// When true, AuthorID is written (nil clears the author, non-nil sets it).
+	// When false, the existing author_id is left untouched.
+	UpdateAuthor  bool
+	AuthorID      *string  // new author ID; nil clears the author when UpdateAuthor=true
 	Description   *string  // nil = clear
 	Series        *string  // nil = clear
 	SeriesIndex   *float64 // nil = clear
@@ -37,7 +41,7 @@ func (s *Store) UpdateAudiobookMeta(ctx context.Context, p UpdateAudiobookMetaPa
 		WHERE id = $1`,
 		p.ID,
 		p.Title,
-		p.AuthorID != nil, p.AuthorID,
+		p.UpdateAuthor, p.AuthorID,
 		p.Description,
 		p.Series,
 		p.SeriesIndex,

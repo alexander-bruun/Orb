@@ -2,7 +2,7 @@
  * Listen-party store — manages the WebSocket connection for both host and
  * guest roles and provides reactive state for the UI.
  */
-import { writable, get } from 'svelte/store';
+import { writable, get, derived } from 'svelte/store';
 import { listenPartyApi } from '$lib/api/listenParty';
 import { authStore } from '$lib/stores/auth';
 import {
@@ -15,8 +15,8 @@ import {
 	abPlaybackState,
 	abPositionMs,
 	abCurrentChapter,
-} from '$lib/stores/audiobookPlayer';
-import { activePlayer } from '$lib/stores/activePlayer';
+} from '$lib/stores/player/audiobookPlayer';
+import { activePlayer } from '$lib/stores/player/engine';
 
 import { getApiBase, getWsBase } from '$lib/api/base';
 
@@ -103,6 +103,49 @@ export const lpKicked         = writable(false);
 export const lpSessionEnded   = writable(false);
 /** Guest-only: the participant ID assigned by the server (used to filter self from participants list) */
 export const lpGuestParticipantId = writable<string | null>(null);
+
+// Guest-only derived stores for chapter-aware progress
+export const lpGuestCurrentChapter = derived(
+	[lpGuestAudiobook, lpGuestPositionMs],
+	([$book, $pos]) => {
+		if (!$book?.chapters?.length) return null;
+		let current: AudiobookChapter | null = null;
+		for (const ch of $book.chapters) {
+			if ($pos >= ch.start_ms) current = ch;
+			else break;
+		}
+		return current;
+	}
+);
+
+export const lpGuestChapterProgress = derived(
+	[lpGuestAudiobook, lpGuestPositionMs, lpGuestCurrentChapter],
+	([$book, $pos, $chapter]) => {
+		if (!$chapter) return 0;
+		const nextChapter = $book?.chapters?.find(ch => ch.start_ms > $chapter.start_ms);
+		const chapterDurationMs = nextChapter ? nextChapter.start_ms - $chapter.start_ms : ($book?.duration_ms ?? 0) - $chapter.start_ms;
+		const posInChapter = $pos - $chapter.start_ms;
+		return chapterDurationMs > 0 ? Math.max(0, Math.min(100, (posInChapter / chapterDurationMs) * 100)) : 0;
+	}
+);
+
+export const lpGuestPreviousChapter = derived(
+	[lpGuestAudiobook, lpGuestCurrentChapter],
+	([$book, $current]) => {
+		if (!$book?.chapters || !$current) return null;
+		const idx = $book.chapters.findIndex(ch => ch.id === $current.id);
+		return idx > 0 ? $book.chapters[idx - 1] : null;
+	}
+);
+
+export const lpGuestNextChapter = derived(
+	[lpGuestAudiobook, lpGuestCurrentChapter],
+	([$book, $current]) => {
+		if (!$book?.chapters || !$current) return null;
+		const idx = $book.chapters.findIndex(ch => ch.id === $current.id);
+		return idx >= 0 && idx < $book.chapters.length - 1 ? $book.chapters[idx + 1] : null;
+	}
+);
 
 // ---------------------------------------------------------------------------
 // Internal state

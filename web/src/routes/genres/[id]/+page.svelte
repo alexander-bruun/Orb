@@ -9,8 +9,25 @@
   let artists: Artist[] = [];
   let albums: Album[] = [];
   let loading = true;
+  let isRestoring = false;
+
+  export const snapshot = {
+    capture: () => ({ genre, artists, albums }),
+    restore: (value) => {
+      genre = value.genre;
+      artists = value.artists;
+      albums = value.albums;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   onMount(async () => {
+    if (isRestoring && genre) {
+      isRestoring = false;
+      return;
+    }
+
     const id = $page.params.id ?? '';
     try {
       const [g, a, al] = await Promise.all([

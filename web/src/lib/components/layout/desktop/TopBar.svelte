@@ -3,13 +3,14 @@
   import { authStore, isAuthenticated } from '$lib/stores/auth';
   import { searchQuery } from '$lib/stores/library';
   import { formattedFormat } from '$lib/stores/player';
-  import { abFormattedFormat } from '$lib/stores/audiobookPlayer';
-  import { activePlayer } from '$lib/stores/activePlayer';
+  import { abFormattedFormat } from '$lib/stores/player/audiobookPlayer';
+  import { activePlayer } from '$lib/stores/player/engine';
   import { avatarStore } from '$lib/stores/settings/theme';
   import { sidebarOpen } from '$lib/stores/ui/sidebar';
   import { library as libApi } from '$lib/api/library';
   import { getApiBase } from '$lib/api/base';
   import type { Track, Album, Artist } from '$lib/types';
+  import IngestIndicator from './IngestIndicator.svelte';
 
   let query = '';
   let menuOpen = false;
@@ -232,6 +233,10 @@
 
   {#if $activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}
     <div class="format-badge">{$activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}</div>
+  {/if}
+
+  {#if $authStore.user?.is_admin}
+    <IngestIndicator />
   {/if}
 
   {#if $isAuthenticated}

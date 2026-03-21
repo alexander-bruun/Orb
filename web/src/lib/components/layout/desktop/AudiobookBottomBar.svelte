@@ -36,7 +36,7 @@
     deleteBookmark,
     AB_SPEEDS,
     SLEEP_PRESETS,
-  } from "$lib/stores/audiobookPlayer";
+  } from "$lib/stores/player/audiobookPlayer";
   import {
     lpRole,
     lpPanelOpen,
@@ -46,12 +46,19 @@
   import { getApiBase } from "$lib/api/base";
   import type { AudiobookChapter } from "$lib/types";
   import { expanded } from "./coverExpandStore";
+  import {
+    activeDevices,
+    activeDeviceId,
+    deviceId,
+    exclusiveMode,
+  } from "$lib/stores/player/deviceSession";
+  import { devices as devicesApi } from "$lib/api/devices";
 
   function toggleExpand() {
     expanded.update((v) => !v);
   }
 
-  function onSeek(e: Event) {
+  function onSeekFull(e: Event) {
     const pct = parseFloat((e.target as HTMLInputElement).value);
     const secs = ($abDurationMs / 1000) * (pct / 100);
     seekAudiobook(secs);
@@ -65,12 +72,20 @@
   let sleepOpen = false;
   let chapterOpen = false;
   let bookmarkOpen = false;
+  let devicePickerOpen = false;
 
   function closeDropdowns() {
     speedOpen = false;
     sleepOpen = false;
     chapterOpen = false;
     bookmarkOpen = false;
+    devicePickerOpen = false;
+  }
+
+  async function transferToDevice(targetId: string) {
+    devicePickerOpen = false;
+    const { transferAudiobookPlayback } = await import('$lib/stores/player/audiobookPlayer');
+    await transferAudiobookPlayback(targetId);
   }
 
   // Chapter position as percentage within seek bar
@@ -167,28 +182,9 @@
         title="Back 10 s"
         aria-label="Skip back 10 seconds"
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="1 4 1 10 7 10" /><path
-            d="M3.51 15a9 9 0 1 0 .49-3.5"
-          />
-          <text
-            x="7"
-            y="14"
-            font-size="6"
-            fill="currentColor"
-            stroke="none"
-            font-family="sans-serif"
-            font-weight="bold">10</text
-          >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+          <text x="12" y="15.5" text-anchor="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="currentColor">10</text>
         </svg>
       </button>
 
@@ -222,33 +218,14 @@
         title="Forward 30 s"
         aria-label="Skip forward 30 seconds"
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="23 4 23 10 17 10" /><path
-            d="M20.49 15a9 9 0 1 1-.49-3.5"
-          />
-          <text
-            x="7"
-            y="14"
-            font-size="6"
-            fill="currentColor"
-            stroke="none"
-            font-family="sans-serif"
-            font-weight="bold">30</text
-          >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/>
+          <text x="12" y="15.5" text-anchor="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="currentColor">30</text>
         </svg>
       </button>
     </div>
 
-    <!-- Seek bar -->
+    <!-- Seek bar (chapter-aware) -->
     <div class="ab-center">
       <div class="ab-seek-row">
         <span class="time">{$abFormattedPosition}</span>
@@ -270,7 +247,7 @@
             max="100"
             step="0.05"
             value={$abProgress}
-            on:input={onSeek}
+            on:input={onSeekFull}
             class="seek-input"
             aria-label="Seek"
           />
@@ -431,6 +408,60 @@
           </svg>
         </button>
       {/if}
+      <!-- Sessions button — only when exclusive mode is on and multiple sessions exist -->
+      {#if $exclusiveMode && $activeDevices.length > 1}
+        <div class="picker-wrap">
+          <button
+            class="ctrl-btn icon-btn device-btn"
+            class:active={devicePickerOpen}
+            on:click|stopPropagation={() => {
+              devicePickerOpen = !devicePickerOpen;
+              speedOpen = false;
+              sleepOpen = false;
+              chapterOpen = false;
+              bookmarkOpen = false;
+            }}
+            title="Sessions"
+            aria-label="Sessions"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8"/>
+              <path d="M12 17v4"/>
+            </svg>
+            <span class="device-count">{$activeDevices.length}</span>
+          </button>
+          {#if devicePickerOpen}
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="device-picker-overlay" on:click={() => devicePickerOpen = false}></div>
+            <div class="picker-popup device-picker-popup">
+              <div class="picker-header">Sessions</div>
+              {#each $activeDevices as device (device.id)}
+                <button
+                  class="picker-item device-item"
+                  class:is-active={device.is_active}
+                  on:click={() => transferToDevice(device.id)}
+                >
+                  <span class="device-dot" class:dot-active={device.is_active} class:dot-this={device.id === deviceId}></span>
+                  <span class="device-item-name">
+                    {device.name}
+                    {#if device.id === deviceId}<span class="this-badge">this</span>{/if}
+                  </span>
+                  <span class="device-item-sub">
+                    {device.state.audiobook_title || device.state.track_title || 'Idle'}
+                  </span>
+                  {#if device.id !== deviceId}
+                    <span class="device-transfer-hint">Transfer</span>
+                  {:else if !device.is_active}
+                    <span class="device-transfer-hint">Play here</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <input
         type="range"
         min="0"
@@ -1204,6 +1235,83 @@
   .sk-sub {
     width: 80px;
     height: 10px;
+  }
+
+  /* ── Device picker ───────────────────────────────────── */
+  .device-btn {
+    position: relative;
+  }
+  .device-count {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    pointer-events: none;
+  }
+  .device-picker-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+  }
+  .device-picker-popup {
+    min-width: 210px;
+    right: 0;
+  }
+  .device-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+  }
+  .device-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-muted);
+    opacity: 0.3;
+  }
+  .device-dot.dot-active {
+    background: var(--accent);
+    opacity: 1;
+  }
+  .device-dot.dot-this {
+    opacity: 0.6;
+  }
+  .device-item-name {
+    flex: 1;
+    font-size: 0.83rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .device-item-sub {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px;
+  }
+  .this-badge {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 3px;
+    line-height: 1.4;
+  }
+  .device-transfer-hint {
+    font-size: 0.72rem;
+    color: var(--accent);
+    flex-shrink: 0;
   }
 
   /* Hide on mobile — replaced by MobileAudiobookPlayer */

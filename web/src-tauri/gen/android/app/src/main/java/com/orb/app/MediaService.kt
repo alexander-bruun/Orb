@@ -9,7 +9,6 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.audiofx.Equalizer
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -19,22 +18,20 @@ import androidx.annotation.OptIn
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
-import androidx.media3.session.LibraryResult
-import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
-import androidx.media3.session.MediaConstants
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.SettableFuture
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -44,18 +41,47 @@ import java.net.URL
 import java.util.concurrent.Executors
 
 @OptIn(UnstableApi::class)
-class MediaService : MediaLibraryService() {
+class MediaService : MediaSessionService() {
 
     private var player: ExoPlayer? = null
-    private var mediaSession: MediaLibrarySession? = null
+    private var wrappedPlayer: ForwardingPlayer? = null
+    private var mediaSession: MediaSession? = null
 
     // Custom command identifiers
     private val SHUFFLE_COMMAND = "SHUFFLE_TOGGLE"
     private val FAVORITE_COMMAND = "FAVORITE_TOGGLE"
+    private val AB_SKIP_BACK_15 = "AB_SKIP_BACK_15"
+    private val AB_SKIP_FORWARD_15 = "AB_SKIP_FORWARD_15"
+    private val AB_SPEED_CYCLE = "AB_SPEED_CYCLE"
+    private val AB_CHAPTER_START = "AB_CHAPTER_START"
+
+    // Icon resources for different playback speeds (0.5x to 2x in 0.1 increments)
+    private val speedIcons = mapOf(
+        0.5f to R.drawable.ic_playback_speed_0_point_5x,
+        0.6f to R.drawable.ic_playback_speed_0_point_6x,
+        0.7f to R.drawable.ic_playback_speed_0_point_7x,
+        0.8f to R.drawable.ic_playback_speed_0_point_8x,
+        0.9f to R.drawable.ic_playback_speed_0_point_9x,
+        1.0f to R.drawable.ic_playback_speed_1,
+        1.1f to R.drawable.ic_playback_speed_1_point_1x,
+        1.2f to R.drawable.ic_playback_speed_1_point_2x,
+        1.3f to R.drawable.ic_playback_speed_1_point_3x,
+        1.4f to R.drawable.ic_playback_speed_1_point_4x,
+        1.5f to R.drawable.ic_playback_speed_1_point_5x,
+        1.6f to R.drawable.ic_playback_speed_1_point_6x,
+        1.7f to R.drawable.ic_playback_speed_1_point_7x,
+        1.8f to R.drawable.ic_playback_speed_1_point_8x,
+        1.9f to R.drawable.ic_playback_speed_1_point_9x,
+        2.0f to R.drawable.ic_playback_speed_2
+    )
+
+    // Current playback speed, used to update the notification icon. Cached here since ExoPlayer doesn't provide a callback for speed changes.
+    @Volatile private var currentSpeed = 1.0f
 
     // State (synced with frontend)
     private var isShuffled = false
     private var isFavorited = false
+    @Volatile private var isAudiobook = false
 
     // ── Equalizer ────────────────────────────────────────────────────────────
     private var equalizer: Equalizer? = null
@@ -163,22 +189,7 @@ class MediaService : MediaLibraryService() {
     private val ioExecutor = Executors.newCachedThreadPool()
 
     companion object {
-        // Browse node IDs
         private const val TAG = "MediaService"
-        private const val ROOT_ID = "root"
-        private const val RECENTLY_PLAYED_ID = "recently_played"
-        private const val RECENTLY_ADDED_ID = "recently_added"
-        private const val PLAYLISTS_ID = "playlists"
-        private const val FAVORITES_ID = "favorites"
-        private const val ALBUMS_ID = "albums"
-        private const val ARTISTS_ID = "artists"
-        private const val MOST_PLAYED_ID = "most_played"
-        private const val DOWNLOADS_ID = "downloads"
-        private const val ALBUM_PREFIX = "album:"
-        private const val ARTIST_PREFIX = "artist:"
-        private const val PLAYLIST_PREFIX = "playlist:"
-        private const val TRACK_PREFIX = "track:"
-        private const val OFFLINE_TRACK_PREFIX = "offline:"
         private const val PREFS_NAME = "orb_downloads"
         private const val PREFS_KEY_METADATA = "download_metadata"
         private const val OFFLINE_DIR = "offline_audio"
@@ -204,6 +215,14 @@ class MediaService : MediaLibraryService() {
         private external fun nativeOnPlay()
         @JvmStatic
         private external fun nativeOnDownloadProgress(trackId: String, progress: Int, totalBytes: Long)
+        @JvmStatic
+        private external fun nativeOnABSkipBack15()
+        @JvmStatic
+        private external fun nativeOnABSkipForward15()
+        @JvmStatic
+        private external fun nativeOnABSpeedCycle()
+        @JvmStatic
+        private external fun nativeOnABChapterStart()
 
         init {
             System.loadLibrary("orb_lib")
@@ -273,6 +292,35 @@ class MediaService : MediaLibraryService() {
             Handler(Looper.getMainLooper()).post {
                 svc.isFavorited = favorited
                 svc.mediaSession?.setCustomLayout(svc.buildCustomLayout())
+            }
+        }
+
+        @JvmStatic
+        fun setAudiobookMode(enabled: Boolean) {
+            val svc = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                svc.isAudiobook = enabled
+                svc.mediaSession?.setCustomLayout(svc.buildCustomLayout())
+                // Re-set the player on the session so it re-reads available
+                // commands from the ForwardingPlayer (which now conditionally
+                // hides SEEK_TO_NEXT/PREVIOUS in audiobook mode), causing the
+                // notification to rebuild with the correct transport controls.
+                svc.wrappedPlayer?.let { wp ->
+                    svc.mediaSession?.player = wp
+                }
+            }
+        }
+
+        @JvmStatic
+        fun setPlaybackSpeed(speed: Float) {
+            val svc = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                svc.currentSpeed = speed
+                svc.player?.setPlaybackParameters(PlaybackParameters(speed))
+                // Update notification icon immediately if audiobook mode
+                if (svc.isAudiobook) {
+                    svc.mediaSession?.setCustomLayout(svc.buildCustomLayout())
+                }
             }
         }
 
@@ -392,6 +440,18 @@ class MediaService : MediaLibraryService() {
         fun hasOfflineFile(trackId: String): Boolean {
             val svc = instance ?: return false
             return File(File(svc.filesDir, OFFLINE_DIR), trackId).exists()
+        }
+
+        /**
+         * Return the absolute path to an offline audio file, or null if not present.
+         * Used by the frontend to build a file:// URI for ExoPlayer instead of
+         * streaming over the network when the device is offline.
+         */
+        @JvmStatic
+        fun getOfflineFilePath(trackId: String): String? {
+            val svc = instance ?: return null
+            val file = File(File(svc.filesDir, OFFLINE_DIR), trackId)
+            return if (file.exists()) file.absolutePath else null
         }
 
         /**
@@ -555,15 +615,18 @@ class MediaService : MediaLibraryService() {
         // Wrap ExoPlayer so next/previous are always advertised and routed to the frontend.
         // ExoPlayer hides these buttons when there is only one item in the playlist.
         val forwardingPlayer = object : ForwardingPlayer(exoPlayer) {
-            override fun getAvailableCommands(): Player.Commands =
-                super.getAvailableCommands().buildUpon()
-                    .add(Player.COMMAND_SEEK_TO_NEXT)
-                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                    .build()
+            override fun getAvailableCommands(): Player.Commands {
+                val base = super.getAvailableCommands().buildUpon()
+                if (!isAudiobook) {
+                    base.add(Player.COMMAND_SEEK_TO_NEXT)
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                }
+                return base.build()
+            }
 
             override fun isCommandAvailable(command: Int): Boolean =
                 if (command == Player.COMMAND_SEEK_TO_NEXT ||
-                    command == Player.COMMAND_SEEK_TO_PREVIOUS) true
+                    command == Player.COMMAND_SEEK_TO_PREVIOUS) !isAudiobook
                 else super.isCommandAvailable(command)
 
             override fun seekToNext() {
@@ -582,6 +645,7 @@ class MediaService : MediaLibraryService() {
                 try { nativeOnPrevious() } catch (_: Exception) {}
             }
         }
+        wrappedPlayer = forwardingPlayer
 
         val sessionActivityIntent = PendingIntent.getActivity(
             this,
@@ -590,7 +654,8 @@ class MediaService : MediaLibraryService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        mediaSession = MediaLibrarySession.Builder(this, forwardingPlayer, LibraryCallback())
+        mediaSession = MediaSession.Builder(this, forwardingPlayer)
+            .setCallback(LibraryCallback())
             .setSessionActivity(sessionActivityIntent)
             .build()
 
@@ -603,17 +668,21 @@ class MediaService : MediaLibraryService() {
         mainHandler.post(volumeChecker)
     }
 
-    // ── MediaLibrarySession.Callback ─────────────────────────────────────────
+    // ── MediaSession.Callback ────────────────────────────────────────────────
 
-    private inner class LibraryCallback : MediaLibrarySession.Callback {
+    private inner class LibraryCallback : MediaSession.Callback {
 
         override fun onConnect(
             session: MediaSession,
             controller: MediaSession.ControllerInfo
         ): MediaSession.ConnectionResult {
-            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+            val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                 .add(SessionCommand(SHUFFLE_COMMAND, Bundle.EMPTY))
                 .add(SessionCommand(FAVORITE_COMMAND, Bundle.EMPTY))
+                .add(SessionCommand(AB_SKIP_BACK_15, Bundle.EMPTY))
+                .add(SessionCommand(AB_SKIP_FORWARD_15, Bundle.EMPTY))
+                .add(SessionCommand(AB_SPEED_CYCLE, Bundle.EMPTY))
+                .add(SessionCommand(AB_CHAPTER_START, Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -635,346 +704,23 @@ class MediaService : MediaLibraryService() {
                 FAVORITE_COMMAND -> {
                     try { nativeOnFavoriteToggle() } catch (_: Exception) {}
                 }
+                AB_SKIP_BACK_15 -> {
+                    try { nativeOnABSkipBack15() } catch (_: Exception) {}
+                }
+                AB_SKIP_FORWARD_15 -> {
+                    try { nativeOnABSkipForward15() } catch (_: Exception) {}
+                }
+                AB_SPEED_CYCLE -> {
+                    try { nativeOnABSpeedCycle() } catch (_: Exception) {}
+                }
+                AB_CHAPTER_START -> {
+                    try { nativeOnABChapterStart() } catch (_: Exception) {}
+                }
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         }
-
-        override fun onGetLibraryRoot(
-            session: MediaLibrarySession,
-            browser: MediaSession.ControllerInfo,
-            params: LibraryParams?
-        ): ListenableFuture<LibraryResult<MediaItem>> {
-            // Advertise content style support so Android Auto can render
-            // grid and list sections based on per-node hints.
-            val extras = Bundle().apply {
-                putInt(
-                    MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE,
-                    MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
-                )
-                putInt(
-                    MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE,
-                    MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
-                )
-            }
-            val root = MediaItem.Builder()
-                .setMediaId(ROOT_ID)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle("Orb")
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
-                        .setExtras(extras)
-                        .build()
-                )
-                .build()
-            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
-        }
-
-        override fun onGetChildren(
-            session: MediaLibrarySession,
-            browser: MediaSession.ControllerInfo,
-            parentId: String,
-            page: Int,
-            pageSize: Int,
-            params: LibraryParams?
-        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
-            ioExecutor.execute {
-                try {
-                    val items = when {
-                        parentId == ROOT_ID -> buildRootChildren()
-                        parentId == RECENTLY_PLAYED_ID -> buildRecentlyPlayedChildren()
-                        parentId == RECENTLY_ADDED_ID -> buildRecentlyAddedChildren()
-                        parentId == MOST_PLAYED_ID -> buildMostPlayedChildren()
-                        parentId == PLAYLISTS_ID -> buildPlaylistsChildren()
-                        parentId == FAVORITES_ID -> buildFavoritesChildren()
-                        parentId == DOWNLOADS_ID -> buildDownloadsChildren()
-                        parentId == ALBUMS_ID -> buildAlbumsChildren(page, pageSize)
-                        parentId == ARTISTS_ID -> buildArtistsChildren(page, pageSize)
-                        parentId.startsWith(ALBUM_PREFIX) -> buildAlbumTracksChildren(parentId.removePrefix(ALBUM_PREFIX))
-                        parentId.startsWith(ARTIST_PREFIX) -> buildArtistAlbumsChildren(parentId.removePrefix(ARTIST_PREFIX))
-                        parentId.startsWith(PLAYLIST_PREFIX) -> buildPlaylistTracksChildren(parentId.removePrefix(PLAYLIST_PREFIX))
-                        else -> ImmutableList.of()
-                    }
-                    future.set(LibraryResult.ofItemList(items, params))
-                } catch (e: Exception) {
-                    future.set(LibraryResult.ofItemList(ImmutableList.of(), params))
-                }
-            }
-            return future
-        }
-
-        override fun onGetItem(
-            session: MediaLibrarySession,
-            browser: MediaSession.ControllerInfo,
-            mediaId: String
-        ): ListenableFuture<LibraryResult<MediaItem>> {
-            // Return a generic item — Android Auto primarily uses onGetChildren
-            val item = MediaItem.Builder()
-                .setMediaId(mediaId)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(mediaId)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .build()
-                )
-                .build()
-            return Futures.immediateFuture(LibraryResult.ofItem(item, null))
-        }
-
-        override fun onAddMediaItems(
-            mediaSession: MediaSession,
-            controller: MediaSession.ControllerInfo,
-            mediaItems: MutableList<MediaItem>
-        ): ListenableFuture<MutableList<MediaItem>> {
-            // Called when Android Auto wants to play an item from the browse tree.
-            // Resolve track IDs to playable stream URLs or local file URIs.
-            val resolved = mediaItems.map { item ->
-                val mediaId = item.mediaId
-                when {
-                    mediaId.startsWith(OFFLINE_TRACK_PREFIX) -> {
-                        val trackId = mediaId.removePrefix(OFFLINE_TRACK_PREFIX)
-                        val offlineFile = File(File(filesDir, OFFLINE_DIR), trackId)
-                        if (offlineFile.exists()) {
-                            item.buildUpon()
-                                .setUri(Uri.fromFile(offlineFile))
-                                .build()
-                        } else {
-                            // Fallback to stream if file missing but API available
-                            val client = apiClient
-                            if (client != null) {
-                                item.buildUpon()
-                                    .setUri(client.streamUrl(trackId))
-                                    .build()
-                            } else item
-                        }
-                    }
-                    mediaId.startsWith(TRACK_PREFIX) -> {
-                        val trackId = mediaId.removePrefix(TRACK_PREFIX)
-                        // Prefer offline file if available
-                        val offlineFile = File(File(filesDir, OFFLINE_DIR), trackId)
-                        if (offlineFile.exists()) {
-                            item.buildUpon()
-                                .setUri(Uri.fromFile(offlineFile))
-                                .build()
-                        } else {
-                            val client = apiClient
-                            if (client != null) {
-                                item.buildUpon()
-                                    .setUri(client.streamUrl(trackId))
-                                    .build()
-                            } else item
-                        }
-                    }
-                    else -> item
-                }
-            }.toMutableList()
-
-            return Futures.immediateFuture(resolved)
-        }
     }
 
-    // ── Browse tree builders ─────────────────────────────────────────────────
-
-    private fun isApiReachable(): Boolean {
-        val client = apiClient ?: return false
-        return client.isReachable()
-    }
-
-    private fun buildRootChildren(): ImmutableList<MediaItem> {
-        val hasDownloads = getDownloadMetadata().isNotEmpty()
-        val online = apiClient != null && try { isApiReachable() } catch (_: Exception) { false }
-
-        if (!online) {
-            // Offline mode: only show downloads
-            return if (hasDownloads) {
-                ImmutableList.of(
-                    browsableItem(DOWNLOADS_ID, "Downloads", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
-                )
-            } else {
-                ImmutableList.of()
-            }
-        }
-
-        // Spotify-style recommendation feed: content-driven sections with
-        // per-node content style hints for grid vs list rendering.
-        val items = mutableListOf(
-            // Grid sections — album art cards
-            styledBrowsableItem(
-                RECENTLY_PLAYED_ID, "Jump back in",
-                MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
-                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
-                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
-            ),
-            styledBrowsableItem(
-                RECENTLY_ADDED_ID, "Recently added",
-                MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
-                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
-                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
-            ),
-            // List section — track titles scannable
-            styledBrowsableItem(
-                MOST_PLAYED_ID, "Most played",
-                MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
-                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
-            ),
-            styledBrowsableItem(
-                FAVORITES_ID, "Favorites",
-                MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
-                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
-            ),
-            // Grid section — playlist artwork cards
-            styledBrowsableItem(
-                PLAYLISTS_ID, "Your playlists",
-                MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
-                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
-            ),
-            // Category grid — large visual anchors for browsing
-            styledBrowsableItem(
-                ARTISTS_ID, "Artists",
-                MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS,
-                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM
-            ),
-            styledBrowsableItem(
-                ALBUMS_ID, "Albums",
-                MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
-                childBrowsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
-            ),
-        )
-        if (hasDownloads) {
-            items.add(styledBrowsableItem(
-                DOWNLOADS_ID, "Downloads",
-                MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
-                childPlayableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
-            ))
-        }
-        return ImmutableList.copyOf(items)
-    }
-
-    private fun buildRecentlyPlayedChildren(): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val albums = client.recentlyPlayedAlbums()
-        return ImmutableList.copyOf(albums.map { albumToMediaItem(it, client) })
-    }
-
-    private fun buildRecentlyAddedChildren(): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val albums = client.recentlyAddedAlbums()
-        return ImmutableList.copyOf(albums.map { albumToMediaItem(it, client) })
-    }
-
-    private fun buildPlaylistsChildren(): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val playlists = client.playlists()
-        return ImmutableList.copyOf(playlists.map { playlist ->
-            MediaItem.Builder()
-                .setMediaId("$PLAYLIST_PREFIX${playlist.id}")
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(playlist.name)
-                        .setSubtitle(playlist.description)
-                        .setArtworkUri(Uri.parse(client.playlistCoverUrl(playlist.id)))
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
-                        .build()
-                )
-                .build()
-        })
-    }
-
-    private fun buildFavoritesChildren(): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val tracks = client.favorites()
-        return ImmutableList.copyOf(tracks.map { trackToMediaItem(it, client) })
-    }
-
-    private fun buildAlbumsChildren(page: Int, pageSize: Int): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val offset = page * pageSize
-        val albums = client.albums(limit = pageSize, offset = offset)
-        return ImmutableList.copyOf(albums.map { albumToMediaItem(it, client) })
-    }
-
-    private fun buildAlbumTracksChildren(albumId: String): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val detail = client.albumDetail(albumId) ?: return ImmutableList.of()
-        return ImmutableList.copyOf(detail.tracks.map { trackToMediaItem(it, client) })
-    }
-
-    private fun buildPlaylistTracksChildren(playlistId: String): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val detail = client.playlistDetail(playlistId) ?: return ImmutableList.of()
-        return ImmutableList.copyOf(detail.tracks.map { trackToMediaItem(it, client) })
-    }
-
-    private fun buildDownloadsChildren(): ImmutableList<MediaItem> {
-        val metadata = getDownloadMetadata()
-        return ImmutableList.copyOf(metadata.map { dl ->
-            val metadataBuilder = MediaMetadata.Builder()
-                .setTitle(dl.title)
-                .setArtist(dl.artistName)
-                .setAlbumTitle(dl.albumName)
-                .setIsBrowsable(false)
-                .setIsPlayable(true)
-                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-
-            if (dl.albumId != null) {
-                // Prefer local cover art, fall back to server URL
-                val localCover = File(File(filesDir, OFFLINE_COVERS_DIR), dl.albumId)
-                if (localCover.exists()) {
-                    metadataBuilder.setArtworkUri(Uri.fromFile(localCover))
-                } else {
-                    apiClient?.let { client ->
-                        metadataBuilder.setArtworkUri(Uri.parse(client.coverUrl(dl.albumId)))
-                    }
-                }
-            }
-
-            MediaItem.Builder()
-                .setMediaId("$OFFLINE_TRACK_PREFIX${dl.trackId}")
-                .setMediaMetadata(metadataBuilder.build())
-                .build()
-        })
-    }
-
-    private fun buildMostPlayedChildren(): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val tracks = client.mostPlayedTracks()
-        return ImmutableList.copyOf(tracks.map { trackToMediaItem(it, client) })
-    }
-
-    private fun buildArtistsChildren(page: Int, pageSize: Int): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val offset = page * pageSize
-        val artists = client.artists(limit = pageSize, offset = offset)
-        return ImmutableList.copyOf(artists.map { artistToMediaItem(it, client) })
-    }
-
-    private fun buildArtistAlbumsChildren(artistId: String): ImmutableList<MediaItem> {
-        val client = apiClient ?: return ImmutableList.of()
-        val albums = client.artistAlbums(artistId)
-        return ImmutableList.copyOf(albums.map { albumToMediaItem(it, client) })
-    }
-
-    private fun artistToMediaItem(artist: OrbApiClient.BrowseArtist, client: OrbApiClient): MediaItem {
-        val metadataBuilder = MediaMetadata.Builder()
-            .setTitle(artist.name)
-            .setIsBrowsable(true)
-            .setIsPlayable(false)
-            .setMediaType(MediaMetadata.MEDIA_TYPE_ARTIST)
-
-        if (artist.id.isNotEmpty()) {
-            metadataBuilder.setArtworkUri(Uri.parse(client.artistCoverUrl(artist.id)))
-        }
-
-        return MediaItem.Builder()
-            .setMediaId("$ARTIST_PREFIX${artist.id}")
-            .setMediaMetadata(metadataBuilder.build())
-            .build()
-    }
 
     // ── Offline metadata ─────────────────────────────────────────────────────
 
@@ -1009,107 +755,49 @@ class MediaService : MediaLibraryService() {
         }
     }
 
-    // ── MediaItem builders ───────────────────────────────────────────────────
-
-    private fun browsableItem(id: String, title: String, mediaType: Int): MediaItem {
-        return MediaItem.Builder()
-            .setMediaId(id)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setIsBrowsable(true)
-                    .setIsPlayable(false)
-                    .setMediaType(mediaType)
-                    .build()
-            )
-            .build()
-    }
-
-    /**
-     * Build a browsable item with per-node content style hints.
-     * These tell Android Auto how to render the *children* of this node
-     * (grid cards vs list rows vs category tiles).
-     */
-    private fun styledBrowsableItem(
-        id: String,
-        title: String,
-        mediaType: Int,
-        childBrowsableStyle: Int = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
-        childPlayableStyle: Int = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
-    ): MediaItem {
-        val extras = Bundle().apply {
-            putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, childBrowsableStyle)
-            putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, childPlayableStyle)
-        }
-        return MediaItem.Builder()
-            .setMediaId(id)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setIsBrowsable(true)
-                    .setIsPlayable(false)
-                    .setMediaType(mediaType)
-                    .setExtras(extras)
-                    .build()
-            )
-            .build()
-    }
-
-    private fun albumToMediaItem(album: OrbApiClient.BrowseAlbum, client: OrbApiClient): MediaItem {
-        val metadataBuilder = MediaMetadata.Builder()
-            .setTitle(album.title)
-            .setArtist(album.artistName)
-            .setIsBrowsable(true)
-            .setIsPlayable(false)
-            .setMediaType(MediaMetadata.MEDIA_TYPE_ALBUM)
-
-        if (album.id.isNotEmpty()) {
-            metadataBuilder.setArtworkUri(Uri.parse(client.coverUrl(album.id)))
-        }
-
-        return MediaItem.Builder()
-            .setMediaId("$ALBUM_PREFIX${album.id}")
-            .setMediaMetadata(metadataBuilder.build())
-            .build()
-    }
-
-    private fun trackToMediaItem(track: OrbApiClient.BrowseTrack, client: OrbApiClient): MediaItem {
-        val metadataBuilder = MediaMetadata.Builder()
-            .setTitle(track.title)
-            .setArtist(track.artistName)
-            .setAlbumTitle(track.albumName)
-            .setIsBrowsable(false)
-            .setIsPlayable(true)
-            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-
-        if (track.albumId != null) {
-            metadataBuilder.setArtworkUri(Uri.parse(client.coverUrl(track.albumId)))
-        }
-
-        return MediaItem.Builder()
-            .setMediaId("$TRACK_PREFIX${track.id}")
-            .setMediaMetadata(metadataBuilder.build())
-            .build()
-    }
-
     // ── Custom layout (shuffle + favorite buttons) ───────────────────────────
 
     private fun buildCustomLayout(): ImmutableList<CommandButton> {
-        val shuffleIcon = if (isShuffled) R.drawable.ic_shuffle else R.drawable.ic_shuffle_off
-        val shuffleButton = CommandButton.Builder()
-            .setDisplayName("Shuffle")
-            .setIconResId(shuffleIcon)
-            .setSessionCommand(SessionCommand(SHUFFLE_COMMAND, Bundle.EMPTY))
-            .build()
+        return if (isAudiobook) {
+            ImmutableList.of(
+                CommandButton.Builder()
+                    .setDisplayName("Skip back 15s")
+                    .setIconResId(R.drawable.ic_replay_15)
+                    .setSessionCommand(SessionCommand(AB_SKIP_BACK_15, Bundle.EMPTY))
+                    .build(),
+                CommandButton.Builder()
+                    .setDisplayName("Skip forward 15s")
+                    .setIconResId(R.drawable.ic_forward_15)
+                    .setSessionCommand(SessionCommand(AB_SKIP_FORWARD_15, Bundle.EMPTY))
+                    .build(),
+                CommandButton.Builder()
+                    .setDisplayName("Playback speed")
+                    .setIconResId(speedIcons[currentSpeed] ?: R.drawable.ic_playback_speed_1)
+                    .setSessionCommand(SessionCommand(AB_SPEED_CYCLE, Bundle.EMPTY))
+                    .build(),
+                CommandButton.Builder()
+                    .setDisplayName("Chapter start")
+                    .setIconResId(R.drawable.ic_skip_to_chapter_start)
+                    .setSessionCommand(SessionCommand(AB_CHAPTER_START, Bundle.EMPTY))
+                    .build()
+            )
+        } else {
+            val shuffleIcon = if (isShuffled) R.drawable.ic_shuffle else R.drawable.ic_shuffle_off
+            val shuffleButton = CommandButton.Builder()
+                .setDisplayName("Shuffle")
+                .setIconResId(shuffleIcon)
+                .setSessionCommand(SessionCommand(SHUFFLE_COMMAND, Bundle.EMPTY))
+                .build()
 
-        val favoriteIcon = if (isFavorited) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
-        val favoriteButton = CommandButton.Builder()
-            .setDisplayName("Favorite")
-            .setIconResId(favoriteIcon)
-            .setSessionCommand(SessionCommand(FAVORITE_COMMAND, Bundle.EMPTY))
-            .build()
+            val favoriteIcon = if (isFavorited) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
+            val favoriteButton = CommandButton.Builder()
+                .setDisplayName("Favorite")
+                .setIconResId(favoriteIcon)
+                .setSessionCommand(SessionCommand(FAVORITE_COMMAND, Bundle.EMPTY))
+                .build()
 
-        return ImmutableList.of(shuffleButton, favoriteButton)
+            ImmutableList.of(shuffleButton, favoriteButton)
+        }
     }
 
     // ── Audio focus ──────────────────────────────────────────────────────────
@@ -1375,7 +1063,7 @@ class MediaService : MediaLibraryService() {
         mainHandler.post(action)
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
     }
 
@@ -1398,6 +1086,7 @@ class MediaService : MediaLibraryService() {
             release()
         }
         mediaSession = null
+        wrappedPlayer = null
         player = null
         instance = null
         super.onDestroy()

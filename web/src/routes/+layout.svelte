@@ -9,18 +9,20 @@
   import QueueModal from "$lib/components/ui/QueueModal.svelte";
   import ListenPartyPanel from "$lib/components/layout/shared/ListenPartyPanel.svelte";
   import LyricsModal from "$lib/components/layout/shared/LyricsModal.svelte";
+  import { tick } from "svelte";
   import { isAuthenticated } from "$lib/stores/auth";
   import { favorites } from "$lib/stores/library/favorites";
   import { ratings } from "$lib/stores/library/ratings";
   import { setupRequired } from "$lib/stores/auth/setup";
   import { apiFetch } from "$lib/api/client";
   import { page } from "$app/stores";
-  import { goto } from "$app/navigation";
+  import { goto, beforeNavigate, afterNavigate } from "$app/navigation";
   import {
     togglePlayPause,
     next,
     previous,
     currentTrack,
+    playbackState,
     toggleRepeat,
     toggleShuffle,
     queueModalOpen,
@@ -36,9 +38,10 @@
   import MobileAvatar from "$lib/components/layout/mobile/MobileAvatar.svelte";
   import AudiobookBottomBar from "$lib/components/layout/desktop/AudiobookBottomBar.svelte";
   import MobileAudiobookPlayer from "$lib/components/layout/mobile/MobileAudiobookPlayer.svelte";
-  import { currentAudiobook, pauseAudiobook } from "$lib/stores/audiobookPlayer";
-  import { activePlayer } from "$lib/stores/activePlayer";
-  import { pauseLocal } from "$lib/stores/player";
+  import { currentAudiobook, abPlaybackState } from "$lib/stores/player/audiobookPlayer";
+  import { activePlayer } from "$lib/stores/player/engine";
+  // pauseLocal is no longer needed — engine.switchMode() handles mutual exclusion.
+  import { scrollPositions } from "$lib/stores/ui/scroll";
   import { getServerUrl } from "$lib/api/base";
   import {
     loadEQProfiles,
@@ -62,6 +65,59 @@
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   let shortcutsOpen = $state(false);
   let premuteVolume = 1;
+
+  // ── Scroll restoration ────────────────────────────────────────────────────
+  beforeNavigate(({ from }) => {
+    if (from) {
+      const container = document.querySelector("main.content");
+      if (container) {
+        scrollPositions.update((pos) => ({
+          ...pos,
+          [from.url.pathname]: container.scrollTop,
+        }));
+      }
+    }
+  });
+
+  afterNavigate(async ({ to }) => {
+    const container = document.querySelector("main.content");
+    if (!container) return;
+
+    if (to) {
+      const saved = get(scrollPositions)[to.url.pathname];
+      if (saved !== undefined) {
+        await tick();
+        // Delay ensures the DOM has rendered children before we scroll.
+        setTimeout(() => {
+          container.scrollTo({ top: saved, behavior: "instant" as ScrollBehavior });
+        }, 20);
+      } else {
+        container.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      }
+    }
+
+    // After navigation, child pages reset document.title via <svelte:head>.
+    // If music/audiobook is playing, restore the track title.
+    await tick();
+    const musicPlaying = get(playbackState) === 'playing';
+    const abPlaying = get(abPlaybackState) === 'playing';
+    if (musicPlaying) {
+      const track = get(currentTrack);
+      if (track) document.title = `${track.title} – Orb`;
+    } else if (abPlaying) {
+      const book = get(currentAudiobook);
+      if (book) document.title = `${book.title} – Orb`;
+    }
+  });
+
+  // Keep tab title in sync with whatever is actively playing.
+  $effect(() => {
+    if ($playbackState === 'playing' && $currentTrack) {
+      document.title = `${$currentTrack.title} – Orb`;
+    } else if ($abPlaybackState === 'playing' && $currentAudiobook) {
+      document.title = `${$currentAudiobook.title} – Orb`;
+    }
+  });
 
   const SHORTCUTS: { key: string; label: string; description: string; action: () => void }[] = [
     { key: " ", label: "Space", description: "Play / Pause", action: togglePlayPause },
@@ -118,6 +174,16 @@
     // Native first-launch: redirect to /connect to configure server URL.
     if (isNative() && !getServerUrl()) {
       goto("/connect");
+      return;
+    }
+
+    // Fast offline detection: if the device has no network at all, skip the
+    // /auth/setup round-trip entirely.  Without this, the app shows a blank
+    // screen for up to 6 s (3 s API timeout + 3 s healthz timeout) before
+    // finally landing on the offline downloads view.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      isOffline.set(true);
+      setupRequired.set(false);
       return;
     }
 
@@ -232,11 +298,15 @@
     }, 2000);
   });
 
-  // ── Mutual exclusion: pause the inactive player when the active one switches ──
-  $effect(() => {
-    if ($activePlayer === 'music') pauseAudiobook();
-    else pauseLocal();
-  });
+  // ── Mutual exclusion ──
+  // Mode switching is now handled atomically by the unified engine
+  // (engine.switchMode()). The engine pauses the outgoing content provider
+  // and notifies the incoming one — no reactive $effect needed.
+  // The old $effect that called pauseAudiobook()/pauseLocal() on every
+  // activePlayer change has been removed because:
+  //  1. It fired AFTER the store update, creating a window where both were active.
+  //  2. It called pauseAudiobook() on mount even when no audiobook was loaded.
+  //  3. On fast SSE mode switches, it caused race conditions.
 
   // ── Per-genre EQ auto-switch ────────────────────────────
   // When the playing track changes, look up genre mappings and apply the
@@ -283,8 +353,10 @@
 {#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname === "/verify-email" || $page.url.pathname === "/register" || $page.url.pathname.startsWith("/share/")}
   <!-- Public page: render without shell or auth guards -->
   {@render children()}
-{:else if $setupRequired === null}
-  <!-- Checking setup status; render nothing to avoid a flash of wrong content. -->
+{:else if $setupRequired === null && !$isOffline}
+  <!-- Checking setup status; render nothing to avoid a flash of wrong content.
+       When offline, $isOffline is true immediately (from navigator.onLine) so we
+       skip this blank-screen guard and fall through to the authenticated shell. -->
 {:else if $setupRequired && $page.url.pathname === "/setup"}
   {@render children()}
 {:else if !$setupRequired && $page.url.pathname === "/login"}

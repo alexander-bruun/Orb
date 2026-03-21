@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ADB="${ADB:-/mnt/c/Program Files (x86)/platform-tools/adb.exe}"
+ADB="${ADB:-adb}"
 PACKAGE="com.orb.app"
 
 # ── Find APK ─────────────────────────────────────────────────────────────────

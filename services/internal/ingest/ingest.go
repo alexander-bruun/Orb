@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
+	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
 	"github.com/alexander-bruun/orb/services/internal/similarity"
@@ -40,7 +41,7 @@ var ErrSkipped = errors.New("skipped")
 var featuredArtistRe = regexp.MustCompile(
 	`(?i)[\[\(]?\s*(?:feat\.?|ft\.?|featuring)\s+([^\]\)]+)[\]\)]?\s*$`)
 
-var featSplitRe = regexp.MustCompile(`(?i)\s*[,&]\s*|\s+and\s+`)
+var featSplitRe = regexp.MustCompile(`(?i)\s*[,;&]\s*|\s+and\s+`)
 
 var genreSplitRe = regexp.MustCompile(`\s*[;/\x00]\s*|\s*,\s*`)
 
@@ -191,7 +192,9 @@ type Config struct {
 	ComputeSimilarity bool
 	Enrich            bool
 	GenerateWaveforms bool
+	FetchLyrics       bool
 	PollInterval      time.Duration
+	StableTime        time.Duration // minimum age (mtime) before a file is considered ready to ingest; detects incomplete downloads
 }
 
 // ingestEntry is the in-memory record for a file that has been processed.
@@ -281,6 +284,16 @@ func (g *Ingester) ClearState() {
 	slog.Info("ingest: state cleared for force rescan")
 }
 
+// isStable checks if a file is old enough to be considered ready for ingest.
+// Files with recent modification times (being downloaded) are not considered stable.
+func (g *Ingester) isStable(fi os.FileInfo) bool {
+	if g.cfg.StableTime == 0 {
+		return true // stability check disabled
+	}
+	age := time.Since(fi.ModTime())
+	return age >= g.cfg.StableTime
+}
+
 func (g *Ingester) upToDate(path string, fi os.FileInfo) bool {
 	g.stateMu.RLock()
 	e, ok := g.state[path]
@@ -308,6 +321,10 @@ func (g *Ingester) process(ctx context.Context, path string) (trackID string, er
 		return "", err
 	}
 	if g.upToDate(path, fi) {
+		return "", ErrSkipped
+	}
+	if !g.isStable(fi) {
+		slog.Debug("ingest: skipping unstable file (in-progress download?)", "path", path, "mtime_age_sec", int(time.Since(fi.ModTime()).Seconds()))
 		return "", ErrSkipped
 	}
 	if g.cfg.DryRun {
@@ -405,6 +422,19 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 	}
 	close(pathCh)
 	wg.Wait()
+
+	// Prune DB records for files that were deleted from disk since the last scan.
+	pruned, objKeys, err := g.db.PruneOrphanedTracks(ctx, paths)
+	if err != nil {
+		slog.Warn("ingest: prune orphaned tracks failed", "err", err)
+	} else if pruned > 0 {
+		slog.Info("ingest: pruned orphaned tracks", "count", pruned)
+		for _, k := range objKeys {
+			if err := g.obj.Delete(ctx, k); err != nil {
+				slog.Warn("ingest: delete orphaned object failed", "key", k, "err", err)
+			}
+		}
+	}
 
 	g.publishEvent(ctx, ProgressEvent{
 		Type:    "complete",
@@ -887,6 +917,30 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		}
 	}
 
+	if g.cfg.FetchLyrics {
+		// Only fetch if not already stored (covers re-ingest without re-fetching).
+		existing, _ := g.db.GetTrackLyrics(ctx, trackID)
+		if existing == "" {
+			artistName := coalesce(m.AlbumArtist(), m.Artist())
+			albumTitle := m.Album()
+			trackTitle := coalesce(m.Title(), filepath.Base(path))
+			res, err := lyricfetch.Search(ctx, artistName, albumTitle, trackTitle, int(durationMs))
+			if err == nil {
+				lrc := res.LRC
+				if lrc == "" {
+					lrc = res.Plain
+				}
+				if lrc != "" {
+					if err := g.db.SetTrackLyrics(ctx, trackID, lrc); err != nil {
+						slog.Warn("store lyrics failed", "track_id", trackID, "err", err)
+					}
+				}
+			} else {
+				slog.Debug("lyricfetch: no lyrics", "track_id", trackID, "err", err)
+			}
+		}
+	}
+
 	return trackID, nil
 }
 
@@ -1200,7 +1254,14 @@ func (g *Ingester) ScanAndEnqueue(ctx context.Context, kv *redis.Client) (int, e
 				return nil
 			}
 			fi, err := os.Stat(path)
-			if err != nil || g.upToDate(path, fi) {
+			if err != nil {
+				return nil
+			}
+			if g.upToDate(path, fi) {
+				return nil
+			}
+			if !g.isStable(fi) {
+				slog.Debug("ingest: skipping unstable file (in-progress download?)", "path", path, "mtime_age_sec", int(time.Since(fi.ModTime()).Seconds()))
 				return nil
 			}
 			toProcess = append(toProcess, path)
@@ -1416,6 +1477,13 @@ func (g *Ingester) workerLoop(ctx context.Context, kv *redis.Client) {
 		// concurrent worker (or a previous poll cycle) already finished.
 		if g.upToDate(path, fi) {
 			slog.Debug("ingest worker: already done, skipping", "path", path)
+			continue
+		}
+		// Skip unstable files (in-progress downloads).
+		if !g.isStable(fi) {
+			slog.Debug("ingest worker: skipping unstable file (in-progress download?)", "path", path, "mtime_age_sec", int(time.Since(fi.ModTime()).Seconds()))
+			// Re-enqueue for later processing.
+			_ = g.kv.LPush(ctx, kvkeys.IngestWorkQueue(), path)
 			continue
 		}
 		trackID, err := g.ingestFile(ctx, path, fi)

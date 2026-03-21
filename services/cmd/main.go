@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -42,6 +43,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Injected by build flags (use -ldflags "-X main.buildTag=v1.2.3")
+var (
+	buildTag = "dev"
+	buildSHA = "unknown"
+)
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -53,6 +60,9 @@ func main() {
 }
 
 func run(ctx context.Context) error {
+	// Log build information
+	slog.Info("orb server starting", "version", buildTag, "sha", buildSHA)
+
 	// --- Config from env ---
 	dbURL := config.DSN()
 	kvMode := config.Env("KV_MODE", "standalone") // standalone | sentinel
@@ -114,9 +124,10 @@ func run(ctx context.Context) error {
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 
-	// Health
+	// Health and version
 	r.Get("/healthz", healthz)
 	r.Get("/readyz", readyz(db, kv))
+	r.Get("/version", versionHandler)
 
 	// Auth (no JWT required)
 	authSvc := auth.New(db, kv, jwtSecret)
@@ -270,7 +281,9 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
 		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
+		FetchLyrics:       config.Env("INGEST_LYRICS", "true") == "true",
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
+		StableTime:        parseDuration(config.Env("INGEST_STABLE_TIME", ""), 10*time.Second),
 	}
 	return ingest.NewService(ctx, ingest.New(db, obj, cfg, kv), kv)
 }
@@ -298,6 +311,16 @@ func parseDuration(s string, def time.Duration) time.Duration {
 func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
+}
+
+// versionHandler returns the build version and commit SHA.
+func versionHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	resp := map[string]string{
+		"version": buildTag,
+		"sha":     buildSHA,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // readyz is the readiness endpoint — checks Postgres and KeyVal.
@@ -370,6 +393,7 @@ func buildAudiobookIngestService(ctx context.Context, db *store.Store, obj objst
 		Workers:      runtime.NumCPU(),
 		Enrich:       config.Env("AUDIOBOOK_ENRICH", "true") == "true",
 		PollInterval: parseDuration(config.Env("AUDIOBOOK_POLL_INTERVAL", ""), 30*time.Second),
+		StableTime:   parseDuration(config.Env("AUDIOBOOK_STABLE_TIME", ""), 10*time.Second),
 	}
 	return ingest.NewAudiobookIngestService(ctx, db, obj, cfg)
 }

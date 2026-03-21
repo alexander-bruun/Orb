@@ -25,8 +25,8 @@
     transferPlayback,
     formattedFormat,
   } from '$lib/stores/player';
-  import { abFormattedFormat } from '$lib/stores/audiobookPlayer';
-  import { activePlayer } from '$lib/stores/activePlayer';
+  import { abFormattedFormat } from '$lib/stores/player/audiobookPlayer';
+  import { activePlayer } from '$lib/stores/player/engine';
   import { library } from '$lib/api/library';
   import { favorites } from '$lib/stores/library/favorites';
   import { writable } from 'svelte/store';

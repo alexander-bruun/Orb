@@ -13,12 +13,13 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 	var a Audiobook
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO audiobooks
-			(id, title, edition, author_id, cover_art_key, description, series, series_index,
-			 series_source, series_confidence, published_year, isbn, ol_key, file_key,
+			(id, title, subtitle, edition, author_id, cover_art_key, description, series, series_index,
+			 series_source, series_confidence, published_year, isbn, asin, ol_key, file_key,
 			 file_size, format, duration_ms, fingerprint)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (id) DO UPDATE SET
 			title          = EXCLUDED.title,
+			subtitle       = COALESCE(EXCLUDED.subtitle, audiobooks.subtitle),
 			edition        = COALESCE(EXCLUDED.edition, audiobooks.edition),
 			author_id      = EXCLUDED.author_id,
 			cover_art_key  = COALESCE(EXCLUDED.cover_art_key, audiobooks.cover_art_key),
@@ -29,29 +30,33 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 			series_confidence = COALESCE(EXCLUDED.series_confidence, audiobooks.series_confidence),
 			published_year = EXCLUDED.published_year,
 			isbn           = EXCLUDED.isbn,
+			asin           = COALESCE(EXCLUDED.asin, audiobooks.asin),
 			ol_key         = COALESCE(EXCLUDED.ol_key, audiobooks.ol_key),
 			file_key       = COALESCE(EXCLUDED.file_key, audiobooks.file_key),
 			file_size      = EXCLUDED.file_size,
 			format         = EXCLUDED.format,
 			duration_ms    = EXCLUDED.duration_ms,
 			fingerprint    = EXCLUDED.fingerprint
-		RETURNING id, title, edition, author_id, cover_art_key, description, series, series_index,
-		          series_source, series_confidence, published_year, isbn, ol_key, file_key,
+		RETURNING id, title, subtitle, edition, author_id, cover_art_key, description, series, series_index,
+		          series_source, series_confidence, published_year, isbn, asin, ol_key, file_key,
 		          file_size, format, duration_ms, fingerprint, created_at`,
-		p.ID, p.Title, p.Edition, p.AuthorID, p.CoverArtKey, p.Description, p.Series, p.SeriesIndex,
-		p.SeriesSource, p.SeriesConfidence, p.PublishedYear, p.ISBN, p.OLKey, p.FileKey,
+		p.ID, p.Title, p.Subtitle, p.Edition, p.AuthorID, p.CoverArtKey, p.Description, p.Series, p.SeriesIndex,
+		p.SeriesSource, p.SeriesConfidence, p.PublishedYear, p.ISBN, p.ASIN, p.OLKey, p.FileKey,
 		p.FileSize, p.Format, p.DurationMs, p.Fingerprint,
 	)
-	var edition, authorID, coverArtKey, description, series, seriesSource, isbn, olKey, fileKey, fingerprint sql.NullString
+	var subtitle, edition, authorID, coverArtKey, description, series, seriesSource, isbn, asin, olKey, fileKey, fingerprint sql.NullString
 	var seriesIndex, seriesConfidence sql.NullFloat64
 	var publishedYear sql.NullInt32
 	err := row.Scan(
-		&a.ID, &a.Title, &edition, &authorID, &coverArtKey, &description, &series, &seriesIndex,
-		&seriesSource, &seriesConfidence, &publishedYear, &isbn, &olKey, &fileKey,
+		&a.ID, &a.Title, &subtitle, &edition, &authorID, &coverArtKey, &description, &series, &seriesIndex,
+		&seriesSource, &seriesConfidence, &publishedYear, &isbn, &asin, &olKey, &fileKey,
 		&a.FileSize, &a.Format, &a.DurationMs, &fingerprint, &a.CreatedAt,
 	)
 	if err != nil {
 		return a, err
+	}
+	if subtitle.Valid {
+		a.Subtitle = &subtitle.String
 	}
 	if edition.Valid {
 		a.Edition = &edition.String
@@ -84,6 +89,9 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 	if isbn.Valid {
 		a.ISBN = &isbn.String
 	}
+	if asin.Valid {
+		a.ASIN = &asin.String
+	}
 	if olKey.Valid {
 		a.OLKey = &olKey.String
 	}
@@ -100,24 +108,27 @@ func (s *Store) UpsertAudiobook(ctx context.Context, p UpsertAudiobookParams) (A
 func (s *Store) GetAudiobook(ctx context.Context, id string) (Audiobook, error) {
 	var a Audiobook
 	row := s.pool.QueryRow(ctx, `
-		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,
+		SELECT ab.id, ab.title, ab.subtitle, ab.edition, ab.author_id, ar.name,
 		       ab.cover_art_key, ab.description, ab.series, ab.series_index, ab.series_source, ab.series_confidence,
-		       ab.published_year, ab.isbn, ab.ol_key,
+		       ab.published_year, ab.isbn, ab.asin, ab.ol_key,
 		       ab.file_key, ab.file_size, ab.format, ab.duration_ms, ab.fingerprint, ab.created_at
 		FROM audiobooks ab
 		LEFT JOIN artists ar ON ar.id = ab.author_id
 		WHERE ab.id = $1`, id)
-	var edition, authorID, authorName, coverArtKey, description, series, seriesSource, isbn, olKey, fileKey, fingerprint sql.NullString
+	var subtitle, edition, authorID, authorName, coverArtKey, description, series, seriesSource, isbn, asin, olKey, fileKey, fingerprint sql.NullString
 	var seriesIndex, seriesConfidence sql.NullFloat64
 	var publishedYear sql.NullInt32
 	err := row.Scan(
-		&a.ID, &a.Title, &edition, &authorID, &authorName,
+		&a.ID, &a.Title, &subtitle, &edition, &authorID, &authorName,
 		&coverArtKey, &description, &series, &seriesIndex, &seriesSource, &seriesConfidence,
-		&publishedYear, &isbn, &olKey,
+		&publishedYear, &isbn, &asin, &olKey,
 		&fileKey, &a.FileSize, &a.Format, &a.DurationMs, &fingerprint, &a.CreatedAt,
 	)
 	if err != nil {
 		return a, err
+	}
+	if subtitle.Valid {
+		a.Subtitle = &subtitle.String
 	}
 	if edition.Valid {
 		a.Edition = &edition.String
@@ -152,6 +163,9 @@ func (s *Store) GetAudiobook(ctx context.Context, id string) (Audiobook, error) 
 	}
 	if isbn.Valid {
 		a.ISBN = &isbn.String
+	}
+	if asin.Valid {
+		a.ASIN = &asin.String
 	}
 	if olKey.Valid {
 		a.OLKey = &olKey.String
@@ -675,4 +689,189 @@ func (s *Store) GetAudiobookByFingerprint(ctx context.Context, fingerprint strin
 	var id string
 	err := s.pool.QueryRow(ctx, `SELECT id FROM audiobooks WHERE fingerprint = $1`, fingerprint).Scan(&id)
 	return id, err
+}
+
+// ListAudiobooksNoCover lists audiobooks without cover art. Returns the list and total count.
+func (s *Store) ListAudiobooksNoCover(ctx context.Context, limit, offset int32) ([]Audiobook, int32, error) {
+	var total int32
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM audiobooks WHERE cover_art_key IS NULL`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, title, author_id, cover_art_key, series, series_index, file_size, format, duration_ms, created_at
+		FROM audiobooks
+		WHERE cover_art_key IS NULL
+		ORDER BY title ASC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var result []Audiobook
+	for rows.Next() {
+		var a Audiobook
+		var authorID, series sql.NullString
+		var seriesIndex sql.NullFloat64
+		err := rows.Scan(
+			&a.ID, &a.Title, &authorID, &a.CoverArtKey, &series, &seriesIndex, &a.FileSize, &a.Format, &a.DurationMs, &a.CreatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		if authorID.Valid {
+			a.AuthorID = &authorID.String
+		}
+		if series.Valid {
+			a.Series = &series.String
+		}
+		if seriesIndex.Valid {
+			a.SeriesIndex = &seriesIndex.Float64
+		}
+		result = append(result, a)
+	}
+	return result, total, rows.Err()
+}
+
+// ListAudiobooksNoSeries lists audiobooks without series information. Returns the list and total count.
+func (s *Store) ListAudiobooksNoSeries(ctx context.Context, limit, offset int32) ([]Audiobook, int32, error) {
+	var total int32
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM audiobooks WHERE series IS NULL`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, title, author_id, cover_art_key, series, series_index, file_size, format, duration_ms, created_at
+		FROM audiobooks
+		WHERE series IS NULL
+		ORDER BY title ASC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var result []Audiobook
+	for rows.Next() {
+		var a Audiobook
+		var authorID, coverArtKey, series sql.NullString
+		var seriesIndex sql.NullFloat64
+		err := rows.Scan(
+			&a.ID, &a.Title, &authorID, &coverArtKey, &series, &seriesIndex, &a.FileSize, &a.Format, &a.DurationMs, &a.CreatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		if authorID.Valid {
+			a.AuthorID = &authorID.String
+		}
+		if coverArtKey.Valid {
+			a.CoverArtKey = &coverArtKey.String
+		}
+		if series.Valid {
+			a.Series = &series.String
+		}
+		if seriesIndex.Valid {
+			a.SeriesIndex = &seriesIndex.Float64
+		}
+		result = append(result, a)
+	}
+	return result, total, rows.Err()
+}
+
+// PruneOrphanedAudiobooks removes audiobooks whose source paths are no longer
+// present on disk. foundPaths is the complete set of audiobook file or
+// directory paths collected during the current scan. Ingest-state rows absent
+// from that set are treated as orphaned. The method also cleans up narrators
+// with no remaining links and returns object-store keys the caller should
+// delete.
+func (s *Store) PruneOrphanedAudiobooks(ctx context.Context, foundPaths []string) (int, []string, error) {
+	foundSet := make(map[string]struct{}, len(foundPaths))
+	for _, p := range foundPaths {
+		foundSet[p] = struct{}{}
+	}
+
+	stateRows, err := s.LoadAudiobookIngestState(ctx)
+	if err != nil {
+		return 0, nil, fmt.Errorf("prune audiobooks: load ingest state: %w", err)
+	}
+
+	seenIDs := make(map[string]struct{})
+	var orphanPaths []string
+	var orphanIDs []string
+	for _, r := range stateRows {
+		if _, ok := foundSet[r.Path]; !ok {
+			orphanPaths = append(orphanPaths, r.Path)
+			if r.AudiobookID != "" {
+				if _, dup := seenIDs[r.AudiobookID]; !dup {
+					seenIDs[r.AudiobookID] = struct{}{}
+					orphanIDs = append(orphanIDs, r.AudiobookID)
+				}
+			}
+		}
+	}
+	if len(orphanIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	// Collect object-store keys before deletion.
+	var objKeys []string
+
+	// Audiobook file keys and cover art keys.
+	abRows, err := s.pool.Query(ctx,
+		`SELECT file_key, cover_art_key FROM audiobooks WHERE id = ANY($1)`, orphanIDs)
+	if err == nil {
+		for abRows.Next() {
+			var fk, cak sql.NullString
+			if abRows.Scan(&fk, &cak) == nil {
+				if fk.Valid && fk.String != "" {
+					objKeys = append(objKeys, fk.String)
+				}
+				if cak.Valid && cak.String != "" {
+					objKeys = append(objKeys, cak.String)
+				}
+			}
+		}
+		abRows.Close()
+	}
+
+	// Chapter file keys (multi-file audiobooks store a file_key per chapter).
+	chapRows, err := s.pool.Query(ctx,
+		`SELECT file_key FROM audiobook_chapters
+		 WHERE audiobook_id = ANY($1) AND file_key IS NOT NULL`, orphanIDs)
+	if err == nil {
+		for chapRows.Next() {
+			var k string
+			if chapRows.Scan(&k) == nil && k != "" {
+				objKeys = append(objKeys, k)
+			}
+		}
+		chapRows.Close()
+	}
+
+	// Delete ingest-state rows.
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM audiobook_ingest_state WHERE path = ANY($1)`, orphanPaths); err != nil {
+		return 0, nil, fmt.Errorf("prune audiobook_ingest_state: %w", err)
+	}
+
+	// Delete audiobooks (cascades to chapters, progress, bookmarks, narrator links).
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM audiobooks WHERE id = ANY($1)`, orphanIDs); err != nil {
+		return 0, nil, fmt.Errorf("prune orphaned audiobooks: %w", err)
+	}
+
+	// Clean up narrators that have no remaining links.
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM audiobook_narrators
+		 WHERE id NOT IN (SELECT DISTINCT narrator_id FROM audiobook_narrator_links)`); err != nil {
+		return 0, nil, fmt.Errorf("prune orphaned narrators: %w", err)
+	}
+
+	return len(orphanIDs), objKeys, nil
 }

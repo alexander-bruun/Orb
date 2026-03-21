@@ -42,6 +42,10 @@ type DeviceState struct {
 	//   now_ms - position_ms
 	// Any client can derive the current position as: Date.now() - PlaybackEpochMs.
 	PlaybackEpochMs int64 `json:"playback_epoch_ms,omitempty"`
+	// Audiobook fields — set when IsAudiobook=true; music fields are omitted.
+	IsAudiobook    bool   `json:"is_audiobook,omitempty"`
+	AudiobookID    string `json:"audiobook_id,omitempty"`
+	AudiobookTitle string `json:"audiobook_title,omitempty"`
 }
 
 // Device represents a single registered client session.

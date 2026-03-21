@@ -126,6 +126,18 @@
     if (e.key === 'Escape') closeContextMenu();
   }
 
+  function onTouchStart(e: TouchEvent) {
+    e.stopPropagation();
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    e.stopPropagation();
+  }
+
+  function onTouchEnd(e: TouchEvent) {
+    e.stopPropagation();
+  }
+
   // Clamp position so the menu stays within the viewport
   $: style = (() => {
     const menuW = 172;
@@ -142,7 +154,8 @@
 
 {#if $contextMenu.visible && $contextMenu.track}
   <!-- svelte-ignore a11y-interactive-supports-focus -->
-  <div class="ctx-menu" style={style} role="menu" on:click|stopPropagation={() => {}}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="ctx-menu" style={style} role="menu" on:click|stopPropagation={() => {}} on:touchstart={onTouchStart} on:touchmove={onTouchMove} on:touchend={onTouchEnd}>
     {#if !showPlaylists}
       <button class="item" on:click={handlePlay} role="menuitem">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -181,8 +194,8 @@
         </button>
       {:else if dlEntry?.status === 'downloading'}
         <button class="item" role="menuitem" disabled>
-          <svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          <svg class="spin" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" stroke-dasharray="44 13"/>
           </svg>
           Downloading {dlEntry.progress}%…
         </button>

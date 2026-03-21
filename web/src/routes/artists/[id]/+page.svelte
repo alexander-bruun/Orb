@@ -28,9 +28,38 @@
   let loading = true;
   let shuffling = false;
   let radioLoading = false;
+  let isRestoring = false;
+
+  export const snapshot = {
+    capture: () => ({
+      artist, albums, genres, relatedArtists, appearsOn, appearsOnGrouped, appearsOnKeys,
+      timelineYears, albumsByYear, bio, bioUrl
+    }),
+    restore: (value) => {
+      artist = value.artist;
+      albums = value.albums;
+      genres = value.genres;
+      relatedArtists = value.relatedArtists;
+      appearsOn = value.appearsOn;
+      appearsOnGrouped = value.appearsOnGrouped;
+      appearsOnKeys = value.appearsOnKeys;
+      timelineYears = value.timelineYears;
+      albumsByYear = value.albumsByYear;
+      bio = value.bio;
+      bioUrl = value.bioUrl;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   onMount(async () => {
     const id = $page.params.id ?? '';
+
+    if (isRestoring && artist?.id === id) {
+      isRestoring = false;
+      return;
+    }
+
     try {
       const res = await libApi.artist(id);
       artist = res.artist;

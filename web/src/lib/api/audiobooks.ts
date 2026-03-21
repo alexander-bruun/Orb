@@ -54,4 +54,18 @@ export const audiobooks = {
 	triggerRescan(id: string): Promise<{ status: string }> {
 		return apiFetch(`/audiobooks/admin/rescan/${id}`, { method: 'POST' });
 	},
+
+	listNoCover(
+		limit = 50,
+		offset = 0
+	): Promise<{ audiobooks: Audiobook[]; total: number }> {
+		return apiFetch(`/audiobooks/admin/no-cover?limit=${limit}&offset=${offset}`);
+	},
+
+	listNoSeries(
+		limit = 50,
+		offset = 0
+	): Promise<{ audiobooks: Audiobook[]; total: number }> {
+		return apiFetch(`/audiobooks/admin/no-series?limit=${limit}&offset=${offset}`);
+	},
 };

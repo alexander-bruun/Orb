@@ -707,28 +707,30 @@ type AudiobookNarrator struct {
 
 // Audiobook represents a full audiobook in the database.
 type Audiobook struct {
-	ID            string     `json:"id"`
-	Title         string     `json:"title"`
-	Edition       *string    `json:"edition,omitempty"`
-	AuthorID      *string    `json:"author_id,omitempty"`
-	AuthorName    *string    `json:"author_name,omitempty"`
-	CoverArtKey   *string    `json:"cover_art_key,omitempty"`
-	Description   *string    `json:"description,omitempty"`
-	Series        *string    `json:"series,omitempty"`
-	SeriesIndex   *float64   `json:"series_index,omitempty"`
-	SeriesSource  *string    `json:"series_source,omitempty"`
-	SeriesConfidence *float64 `json:"series_confidence,omitempty"`
-	PublishedYear *int       `json:"published_year,omitempty"`
-	ISBN          *string    `json:"isbn,omitempty"`
-	OLKey         *string    `json:"ol_key,omitempty"`
-	FileKey       *string    `json:"file_key,omitempty"`
-	FileSize      int64      `json:"file_size"`
-	Format        string     `json:"format"`
-	DurationMs    int64      `json:"duration_ms"`
-	Fingerprint   string     `json:"fingerprint,omitempty"`
-	Narrators     []AudiobookNarrator `json:"narrators,omitempty"`
-	Chapters      []AudiobookChapter  `json:"chapters,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID               string     `json:"id"`
+	Title            string     `json:"title"`
+	Subtitle         *string    `json:"subtitle,omitempty"`
+	Edition          *string    `json:"edition,omitempty"`
+	AuthorID         *string    `json:"author_id,omitempty"`
+	AuthorName       *string    `json:"author_name,omitempty"`
+	CoverArtKey      *string    `json:"cover_art_key,omitempty"`
+	Description      *string    `json:"description,omitempty"`
+	Series           *string    `json:"series,omitempty"`
+	SeriesIndex      *float64   `json:"series_index,omitempty"`
+	SeriesSource     *string    `json:"series_source,omitempty"`
+	SeriesConfidence *float64   `json:"series_confidence,omitempty"`
+	PublishedYear    *int       `json:"published_year,omitempty"`
+	ISBN             *string    `json:"isbn,omitempty"`
+	ASIN             *string    `json:"asin,omitempty"`
+	OLKey            *string    `json:"ol_key,omitempty"`
+	FileKey          *string    `json:"file_key,omitempty"`
+	FileSize         int64      `json:"file_size"`
+	Format           string     `json:"format"`
+	DurationMs       int64      `json:"duration_ms"`
+	Fingerprint      string     `json:"fingerprint,omitempty"`
+	Narrators        []AudiobookNarrator `json:"narrators,omitempty"`
+	Chapters         []AudiobookChapter  `json:"chapters,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // AudiobookChapter is a single chapter within an audiobook.
@@ -766,24 +768,26 @@ type AudiobookBookmark struct {
 
 // UpsertAudiobookParams for inserting or updating an audiobook.
 type UpsertAudiobookParams struct {
-	ID            string
-	Title         string
-	Edition       *string
-	AuthorID      *string
-	CoverArtKey   *string
-	Description   *string
-	Series        *string
-	SeriesIndex   *float64
-	SeriesSource  *string
+	ID               string
+	Title            string
+	Subtitle         *string
+	Edition          *string
+	AuthorID         *string
+	CoverArtKey      *string
+	Description      *string
+	Series           *string
+	SeriesIndex      *float64
+	SeriesSource     *string
 	SeriesConfidence *float64
-	PublishedYear *int
-	ISBN          *string
-	OLKey         *string
-	FileKey       *string // nil for multi-file (directory-based) audiobooks
-	FileSize      int64
-	Format        string
-	DurationMs    int64
-	Fingerprint   string
+	PublishedYear    *int
+	ISBN             *string
+	ASIN             *string
+	OLKey            *string
+	FileKey          *string // nil for multi-file (directory-based) audiobooks
+	FileSize         int64
+	Format           string
+	DurationMs       int64
+	Fingerprint      string
 }
 
 // UpsertAudiobookNarratorParams for inserting or updating a narrator.

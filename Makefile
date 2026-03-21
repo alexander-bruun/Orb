@@ -85,6 +85,20 @@ ios-build-ci:
 icon-generate:
 	cd web/src-tauri/ && cargo tauri icon icons/icon.png
 
+# Backend build targets
+.PHONY: backend-build backend-build-tagged test lint
+backend-build:
+	cd services && go build -o ../orb github.com/alexander-bruun/orb/services/cmd
+
+backend-build-tagged:
+	$(eval GIT_TAG := $(shell git describe --tags --always 2>/dev/null || echo "unknown"))
+	$(eval GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown"))
+	cd services && go build -ldflags "-X main.buildTag=$(GIT_TAG) -X main.buildSHA=$(GIT_SHA)" -o ../orb github.com/alexander-bruun/orb/services/cmd
+
+# Testing
+test:
+	cd services && go test -v ./...
+
 # Linting
 lint:
 	golangci-lint run ./...

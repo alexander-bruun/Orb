@@ -18,6 +18,10 @@
     lpSessionEnded,
     lpGuestParticipantId,
     lpGuestToken,
+    lpGuestCurrentChapter,
+    lpGuestChapterProgress,
+    lpGuestPreviousChapter,
+    lpGuestNextChapter,
   } from '$lib/stores/social/listenParty';
 
   import { getApiBase } from '$lib/api/base';
@@ -405,23 +409,31 @@
       <!-- Progress bar (read-only) -->
       <div class="progress-area">
         <span class="time">{formatTime($lpGuestPositionMs)}</span>
-        <div class="progress-wrap">
-          <div class="progress-track">
-            <div class="progress-fill" style="width:{progress}%"></div>
+        {#if $lpGuestItemType === 'audiobook' && $lpGuestCurrentChapter}
+          <!-- Chapter-aware progress for audiobooks -->
+          <div class="progress-wrap chapter-progress-wrap">
+            {#if $lpGuestPreviousChapter}
+              <div class="chapter-label prev-chapter-label" title={$lpGuestPreviousChapter.title}>
+                {$lpGuestPreviousChapter.title}
+              </div>
+            {/if}
+            <div class="progress-track">
+              <div class="progress-fill" style="width:{$lpGuestChapterProgress}%"></div>
+            </div>
+            {#if $lpGuestNextChapter}
+              <div class="chapter-label next-chapter-label" title={$lpGuestNextChapter.title}>
+                {$lpGuestNextChapter.title}
+              </div>
+            {/if}
           </div>
-          
-          <!-- Chapter markers for audiobooks -->
-          {#if $lpGuestItemType === 'audiobook' && $lpGuestAudiobook?.chapters}
-            {#each $lpGuestAudiobook.chapters as ch}
-              {@const startPct = (ch.start_ms / $lpGuestDurationMs) * 100}
-              {#if startPct > 0}
-                <div class="chapter-marker" style="left: {startPct}%">
-                  <span class="chapter-marker-label">{ch.title}</span>
-                </div>
-              {/if}
-            {/each}
-          {/if}
-        </div>
+        {:else}
+          <!-- Overall progress for tracks -->
+          <div class="progress-wrap">
+            <div class="progress-track">
+              <div class="progress-fill" style="width:{progress}%"></div>
+            </div>
+          </div>
+        {/if}
         <span class="time">{formatTime($lpGuestDurationMs)}</span>
       </div>
 
@@ -771,7 +783,13 @@
     height: 20px;
     display: flex;
     align-items: center;
+    gap: 8px;
   }
+
+  .chapter-progress-wrap {
+    gap: 8px;
+  }
+
   .progress-track {
     position: absolute;
     left: 0;
@@ -781,55 +799,38 @@
     border-radius: 2px;
     overflow: hidden;
   }
+
+  .chapter-progress-wrap .progress-track {
+    position: relative;
+    left: auto;
+    right: auto;
+    flex: 1;
+  }
+
   .progress-fill {
     height: 100%;
     background: var(--accent, #7c3aed);
     transition: width 0.25s linear;
   }
 
-  .chapter-marker {
-    position: absolute;
-    top: 50%;
-    transform: translateX(-50%) translateY(-50%);
-    width: 14px;
-    height: 20px;
-    cursor: default;
-    z-index: 3;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .chapter-marker::before {
-    content: "";
-    width: 1px;
-    height: 8px;
-    background: rgba(255, 255, 255, 0.4);
-    transition: background 0.15s, height 0.15s;
-  }
-  .chapter-marker:hover::before {
-    background: var(--accent, #7c3aed);
-    height: 12px;
-    width: 2px;
-  }
-  .chapter-marker-label {
-    position: absolute;
-    bottom: calc(100% + 4px);
-    left: 50%;
-    transform: translateX(-50%);
+  .chapter-label {
+    font-size: 0.65rem;
+    color: var(--text-muted, #888);
+    flex-shrink: 0;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
-    background: var(--bg-elevated, #222);
-    border: 1px solid var(--border, #333);
-    border-radius: 4px;
-    padding: 3px 8px;
-    font-size: 0.72rem;
-    color: var(--text, #fff);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.15s;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    z-index: 10;
+    line-height: 1.2;
   }
-  .chapter-marker:hover .chapter-marker-label { opacity: 1; }
+
+  .prev-chapter-label {
+    text-align: right;
+  }
+
+  .next-chapter-label {
+    text-align: left;
+  }
 
   .chapter-info {
     font-size: 0.85rem;

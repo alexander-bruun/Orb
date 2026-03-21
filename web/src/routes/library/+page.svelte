@@ -27,6 +27,26 @@
   let sentinel: HTMLElement;
   let observer: IntersectionObserver | null = null;
   let ingestES: EventSource | null = null;
+  let isRestoring = false;
+
+  export const snapshot = {
+    capture: () => ({
+      albums,
+      totalCount,
+      nextOffset,
+      sortBy,
+      activeKey
+    }),
+    restore: (value) => {
+      albums = value.albums;
+      totalCount = value.totalCount;
+      nextOffset = value.nextOffset;
+      sortBy = value.sortBy;
+      activeKey = value.activeKey;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   // ── Grouping (no client-side sort — DB returns in the right order) ─────────
 
@@ -77,8 +97,10 @@
   // Reset scroll + active key whenever keys changes (sort changed or first load)
   $: {
     keys; // declare dependency
-    activeKey = keys[0] ?? '';
-    scrollEl?.scrollTo({ top: 0 });
+    if (!isRestoring) {
+      activeKey = keys[0] ?? '';
+      scrollEl?.scrollTo({ top: 0 });
+    }
   }
 
   // ── Scroll tracking ───────────────────────────────────────────────────────
@@ -182,6 +204,13 @@
   }
 
   async function loadFirstPage() {
+    if (isRestoring && albums.length > 0) {
+      loading = false;
+      setupObserver();
+      setTimeout(() => { isRestoring = false; }, 0);
+      return;
+    }
+
     try {
       const first = await libApi.albums(PAGE_SIZE, 0, sortBy);
       totalCount = first.total;

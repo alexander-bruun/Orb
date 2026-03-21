@@ -5,7 +5,7 @@
   import { audiobooks as abApi } from "$lib/api/audiobooks";
   import type { Audiobook } from "$lib/types";
   import { getApiBase } from "$lib/api/base";
-  import { playAudiobook } from "$lib/stores/audiobookPlayer";
+  import { playAudiobook } from "$lib/stores/player/audiobookPlayer";
 
   let books: Audiobook[] = [];
   let loading = true;

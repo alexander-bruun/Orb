@@ -21,15 +21,24 @@
     <span>Search</span>
   </a>
 
-  <!-- Library -->
+  <!-- Music -->
   <a href="/library" class="nav-item" class:active={$page.url.pathname.startsWith('/library') || $page.url.pathname.startsWith('/artists') || $page.url.pathname.startsWith('/genres')}>
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M4 19V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13"/>
-      <path d="M4 19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2"/>
-      <line x1="9" y1="10" x2="15" y2="10"/>
-      <line x1="9" y1="14" x2="12" y2="14"/>
+      <path d="M9 18V5l12-2v13"/>
+      <circle cx="6" cy="18" r="3"/>
+      <circle cx="18" cy="16" r="3"/>
     </svg>
-    <span>Library</span>
+    <span>Music</span>
+  </a>
+
+  <!-- Audiobooks -->
+  <a href="/audiobooks" class="nav-item" class:active={$page.url.pathname.startsWith('/audiobooks')}>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+      <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+    </svg>
+    <span>Audiobooks</span>
   </a>
 
   <!-- Playlists -->

@@ -9,7 +9,11 @@ import { getApiBase } from '$lib/api/base';
  * a real request since onLine only detects local network presence, not
  * actual server reachability.
  */
-export const isOffline = writable(false);
+// Initialise synchronously from navigator.onLine so the very first render
+// already knows we're offline — no async round-trip required.
+export const isOffline = writable(
+  typeof navigator !== 'undefined' ? !navigator.onLine : false
+);
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
 

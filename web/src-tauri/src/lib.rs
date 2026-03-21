@@ -62,6 +62,18 @@ fn set_favorite_state(favorited: bool) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+fn set_audiobook_mode(is_audiobook: bool) -> Result<(), String> {
+    android_bridge::set_audiobook_mode(is_audiobook)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn set_playback_speed(speed: f32) -> Result<(), String> {
+    android_bridge::set_playback_speed(speed)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn set_api_credentials(base_url: String, token: String) -> Result<(), String> {
     android_bridge::set_api_credentials(base_url, token)
 }
@@ -158,6 +170,12 @@ fn open_bluetooth_settings() -> Result<(), String> {
     android_bridge::open_bluetooth_settings()
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_offline_file_path(track_id: String) -> Result<Option<String>, String> {
+    android_bridge::get_offline_file_path(track_id)
+}
+
 // ─── Entry Point ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -181,6 +199,8 @@ pub fn run() {
             get_is_playing,
             set_shuffle_state,
             set_favorite_state,
+            set_audiobook_mode,
+            set_playback_speed,
             set_api_credentials,
             sync_downloads,
             save_offline_file,
@@ -195,6 +215,7 @@ pub fn run() {
             set_crossfade_settings,
             set_gapless_enabled,
             open_bluetooth_settings,
+            get_offline_file_path,
         ])
         .setup(|app| {
             let _ = android_bridge::APP_HANDLE.set(app.handle().clone());

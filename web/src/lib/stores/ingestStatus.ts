@@ -1,0 +1,144 @@
+import { writable, get } from 'svelte/store';
+import { browser } from '$app/environment';
+import { getApiBase } from '$lib/api/base';
+import { apiFetch } from '$lib/api/client';
+import { authStore } from '$lib/stores/auth';
+
+export interface LastScan {
+	started_at: string;
+	finished_at: string;
+	ingested: number;
+	skipped: number;
+	errors: number;
+	enqueued: number;
+}
+
+export interface IngestState {
+	phase: 'idle' | 'running' | 'complete' | 'error';
+	running: boolean;
+	done: number;
+	total: number;
+	skipped: number;
+	errors: number;
+	currentFile?: string;
+	lastScan?: LastScan;
+}
+
+const initial: IngestState = {
+	phase: 'idle',
+	running: false,
+	done: 0,
+	total: 0,
+	skipped: 0,
+	errors: 0,
+};
+
+function createIngestStatusStore() {
+	const { subscribe, update, set } = writable<IngestState>(initial);
+
+	let es: EventSource | null = null;
+	let pollTimer: number | null = null;
+
+	function connectSSE() {
+		if (!browser || es) return;
+		const token = get(authStore).token;
+		if (!token) return;
+
+		const url = `${getApiBase()}/admin/ingest/stream?token=${encodeURIComponent(token)}`;
+		es = new EventSource(url);
+
+		es.onmessage = (e) => {
+			try {
+				const data = JSON.parse(e.data);
+				update((s) => ({
+					...s,
+					running: data.type === 'progress',
+					phase:
+						data.type === 'complete' ? 'complete' : data.type === 'error' ? 'error' : 'running',
+					done: data.done ?? s.done,
+					total: data.total ?? s.total,
+					skipped: data.skipped ?? s.skipped,
+					errors: data.errors ?? s.errors,
+					currentFile: data.file_path || s.currentFile,
+				}));
+				if (data.type === 'complete' || data.type === 'error') {
+					disconnectSSE();
+					// Refresh full status to pick up last_scan
+					setTimeout(fetchStatus, 600);
+				}
+			} catch {
+				// ignore parse errors
+			}
+		};
+
+		es.onerror = () => {
+			disconnectSSE();
+		};
+	}
+
+	function disconnectSSE() {
+		if (es) {
+			es.close();
+			es = null;
+		}
+	}
+
+	async function fetchStatus() {
+		try {
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const data = await apiFetch<any>('/admin/ingest/status');
+			update((s) => {
+				const wasRunning = s.running;
+				const nowRunning = Boolean(data.running);
+				if (nowRunning && !wasRunning) {
+					connectSSE();
+				} else if (!nowRunning && wasRunning) {
+					disconnectSSE();
+				}
+				return {
+					...s,
+					running: nowRunning,
+					phase: nowRunning ? 'running' : data.last_scan ? 'complete' : 'idle',
+					lastScan: data.last_scan ?? s.lastScan,
+				};
+			});
+		} catch {
+			// ignore — user may not be admin or server is down
+		}
+	}
+
+	function init() {
+		if (!browser) return;
+		fetchStatus();
+		pollTimer = window.setInterval(fetchStatus, 20_000);
+	}
+
+	function destroy() {
+		disconnectSSE();
+		if (pollTimer !== null) {
+			clearInterval(pollTimer);
+			pollTimer = null;
+		}
+	}
+
+	async function triggerScan(force = false) {
+		const qs = force ? '?force=true' : '';
+		await apiFetch(`/admin/ingest/scan${qs}`, { method: 'POST' });
+		update((s) => ({
+			...s,
+			running: true,
+			phase: 'running',
+			done: 0,
+			total: 0,
+			skipped: 0,
+			errors: 0,
+			currentFile: undefined,
+		}));
+		// Small delay so the server starts before we subscribe
+		setTimeout(connectSSE, 150);
+	}
+
+	return { subscribe, init, destroy, triggerScan, fetchStatus };
+}
+
+export const ingestStatus = createIngestStatusStore();

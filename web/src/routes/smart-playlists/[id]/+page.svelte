@@ -239,7 +239,7 @@
     <!-- Header -->
     <div class="header">
       <div class="header-left">
-        <a href="/smart-playlists" class="back">← Smart Playlists</a>
+        <a href="/playlists" class="back">← Playlists</a>
         <input class="name-input" bind:value={name} placeholder="Playlist name" />
         <input class="desc-input" bind:value={description} placeholder="Description (optional)" />
       </div>

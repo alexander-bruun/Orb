@@ -3,7 +3,7 @@
   import { audiobooks as abApi } from "$lib/api/audiobooks";
   import type { Audiobook } from "$lib/types";
   import { getApiBase } from "$lib/api/base";
-  import { playAudiobook } from "$lib/stores/audiobookPlayer";
+  import { playAudiobook } from "$lib/stores/player/audiobookPlayer";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
   import AlphaScrollbar from "$lib/components/library/AlphaScrollbar.svelte";
   import { goto } from "$app/navigation";
@@ -24,8 +24,30 @@
   let sortBy: SortMode = 'title';
   let activeKey = '';
   let scrollEl: HTMLElement | null = null;
+  let sentinel: HTMLElement;
+  let observer: IntersectionObserver | null = null;
   let lastSortBy: SortMode = sortBy;
+  let isRestoring = false;
   const PAGE = 48;
+
+  export const snapshot = {
+    capture: () => ({
+      books,
+      hasMore,
+      sortBy,
+      activeKey,
+      lastSortBy
+    }),
+    restore: (value) => {
+      books = value.books;
+      hasMore = value.hasMore;
+      sortBy = value.sortBy;
+      activeKey = value.activeKey;
+      lastSortBy = value.lastSortBy;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   function fmtDuration(ms: number): string {
     const h = Math.floor(ms / 3_600_000);
@@ -85,8 +107,10 @@
 
   $: if (sortBy !== lastSortBy) {
     lastSortBy = sortBy;
-    activeKey = keys[0] ?? '';
-    scrollEl?.scrollTo({ top: 0 });
+    if (!isRestoring) {
+      activeKey = keys[0] ?? '';
+      scrollEl?.scrollTo({ top: 0 });
+    }
   }
 
   $: if (!activeKey && keys.length > 0) {
@@ -114,12 +138,26 @@
       const res = await abApi.list(PAGE, books.length, sortBy);
       const fetched = res.audiobooks ?? [];
       books = [...books, ...fetched];
-      if (fetched.length < PAGE) hasMore = false;
+      if (fetched.length < PAGE) {
+        hasMore = false;
+        observer?.disconnect();
+        observer = null;
+      }
     } catch {
       // ignore
     } finally {
       loadingMore = false;
     }
+  }
+
+  function setupObserver() {
+    observer?.disconnect();
+    if (!sentinel || !hasMore) return;
+    observer = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { root: scrollEl, rootMargin: '200px' }
+    );
+    observer.observe(sentinel);
   }
 
   async function changeSort(mode: SortMode) {
@@ -128,6 +166,8 @@
     loading = true;
     books = [];
     hasMore = true;
+    observer?.disconnect();
+    observer = null;
     try {
       const res = await abApi.list(PAGE, 0, sortBy);
       books = res.audiobooks ?? [];
@@ -136,12 +176,22 @@
       // ignore
     } finally {
       loading = false;
+      setTimeout(setupObserver, 0);
     }
   }
 
   onMount(async () => {
     scrollEl = document.querySelector('main.content');
     if (scrollEl) scrollEl.addEventListener('scroll', updateActive, { passive: true });
+
+    if (isRestoring && books.length > 0) {
+      loading = false;
+      setTimeout(setupObserver, 0);
+      // Let the reactive block skip one tick
+      setTimeout(() => { isRestoring = false; }, 0);
+      return;
+    }
+
     try {
       const res = await abApi.list(PAGE, 0, sortBy);
       books = res.audiobooks ?? [];
@@ -150,11 +200,13 @@
       // ignore
     } finally {
       loading = false;
+      setTimeout(setupObserver, 0);
     }
   });
 
   onDestroy(() => {
     scrollEl?.removeEventListener('scroll', updateActive);
+    observer?.disconnect();
   });
 </script>
 
@@ -263,11 +315,10 @@
       </section>
     {/each}
 
-    {#if hasMore}
+    <div bind:this={sentinel} class="sentinel"></div>
+    {#if loadingMore}
       <div class="load-more">
-        <button class="btn-load-more" on:click={loadMore} disabled={loadingMore}>
-          {loadingMore ? "Loading…" : "Load more"}
-        </button>
+        <span class="loading-text">Loading more…</span>
       </div>
     {/if}
   {/if}
@@ -279,6 +330,18 @@
   .page {
     padding-top: 4px;
     padding-right: 40px;
+    min-height: 100%;
+  }
+
+  .sentinel {
+    height: 1px;
+    width: 100%;
+  }
+
+  .loading-text {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    padding: 16px 0;
   }
 
   .page-header {
@@ -506,23 +569,11 @@
   .load-more {
     display: flex;
     justify-content: center;
-    margin-top: 32px;
+    padding: 32px 0;
   }
-  .btn-load-more {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 0.875rem;
-    padding: 8px 24px;
-    transition: color 0.15s, border-color 0.15s;
-  }
-  .btn-load-more:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
-  .btn-load-more:disabled { opacity: 0.5; cursor: default; }
 
   @media (max-width: 640px) {
-    .page { padding-right: 0; }
+    .page { padding-right: 36px; }
     .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px 12px; }
   }
 </style>

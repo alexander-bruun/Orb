@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { goto } from "$app/navigation";
   import { library as libApi } from "$lib/api/library";
   import { smartPlaylists as spApi } from "$lib/api/smartPlaylists";
   import { audiobooks as abApi } from "$lib/api/audiobooks";
@@ -8,7 +9,7 @@
   import AlbumCard from "$lib/components/library/AlbumCard.svelte";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
   import { playTrack, shuffle as shuffleStore } from "$lib/stores/player";
-  import { playAudiobook } from "$lib/stores/audiobookPlayer";
+  import { playAudiobook } from "$lib/stores/player/audiobookPlayer";
   import { downloads } from "$lib/stores/offline/downloads";
   import { isOffline } from "$lib/stores/offline/connectivity";
   import { getApiBase } from "$lib/api/base";
@@ -30,9 +31,41 @@
   let inProgressBooks: InProgressBook[] = [];
   let loading = true;
   let playsLoading = false;
+  let isRestoring = false;
 
   let recentPage = 1;
   let mostPage = 1;
+
+  export const snapshot = {
+    capture: () => ({
+      recentTracks,
+      mostTracks,
+      recentAlbums,
+      newAlbums,
+      smartPls,
+      inProgressBooks,
+      interval,
+      customFrom,
+      customTo,
+      recentPage,
+      mostPage
+    }),
+    restore: (value) => {
+      recentTracks = value.recentTracks;
+      mostTracks = value.mostTracks;
+      recentAlbums = value.recentAlbums;
+      newAlbums = value.newAlbums;
+      smartPls = value.smartPls;
+      inProgressBooks = value.inProgressBooks;
+      interval = value.interval;
+      customFrom = value.customFrom;
+      customTo = value.customTo;
+      recentPage = value.recentPage;
+      mostPage = value.mostPage;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   $: recentPages = Math.max(1, Math.ceil(recentTracks.length / PAGE_SIZE));
   $: mostPages = Math.max(1, Math.ceil(mostTracks.length / PAGE_SIZE));
@@ -158,6 +191,13 @@
       loading = false;
       return;
     }
+
+    if (isRestoring && (recentTracks.length > 0 || recentAlbums.length > 0)) {
+      loading = false;
+      isRestoring = false;
+      return;
+    }
+
     try {
       [recentTracks, mostTracks, recentAlbums, newAlbums, smartPls, inProgressBooks] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
@@ -299,6 +339,13 @@
             <div class="ab-info">
               <span class="ab-title" title={book.title}>{book.title}</span>
               {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+              {#if book.series}
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <span class="ab-series" on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}>
+                  {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+                </span>
+              {/if}
             </div>
           </a>
         {/each}
@@ -424,7 +471,7 @@
     <section class="home-section">
       <div class="section-header">
         <h2 class="section-title">Smart Playlists</h2>
-        <a href="/smart-playlists" class="view-all">View all</a>
+        <a href="/playlists" class="view-all">View all</a>
       </div>
       <div class="sp-grid">
         {#each smartPls.slice(0, 6) as sp (sp.id)}
@@ -705,7 +752,7 @@
   .ab-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .ab-card {
-    flex: 0 0 140px;
+    flex: 0 0 160px;
     display: flex;
     flex-direction: column;
     gap: 7px;
@@ -716,15 +763,16 @@
 
   .ab-cover-wrap {
     position: relative;
-    width: 140px;
-    height: 140px;
+    width: 100%;
+    padding-bottom: 150%;
     border-radius: 8px;
     overflow: hidden;
     background: var(--bg-elevated);
-    flex-shrink: 0;
   }
 
   .ab-cover {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -734,6 +782,8 @@
   .ab-card:hover .ab-cover { transform: scale(1.03); }
 
   .ab-placeholder {
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -790,7 +840,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--text);
-    max-width: 140px;
+    max-width: 160px;
   }
   .ab-author {
     font-size: 0.72rem;
@@ -798,7 +848,19 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 140px;
+    max-width: 160px;
+  }
+  .ab-series {
+    font-size: 0.72rem;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+    cursor: pointer;
+  }
+  .ab-series:hover {
+    text-decoration: underline;
   }
 
   .album-slider {

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -35,6 +36,11 @@ class MainActivity : TauriActivity() {
         connectMediaController()
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        disableWebViewZoom()
+    }
+
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -57,5 +63,35 @@ class MainActivity : TauriActivity() {
     private fun connectMediaController() {
         val sessionToken = SessionToken(this, ComponentName(this, MediaService::class.java))
         MediaController.Builder(this, sessionToken).buildAsync()
+    }
+
+    private fun disableWebViewZoom() {
+        // Disable pinch-to-zoom and built-in zoom controls on the WebView
+        try {
+            val webView = findWebView(window.decorView)
+            if (webView != null) {
+                val settings = webView.settings
+                settings.setSupportZoom(false)
+                settings.setBuiltInZoomControls(false)
+                settings.setDisplayZoomControls(false)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun findWebView(view: android.view.View): WebView? {
+        if (view is WebView) {
+            return view
+        }
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val child = findWebView(view.getChildAt(i))
+                if (child != null) {
+                    return child
+                }
+            }
+        }
+        return null
     }
 }

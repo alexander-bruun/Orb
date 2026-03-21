@@ -21,6 +21,7 @@
     DailyPlayCount, StorageStats, InviteToken, AuditLog, Album,
     SiteSettings, IngestProgressEvent, Webhook, WebhookDelivery
   } from '$lib/api/admin';
+  import type { Audiobook } from '$lib/types';
 
   type Tab = 'dashboard' | 'users' | 'library' | 'settings' | 'audit' | 'integrations';
   let activeTab: Tab = 'dashboard';
@@ -57,6 +58,16 @@
   let showForceScanModal = false;
   let showForceAudiobookModal = false;
   let audiobookScanMsg = '';
+
+  // Audiobook missing metadata
+  let noCoverAudiobooks: Audiobook[] = [];
+  let noCoverTotal = 0;
+  let noCoverOffset = 0;
+  let noCoverLoading = false;
+  let noSeriesAudiobooks: Audiobook[] = [];
+  let noSeriesTotal = 0;
+  let noSeriesOffset = 0;
+  let noSeriesLoading = false;
 
   // Settings
   let smtpSettings: SiteSettings = {};
@@ -114,6 +125,8 @@
     }
     if (tab === 'library' && artworkAlbums.length === 0) {
       await loadArtworkPage();
+      await loadNoCoverPage();
+      await loadNoSeriesPage();
     }
     if (tab === 'settings' && !smtpSettings.smtp_host) {
       smtpSettings = await adminApi.getSettings().catch(() => ({}));
@@ -280,6 +293,24 @@
 
   async function refetchAllCovers() {
     for (const a of [...artworkAlbums]) await refetchCover(a.id).catch(() => {});
+  }
+
+  async function loadNoCoverPage() {
+    noCoverLoading = true;
+    try {
+      const r = await audiobooksApi.listNoCover(50, noCoverOffset);
+      noCoverAudiobooks = r.audiobooks ?? []; noCoverTotal = r.total;
+    } catch { noCoverAudiobooks = []; }
+    finally { noCoverLoading = false; }
+  }
+
+  async function loadNoSeriesPage() {
+    noSeriesLoading = true;
+    try {
+      const r = await audiobooksApi.listNoSeries(50, noSeriesOffset);
+      noSeriesAudiobooks = r.audiobooks ?? []; noSeriesTotal = r.total;
+    } catch { noSeriesAudiobooks = []; }
+    finally { noSeriesLoading = false; }
   }
 
   async function saveSmtp() {
@@ -563,7 +594,7 @@
           <button class="btn-accent scan-main" disabled={ingestRunning} on:click={startScan}>{ingestRunning ? 'Scanning…' : 'Trigger Scan'}</button>
           <button class="btn-accent scan-arrow" disabled={ingestRunning} on:click={() => showForceScanModal = true} title="Force rescan entire library" aria-label="Force rescan options">⭯</button>
         </div>
-        <div class="scan-split-btn" style="margin-left:auto">
+        <div style="display:flex; gap:0.5rem; margin-left:auto">
           <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceScanModal = true}>Re-ingest Music</button>
           <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceAudiobookModal = true}>Re-ingest Audiobooks</button>
         </div>
@@ -614,6 +645,66 @@
             <button disabled={artworkOffset === 0} on:click={() => { artworkOffset -= 50; loadArtworkPage(); }}>← Prev</button>
             <span class="muted">{artworkOffset+1}–{Math.min(artworkOffset+50, artworkTotal)} of {artworkTotal}</span>
             <button disabled={artworkOffset+50 >= artworkTotal} on:click={() => { artworkOffset += 50; loadArtworkPage(); }}>Next →</button>
+          </div>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="panel" style="margin-top:1.25rem">
+      <div class="section-header">
+        <h2>Audiobooks Without Cover Art ({noCoverTotal})</h2>
+      </div>
+      {#if noCoverLoading}
+        <p class="muted">Loading…</p>
+      {:else if noCoverTotal === 0}
+        <p class="muted">All audiobooks have cover art.</p>
+      {:else}
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Title</th><th>Author</th></tr></thead>
+            <tbody>{#each noCoverAudiobooks as ab}
+              <tr>
+                <td>{ab.title}</td>
+                <td class="muted">{ab.author_name ?? '—'}</td>
+              </tr>
+            {/each}</tbody>
+          </table>
+        </div>
+        {#if noCoverTotal > 50}
+          <div class="pagination">
+            <button disabled={noCoverOffset === 0} on:click={() => { noCoverOffset -= 50; loadNoCoverPage(); }}>← Prev</button>
+            <span class="muted">{noCoverOffset+1}–{Math.min(noCoverOffset+50, noCoverTotal)} of {noCoverTotal}</span>
+            <button disabled={noCoverOffset+50 >= noCoverTotal} on:click={() => { noCoverOffset += 50; loadNoCoverPage(); }}>Next →</button>
+          </div>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="panel" style="margin-top:1.25rem">
+      <div class="section-header">
+        <h2>Audiobooks Without Series ({noSeriesTotal})</h2>
+      </div>
+      {#if noSeriesLoading}
+        <p class="muted">Loading…</p>
+      {:else if noSeriesTotal === 0}
+        <p class="muted">All audiobooks have series information.</p>
+      {:else}
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Title</th><th>Author</th></tr></thead>
+            <tbody>{#each noSeriesAudiobooks as ab}
+              <tr>
+                <td>{ab.title}</td>
+                <td class="muted">{ab.author_name ?? '—'}</td>
+              </tr>
+            {/each}</tbody>
+          </table>
+        </div>
+        {#if noSeriesTotal > 50}
+          <div class="pagination">
+            <button disabled={noSeriesOffset === 0} on:click={() => { noSeriesOffset -= 50; loadNoSeriesPage(); }}>← Prev</button>
+            <span class="muted">{noSeriesOffset+1}–{Math.min(noSeriesOffset+50, noSeriesTotal)} of {noSeriesTotal}</span>
+            <button disabled={noSeriesOffset+50 >= noSeriesTotal} on:click={() => { noSeriesOffset += 50; loadNoSeriesPage(); }}>Next →</button>
           </div>
         {/if}
       {/if}

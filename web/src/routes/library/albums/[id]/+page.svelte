@@ -16,10 +16,30 @@
   let artistName: string | null = null;
   let artistId: string | null = null;
   let loading = true;
+  let isRestoring = false;
+
+  export const snapshot = {
+    capture: () => ({ album, tracks, genres, variants, artistName, artistId }),
+    restore: (value) => {
+      album = value.album;
+      tracks = value.tracks;
+      genres = value.genres;
+      variants = value.variants;
+      artistName = value.artistName;
+      artistId = value.artistId;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   $: isAdmin = $authStore.user?.is_admin === true;
 
   async function loadAlbum(id: string) {
+    if (isRestoring && album?.id === id) {
+      loading = false;
+      isRestoring = false;
+      return;
+    }
     loading = true;
     album = null; tracks = []; genres = []; variants = []; artistName = null; artistId = null;
     try {
@@ -31,6 +51,7 @@
       if (res.artist) { artistName = res.artist.name; artistId = res.artist.id; }
     } finally {
       loading = false;
+      isRestoring = false;
     }
   }
 
@@ -271,14 +292,14 @@
 
         {#if isAdmin}
           <button class="btn-admin" on:click={handleRefetchCover} disabled={refreshing} title="Re-fetch cover art from MusicBrainz">
-            {#if refreshing}<span class="spin-sm">⟳</span> Refreshing…
+            {#if refreshing}<svg class="spin-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13"/></svg> Refreshing…
             {:else}
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               Refresh cover
             {/if}
           </button>
           <button class="btn-admin" on:click={handleRescan} disabled={scanning} title="Force re-scan all music files from disk">
-            {#if scanning}<span class="spin-sm">⟳</span> Scanning…
+            {#if scanning}<svg class="spin-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13"/></svg> Scanning…
             {:else}
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
               Force rescan
@@ -354,7 +375,7 @@
   .btn-admin:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
   .btn-admin:disabled { opacity: 0.5; cursor: not-allowed; }
   @keyframes spin-anim { to { transform: rotate(360deg); } }
-  .spin-sm { display: inline-block; animation: spin-anim 0.8s linear infinite; }
+  .spin-sm { display: inline-block; vertical-align: middle; animation: spin-anim 0.8s linear infinite; }
 
   /* ── Existing styles ── */
   .title { font-size: 2rem; font-weight: 700; margin: 0; cursor: default; }
@@ -398,7 +419,7 @@
   @media (max-width: 640px) {
     .header { flex-direction: column; align-items: center; text-align: center; gap: 16px; margin-top: var(--page-padding); margin-bottom: 20px; }
     .cover { width: min(200px, 60vw); height: min(200px, 60vw); }
-    .meta { width: 100%; align-items: center; }
+    .meta { width: 100%; align-items: center; text-align: center; }
     .title { font-size: 1.5rem; }
     .actions { justify-content: center; flex-wrap: wrap; }
     .meta-row { justify-content: center; flex-wrap: wrap; }

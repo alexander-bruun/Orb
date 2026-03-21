@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { audiobooks as abApi } from "$lib/api/audiobooks";
@@ -15,7 +15,13 @@
     abPlaybackState,
     toggleABPlayPause,
     jumpToChapter,
-  } from "$lib/stores/audiobookPlayer";
+  } from "$lib/stores/player/audiobookPlayer";
+  import {
+    downloadAudiobook,
+    deleteAudiobookDownload,
+    isAudiobookDownloaded,
+    downloads,
+  } from "$lib/stores/offline/downloads";
 
   let book: Audiobook | null = null;
   let chapters: AudiobookChapter[] = [];
@@ -24,11 +30,35 @@
   let seriesBooks: Audiobook[] = [];
   let loading = true;
   let error = "";
+  let loadedId = "";
+  let isRestoring = false;
+
+  // Download state
+  let isDownloading = false;
+  let isDownloaded = false;
+
+  export const snapshot = {
+    capture: () => ({ book, chapters, progress, bookmarks, seriesBooks, loadedId }),
+    restore: (value) => {
+      book = value.book;
+      chapters = value.chapters;
+      progress = value.progress;
+      bookmarks = value.bookmarks;
+      seriesBooks = value.seriesBooks;
+      loadedId = value.loadedId;
+      isRestoring = true;
+      loading = false;
+    }
+  };
 
   $: id = $page.params.id ?? "";
+  // Reload whenever the id param changes (covers both initial mount and
+  // same-layout navigation between different books).
+  $: if (id && id !== loadedId) loadBook(id);
   $: isPlaying = $currentAudiobook?.id === id && $abPlaybackState === "playing";
   $: isActive = $currentAudiobook?.id === id;
   $: isAdmin = $authStore.user?.is_admin === true;
+  $: isDownloaded = book && chapters.length > 0 ? isAudiobookDownloaded(book.id, chapters) : false;
 
   // ── Inline editing ────────────────────────────────────────────────────────
   type EditField = "title" | "author" | "description" | "series" | "series_index" | "published_year";
@@ -183,6 +213,33 @@
     }
   }
 
+  // ── Download ───────────────────────────────────────────────────────────────
+
+  async function handleDownload() {
+    if (!book || isDownloading || !chapters.length) return;
+    isDownloading = true;
+    try {
+      const token = $authStore.token || "";
+      await downloadAudiobook(book, token);
+      isDownloaded = true;
+    } catch (e) {
+      console.error("Download failed:", e);
+    } finally {
+      isDownloading = false;
+    }
+  }
+
+  async function handleDeleteDownload() {
+    if (!book || !chapters.length) return;
+    if (!confirm("Delete downloaded audiobook?")) return;
+    try {
+      await deleteAudiobookDownload(book.id, chapters);
+      isDownloaded = false;
+    } catch (e) {
+      console.error("Delete failed:", e);
+    }
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────────────
   function fmtMs(ms: number): string {
     const totalSecs = Math.floor(ms / 1000);
@@ -200,11 +257,11 @@
     return `${m}m`;
   }
 
-  function progressPct(chapter: AudiobookChapter): number {
-    if (!progress || progress.position_ms <= chapter.start_ms) return 0;
-    if (progress.position_ms >= chapter.end_ms) return 100;
+  function progressPct(chapter: AudiobookChapter, posMs: number): number {
+    if (posMs <= chapter.start_ms) return 0;
+    if (posMs >= chapter.end_ms) return 100;
     const chLen = chapter.end_ms - chapter.start_ms;
-    return ((progress.position_ms - chapter.start_ms) / chLen) * 100;
+    return ((posMs - chapter.start_ms) / chLen) * 100;
   }
 
 
@@ -219,32 +276,56 @@
 
   function handleChapterPlay(ch: AudiobookChapter) {
     if (!book) return;
-    if (isActive) jumpToChapter(ch);
-    else playAudiobook(book, ch.start_ms);
+    if (isActive) {
+      // If we're already in this chapter, toggle pause instead of restarting
+      const isSameChapter = $currentAudiobook?.id === id &&
+        $abPositionMs >= ch.start_ms && $abPositionMs < ch.end_ms;
+      if (isSameChapter) {
+        toggleABPlayPause();
+      } else {
+        jumpToChapter(ch);
+      }
+    } else {
+      playAudiobook(book, ch.start_ms);
+    }
   }
 
-  onMount(async () => {
+  async function loadBook(bookId: string) {
+    if (isRestoring && loadedId === bookId) {
+      loading = false;
+      isRestoring = false;
+      return;
+    }
+    loading = true;
+    error = "";
+    book = null;
+    chapters = [];
+    seriesBooks = [];
     try {
       const [abRes, progRes, bmRes] = await Promise.all([
-        abApi.get(id),
-        abApi.getProgress(id).catch(() => null),
-        abApi.listBookmarks(id).catch(() => ({ bookmarks: [] })),
+        abApi.get(bookId),
+        abApi.getProgress(bookId).catch(() => null),
+        abApi.listBookmarks(bookId).catch(() => ({ bookmarks: [] })),
       ]);
+      if (bookId !== id) return; // navigated away during load
+      loadedId = bookId;
       book = abRes.audiobook;
       chapters = book.chapters ?? [];
       progress = progRes?.progress ?? null;
       bookmarks = bmRes.bookmarks ?? [];
       if (book.series) {
         abApi.listBySeries(book.series)
-          .then((r) => { seriesBooks = (r.audiobooks ?? []).filter((b) => b.id !== id); })
+          .then((r) => { seriesBooks = (r.audiobooks ?? []).filter((b) => b.id !== bookId); })
           .catch(() => {});
       }
     } catch (e: unknown) {
       error = e instanceof Error ? e.message : "Failed to load audiobook";
     } finally {
       loading = false;
+      isRestoring = false;
     }
-  });
+  }
+
 </script>
 
 <svelte:head>
@@ -398,16 +479,33 @@
             <button class="btn-start-over" on:click={() => book && playAudiobook(book, 0)}>Start over</button>
           {/if}
 
+          {#if isDownloaded}
+            <button class="btn-downloaded" on:click={handleDeleteDownload} title="Delete downloaded audiobook">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4l2-3h2l2 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2z"/><circle cx="12" cy="11" r="4"/></svg>
+              Downloaded
+            </button>
+          {:else if !isDownloading}
+            <button class="btn-download" on:click={handleDownload} title="Download audiobook for offline use">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="8 17 12 21 16 17"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"></path></svg>
+              Download
+            </button>
+          {:else}
+            <button class="btn-downloading" disabled>
+              <svg class="spin-sm" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13"/></svg>
+              Downloading…
+            </button>
+          {/if}
+
           {#if isAdmin}
             <button class="btn-admin" on:click={handleRefresh} disabled={refreshing} title="Refresh metadata from Open Library">
-              {#if refreshing}<span class="spin-sm">⟳</span> Refreshing…
+              {#if refreshing}<svg class="spin-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13"/></svg> Refreshing…
               {:else}
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 Refresh metadata
               {/if}
             </button>
             <button class="btn-admin" on:click={handleRescan} disabled={scanning} title="Re-scan audiobook files from disk">
-              {#if scanning}<span class="spin-sm">⟳</span> Scanning…
+              {#if scanning}<svg class="spin-sm" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13"/></svg> Scanning…
               {:else}
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 Rescan files
@@ -447,10 +545,11 @@
         <h2 class="section-title">Chapters</h2>
         <div class="chapters">
           {#each chapters as ch (ch.id)}
-            {@const pct = progressPct(ch)}
+            {@const pct = progressPct(ch, $abPositionMs)}
             {@const isCurrent = isActive && $currentAudiobook?.id === id &&
               $abPositionMs >= ch.start_ms && $abPositionMs < ch.end_ms}
             <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            {@const chDownloaded = $downloads.get(ch.id)?.status === 'done'}
             <div class="chapter-row" class:is-current={isCurrent} on:click={() => handleChapterPlay(ch)}>
               <span class="ch-num">{ch.chapter_num}</span>
               <div class="ch-body">
@@ -459,6 +558,9 @@
                   <div class="ch-progress-track"><div class="ch-progress-fill" style="width:{pct}%"></div></div>
                 {/if}
               </div>
+              {#if chDownloaded}
+                <svg class="ch-offline-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Downloaded"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
+              {/if}
               <span class="ch-time">{fmtMs(ch.start_ms)}</span>
               <button class="ch-play" aria-label="Play chapter {ch.chapter_num}"
                 on:click|stopPropagation={() => handleChapterPlay(ch)}>
@@ -581,7 +683,7 @@
   .btn-admin:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
   .btn-admin:disabled { opacity: 0.5; cursor: not-allowed; }
   @keyframes spin-anim { to { transform: rotate(360deg); } }
-  .spin-sm { display: inline-block; animation: spin-anim 0.8s linear infinite; }
+  .spin-sm { display: inline-block; vertical-align: middle; animation: spin-anim 0.8s linear infinite; }
 
   /* ── Meta fields ── */
   .series-label { font-size: 0.78rem; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; cursor: pointer; }
@@ -626,6 +728,12 @@
   .btn-start-over { background: transparent; border: 1px solid var(--border); border-radius: 24px; color: var(--text-muted); font-size: 0.875rem; padding: 9px 18px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
   .btn-start-over:hover { color: var(--text); border-color: var(--text-muted); }
 
+  .btn-download, .btn-downloaded, .btn-downloading { display: flex; align-items: center; gap: 6px; background: transparent; border: 1px solid var(--border); border-radius: 24px; color: var(--text-muted); font-size: 0.875rem; padding: 9px 16px; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+  .btn-download:hover { color: var(--text); border-color: var(--text-muted); }
+  .btn-downloaded { color: var(--text); border-color: var(--text-muted); background: rgba(0, 255, 0, 0.05); }
+  .btn-downloaded:hover { background: rgba(0, 255, 0, 0.1); }
+  .btn-downloading { color: var(--text-muted); cursor: not-allowed; opacity: 0.6; }
+
   .description { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; margin: 8px 0 0; max-width: 600px; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 
   /* ── Sections ── */
@@ -643,6 +751,7 @@
   .ch-progress-track { height: 2px; background: var(--bg-elevated); border-radius: 1px; overflow: hidden; width: 100%; }
   .ch-progress-fill { height: 100%; background: var(--accent); border-radius: 1px; }
   .ch-time { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .ch-offline-icon { flex-shrink: 0; color: var(--accent); opacity: 0.75; }
   .ch-play { width: 28px; height: 28px; border-radius: 50%; background: transparent; border: 1px solid var(--border); color: var(--text-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s; }
   .chapter-row:hover .ch-play { opacity: 1; }
   .is-current .ch-play { opacity: 1; color: var(--accent); border-color: var(--accent); }

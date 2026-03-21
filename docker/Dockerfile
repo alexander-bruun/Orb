@@ -1,10 +1,13 @@
 FROM golang:1.26.1-bookworm AS go-builder
 WORKDIR /src
+COPY . .
 COPY services/ ./services/
 WORKDIR /src/services
-RUN GOWORK=off GONOSUMCHECK=github.com/alexander-bruun/orb/* \
+RUN BUILD_TAG=$(git describe --tags --always 2>/dev/null || echo "unknown") && \
+    BUILD_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
+    GOWORK=off GONOSUMCHECK=github.com/alexander-bruun/orb/* \
     CGO_ENABLED=0 GOOS=linux \
-    go build -trimpath -o /bin/api ./cmd/main.go
+    go build -trimpath -ldflags "-X main.buildTag=$BUILD_TAG -X main.buildSHA=$BUILD_SHA" -o /bin/api ./cmd/main.go
 
 FROM oven/bun:alpine AS ui-builder
 WORKDIR /app

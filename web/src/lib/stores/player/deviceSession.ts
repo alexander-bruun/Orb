@@ -16,6 +16,7 @@ import { ApiError } from '$lib/api/client';
 import { authStore } from '$lib/stores/auth';
 import { isTauri, nativePlatform } from '$lib/utils/platform';
 import { isOffline } from '$lib/stores/offline/connectivity';
+import * as engine from './engine';
 
 // ── Local device identity ────────────────────────────────────────────────────
 
@@ -150,33 +151,6 @@ export const activeDeviceId = writable<string>('');
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let sseSource: EventSource | null = null;
 
-// Imported lazily to avoid circular dependency (player imports deviceSession).
-type PlayerRef = {
-	playbackState: import('svelte/store').Readable<string>;
-	currentTrack: import('svelte/store').Readable<import('$lib/types').Track | null>;
-	positionMs: import('svelte/store').Readable<number>;
-	volume: import('svelte/store').Readable<number>;
-	togglePlayPause: () => void;
-	pauseLocal: () => void;
-	next: () => Promise<void>;
-	previous: () => Promise<void>;
-	seek: (posSeconds: number) => void;
-	setVolume: (gain: number) => void;
-	playTrack: (track: import('$lib/types').Track, list?: import('$lib/types').Track[], start?: number) => Promise<void>;
-	/** Load the embedded queue from the SSE payload, then play the specified track. */
-	receivePlayCommand: (trackId: string, posMs: number, queue?: import('$lib/types').Track[]) => Promise<void>;
-	/** Mirror an active device's track on this idle device (no audio started). */
-	syncVisibleState: (trackId: string, posMs: number, playing?: boolean, epochMs?: number, remoteVolume?: number) => Promise<void>;
-	/** Stop the shadow tick that advances positionMs for mirrored remote playback. */
-	stopShadowTick: () => void;
-};
-let playerRef: PlayerRef | null = null;
-
-/** Call once after player.ts is loaded to wire up cross-device commands. */
-export function setPlayerRef(p: PlayerRef) {
-	playerRef = p;
-}
-
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
 /** Start the device session. Called when the user is authenticated. */
@@ -203,6 +177,12 @@ export async function startSession() {
 
 		// Load current device list.
 		await refreshDevices();
+
+		// Send an immediate heartbeat so the server has this device's state
+		// before other devices poll. Without this, a browser refresh causes
+		// the server to return position_ms: 0 to secondary devices until
+		// the first periodic heartbeat (30s later).
+		sendHeartbeat().catch(() => {});
 
 		// Start heartbeat (every 30 s).
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -243,19 +223,7 @@ export async function sendHeartbeat() {
 }
 
 function buildState() {
-	if (!playerRef) return { position_ms: 0, playing: false, volume: 1 };
-	const track = get(playerRef.currentTrack);
-	const pos = get(playerRef.positionMs);
-	const playing = get(playerRef.playbackState) === 'playing';
-	const vol = get(playerRef.volume);
-	return {
-		track_id: track?.id ?? '',
-		track_title: track?.title ?? '',
-		album_id: track?.album_id ?? '',
-		position_ms: pos,
-		playing,
-		volume: vol,
-	};
+	return engine.buildHeartbeatState();
 }
 
 /** Refresh the device list from the server. */
@@ -271,19 +239,14 @@ export async function refreshDevices() {
 			// so the progress bar is correct from the first render — no need to
 			// wait for the next heartbeat SSE event.
 			// Only mirror when exclusive mode is enabled.
-			if (
-				get(exclusiveMode) &&
-				active.id !== deviceId &&
-				active.state?.track_id &&
-				active.state.playing &&
-				playerRef
-			) {
-				// Derive effective position from epoch (eliminates clock skew).
-				const epochMs = active.state.playback_epoch_ms;
-				const posMs = epochMs
-					? Date.now() - epochMs
-					: active.state.position_ms;
-				playerRef.syncVisibleState(active.state.track_id, posMs, true, epochMs, active.state.volume);
+			// Wait for restoreState() to finish first so the remote sync always
+			// overwrites stale localStorage data (not the other way around).
+			// Skip sync if the state is empty (no track or audiobook loaded) —
+			// this avoids resetting position to 0 when a device just registered.
+			if (get(exclusiveMode) && active.id !== deviceId && active.state &&
+				(active.state.track_id || active.state.audiobook_id)) {
+				await engine.restoreReady;
+				engine.syncRemoteState(active.state);
 			}
 		} else {
 			activeDeviceId.set('');
@@ -294,9 +257,8 @@ export async function refreshDevices() {
 		// phantom "playing" state when the remote device goes offline.
 		const wasRemoteShadow = prevActiveId && prevActiveId !== deviceId;
 		const nowRemoteShadow = active && active.id !== deviceId;
-		if (wasRemoteShadow && !nowRemoteShadow && playerRef) {
-			playerRef.stopShadowTick();
-			playerRef.pauseLocal();
+		if (wasRemoteShadow && !nowRemoteShadow) {
+			engine.stopAll();
 		}
 	} catch {
 		// ignore
@@ -325,25 +287,17 @@ function openSSE() {
 function handleDeviceEvent(evt: DeviceEvent) {
 	switch (evt.type) {
 		case 'state':
-			// Mirror the active device's track/position/volume on idle devices.
-			// Pass `playing` so the shadow tick starts/stops appropriately.
+			// Mirror the active device's state on idle devices via the engine.
 			// Only mirror when exclusive mode is enabled; otherwise each device
 			// plays independently.
 			if (
 				get(exclusiveMode) &&
 				evt.device_id &&
 				evt.device_id !== deviceId &&
-				evt.state?.track_id &&
 				evt.device_id === get(activeDeviceId) &&
-				playerRef
+				evt.state
 			) {
-				playerRef.syncVisibleState(
-					evt.state.track_id,
-					evt.state.position_ms,
-					evt.state.playing,
-					evt.state.playback_epoch_ms,
-					evt.state.volume
-				);
+				engine.syncRemoteState(evt.state);
 			}
 			refreshDevices();
 			break;
@@ -367,8 +321,8 @@ function handleDeviceEvent(evt: DeviceEvent) {
 			// the pointer first, togglePlayPause/pauseLocal would delegate the
 			// pause to the newly-active remote device instead of stopping this
 			// device's own engine — causing the remote to flash-pause.
-			if (evt.device_id !== deviceId && playerRef) {
-				playerRef.pauseLocal();
+			if (evt.device_id !== deviceId) {
+				engine.stopAll();
 			}
 			// Now update the active device pointer.
 			if (evt.device_id) activeDeviceId.set(evt.device_id);
@@ -387,31 +341,26 @@ function handleDeviceEvent(evt: DeviceEvent) {
 			if (evt.device_id) activeDeviceId.set(evt.device_id);
 
 			// Non-target devices must stop their audio so only one device plays.
-			if (evt.device_id !== deviceId && playerRef) {
-				playerRef.pauseLocal();
+			if (evt.device_id !== deviceId) {
+				engine.stopAll();
 			}
 
-			// Target device: load the embedded queue and start playing.
-			if (evt.device_id === deviceId && playerRef && evt.track_id) {
-				playerRef.receivePlayCommand(evt.track_id, evt.position_ms ?? 0, evt.queue);
+			// Target device: route to the music content provider via engine.
+			if (evt.device_id === deviceId && evt.track_id) {
+				engine.handlePlayCommand(evt.track_id, evt.position_ms ?? 0, evt.queue);
 			}
 			refreshDevices();
 			break;
 
 		case 'control_command':
 			// This device is the target of a remote control action.
-			if (evt.device_id === deviceId && playerRef && evt.action) {
-				switch (evt.action) {
-					case 'toggle': playerRef.togglePlayPause(); break;
-					case 'next':   playerRef.next(); break;
-					case 'previous': playerRef.previous(); break;
-					case 'seek':
-						if (evt.position_ms !== undefined) playerRef.seek(evt.position_ms / 1000);
-						break;
-					case 'volume':
-						if (evt.volume !== undefined) playerRef.setVolume(evt.volume);
-						break;
-				}
+			// Route through the engine — it dispatches to the active provider.
+			if (evt.device_id === deviceId && evt.action) {
+				engine.receiveControlCommand(evt.action, {
+					position_ms: evt.position_ms,
+					volume: evt.volume,
+					speed: evt.speed,
+				});
 			}
 			break;
 	}
@@ -444,7 +393,7 @@ if (browser) {
 				startSession().then(() => {
 					// If this device was playing locally while we were offline,
 					// claim the active slot so the server reflects reality.
-					if (playerRef && get(playerRef.playbackState) === 'playing' && deviceId) {
+					if (get(engine.enginePlaybackState) === 'playing' && deviceId) {
 						devicesApi.activate(deviceId).catch(() => {});
 					}
 				});

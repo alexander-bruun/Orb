@@ -159,6 +159,42 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnDownloadProgress(
     }
 }
 
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABSkipBack15(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    emit_to_frontend("native-ab-skip-back-15");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABSkipForward15(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    emit_to_frontend("native-ab-skip-forward-15");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABSpeedCycle(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    emit_to_frontend("native-ab-speed-cycle");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABChapterStart(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    emit_to_frontend("native-ab-chapter-start");
+}
+
 // ── Playback commands: called from Rust Tauri commands ───────────────────────
 
 #[cfg(target_os = "android")]
@@ -364,6 +400,50 @@ pub fn set_favorite_state(favorited: bool) -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
+pub fn set_audiobook_mode(is_audiobook: bool) -> Result<(), String> {
+    let jvm = get_jvm();
+    let res: Result<(), jni::errors::Error> = (|| {
+        let guard = jvm.attach_current_thread()?;
+        let mut env = guard;
+
+        let cls = get_companion_class(&mut env)?;
+
+        env.call_static_method(
+            cls,
+            "setAudiobookMode",
+            "(Z)V",
+            &[JValue::Bool(is_audiobook as u8)],
+        )?;
+
+        Ok(())
+    })();
+
+    res.map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn set_playback_speed(speed: f32) -> Result<(), String> {
+    let jvm = get_jvm();
+    let res: Result<(), jni::errors::Error> = (|| {
+        let guard = jvm.attach_current_thread()?;
+        let mut env = guard;
+
+        let cls = get_companion_class(&mut env)?;
+
+        env.call_static_method(
+            cls,
+            "setPlaybackSpeed",
+            "(F)V",
+            &[JValue::Float(speed)],
+        )?;
+
+        Ok(())
+    })();
+
+    res.map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
 pub fn set_api_credentials(base_url: String, token: String) -> Result<(), String> {
     let jvm = get_jvm();
     let res: Result<(), jni::errors::Error> = (|| {
@@ -529,6 +609,34 @@ pub fn delete_cover_art(album_id: String) -> Result<(), String> {
         )?;
 
         Ok(())
+    })();
+
+    res.map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+pub fn get_offline_file_path(track_id: String) -> Result<Option<String>, String> {
+    let jvm = get_jvm();
+    let res: Result<Option<String>, jni::errors::Error> = (|| {
+        let guard = jvm.attach_current_thread()?;
+        let mut env = guard;
+
+        let cls = get_companion_class(&mut env)?;
+        let id_jstring = env.new_string(&track_id)?;
+
+        let result = env.call_static_method(
+            cls,
+            "getOfflineFilePath",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&id_jstring)],
+        )?.l()?;
+
+        if result.is_null() {
+            Ok(None)
+        } else {
+            let path: String = env.get_string((&result).into())?.into();
+            Ok(Some(path))
+        }
     })();
 
     res.map_err(|e| e.to_string())

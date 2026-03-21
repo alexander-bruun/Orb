@@ -39,6 +39,8 @@ type AudiobookConfig struct {
 	Enrich bool
 	// PollInterval is the interval between automatic re-scans.
 	PollInterval time.Duration
+	// StableTime is the minimum age (mtime) before a file is considered ready to ingest; detects incomplete downloads.
+	StableTime time.Duration
 }
 
 // AudiobookIngester processes audiobook files and persists them to the store.
@@ -115,6 +117,25 @@ func (g *AudiobookIngester) upToDateDir(dirPath string, totalSize, maxMtime int6
 	e, ok := g.state[dirPath]
 	g.stateMu.RUnlock()
 	return ok && e.mtimeUnix == maxMtime && e.fileSize == totalSize
+}
+
+// isStable checks if a file is old enough to be considered ready for ingest.
+// Files with recent modification times (being downloaded) are not considered stable.
+func (g *AudiobookIngester) isStable(fi os.FileInfo) bool {
+	if g.cfg.StableTime == 0 {
+		return true // stability check disabled
+	}
+	age := time.Since(fi.ModTime())
+	return age >= g.cfg.StableTime
+}
+
+// isDirStable checks if a directory (by its max mtime) is old enough for ingest.
+func (g *AudiobookIngester) isDirStable(maxMtime int64) bool {
+	if g.cfg.StableTime == 0 {
+		return true // stability check disabled
+	}
+	age := time.Since(time.Unix(maxMtime, 0))
+	return age >= g.cfg.StableTime
 }
 
 func (g *AudiobookIngester) markDone(ctx context.Context, path string, fi os.FileInfo, id string) {
@@ -583,6 +604,10 @@ func (g *AudiobookIngester) Scan(ctx context.Context) (newIDs []string, skipped,
 	var nDone, nSkipped, nErrs int64
 	var mu sync.Mutex
 	var ids []string
+	// foundPaths collects the ingest-state key for every candidate seen this
+	// scan (file path for single-file books, dirPath for multi-file). Used
+	// after the scan to prune DB records whose source paths no longer exist.
+	var foundPaths []string
 
 	workers := g.cfg.Workers
 	if workers < 1 {
@@ -595,6 +620,15 @@ func (g *AudiobookIngester) Scan(ctx context.Context) (newIDs []string, skipped,
 		go func() {
 			defer wg.Done()
 			for cand := range candidateCh {
+				// Record candidate key regardless of skip/error outcome.
+				mu.Lock()
+				if cand.singleFile {
+					foundPaths = append(foundPaths, cand.files[0])
+				} else {
+					foundPaths = append(foundPaths, cand.dirPath)
+				}
+				mu.Unlock()
+
 				if cand.singleFile {
 					p := cand.files[0]
 					fi, err := os.Stat(p)
@@ -604,6 +638,12 @@ func (g *AudiobookIngester) Scan(ctx context.Context) (newIDs []string, skipped,
 						continue
 					}
 					if g.upToDate(p, fi) {
+						atomic.AddInt64(&nSkipped, 1)
+						atomic.AddInt64(&nDone, 1)
+						continue
+					}
+					if !g.isStable(fi) {
+						slog.Debug("audiobook ingest: skipping unstable file (in-progress download?)", "path", p, "mtime_age_sec", int(time.Since(fi.ModTime()).Seconds()))
 						atomic.AddInt64(&nSkipped, 1)
 						atomic.AddInt64(&nDone, 1)
 						continue
@@ -649,6 +689,12 @@ func (g *AudiobookIngester) Scan(ctx context.Context) (newIDs []string, skipped,
 						atomic.AddInt64(&nDone, 1)
 						continue
 					}
+					if !g.isDirStable(maxMtime) {
+						slog.Debug("audiobook ingest: skipping unstable directory (in-progress download?)", "dir", cand.dirPath, "mtime_age_sec", int(time.Since(time.Unix(maxMtime, 0)).Seconds()))
+						atomic.AddInt64(&nSkipped, 1)
+						atomic.AddInt64(&nDone, 1)
+						continue
+					}
 					id, err := g.ingestDirectory(ctx, cand)
 					if err != nil {
 						if errors.Is(err, ErrSkipped) {
@@ -670,6 +716,19 @@ func (g *AudiobookIngester) Scan(ctx context.Context) (newIDs []string, skipped,
 		}()
 	}
 	wg.Wait()
+
+	// Prune DB records for audiobooks whose source paths were deleted from disk.
+	pruned, objKeys, err := g.db.PruneOrphanedAudiobooks(ctx, foundPaths)
+	if err != nil {
+		slog.Warn("audiobook ingest: prune orphaned audiobooks failed", "err", err)
+	} else if pruned > 0 {
+		slog.Info("audiobook ingest: pruned orphaned audiobooks", "count", pruned)
+		for _, k := range objKeys {
+			if err := g.obj.Delete(ctx, k); err != nil {
+				slog.Warn("audiobook ingest: delete orphaned object failed", "key", k, "err", err)
+			}
+		}
+	}
 
 	return ids, int(nSkipped), int(nErrs)
 }
@@ -710,6 +769,9 @@ var (
 	reNumericPrefix     = regexp.MustCompile(`^(\d{1,3}(?:\.\d+)?)\s*[-–]\s*(.+)$`)
 	rePeriodPrefix      = regexp.MustCompile(`^(\d{1,3}(?:\.\d+)?)\.[ \t]+(.+)$`)
 	reSeriesInfixIndex  = regexp.MustCompile(`^(.+?)\s+(0\d|\d{2,3}|\d+\.\d+)\s+(.+)$`)
+	// reSeriesInfixDash matches "Series Name N - Book Title" with any digit count,
+	// where the dash separator is the key signal that N is a series index.
+	reSeriesInfixDash   = regexp.MustCompile(`^(.+?)\s+(\d+(?:\.\d+)?)\s*[-–]\s*(.+)$`)
 	reBookSuffixIndex   = regexp.MustCompile(`(?i)\b(?:book|part|vol(?:ume)?\.?)\s*([0-9]+(?:\.\d+)?)\b`)
 
 	// Strips common edition/quality tags from the end of a book title.
@@ -883,6 +945,12 @@ func parseBookDirName(name string) (title string, seriesIndex *float64, edition 
 			return title, parseIdx(m[2]), edition
 		}
 	}
+	if m := reSeriesInfixDash.FindStringSubmatch(name); m != nil {
+		if hasLetter(m[1]) {
+			title, edition = cleanBookTitleWithEdition(m[3])
+			return title, parseIdx(m[2]), edition
+		}
+	}
 	if m := reBookSuffixIndex.FindStringSubmatchIndex(name); m != nil {
 		idx := parseIdx(name[m[2]:m[3]])
 		if idx != nil {
@@ -980,7 +1048,17 @@ func isSeriesTitleMatch(series, title string) bool {
 }
 
 func parseSeriesPrefixFromBookDirName(name string) string {
+	// Guard: "Book 3 - Title" or "Vol. 1 - Title" should not yield "Book"/"Vol." as
+	// a series prefix — they are keyword-indexed book names, not series annotations.
+	if reBookKeywordPrefix.MatchString(name) {
+		return ""
+	}
 	if m := reSeriesInfixIndex.FindStringSubmatch(name); m != nil {
+		if hasLetter(m[1]) {
+			return strings.TrimSpace(m[1])
+		}
+	}
+	if m := reSeriesInfixDash.FindStringSubmatch(name); m != nil {
 		if hasLetter(m[1]) {
 			return strings.TrimSpace(m[1])
 		}
@@ -1240,6 +1318,7 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 
 	var title, authorName, narratorName string
 	var edition *string
+	var publishedYear *int
 	var seriesName string
 	var seriesIndex *float64
 	var seriesSource string
@@ -1294,6 +1373,22 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 	}
 
 	baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	// Strip folder-name annotations before pattern-matching the title.
+	baseName, narratorsFromBraces := parseNarratorsFromBraces(baseName)
+	baseName, narratorFromParens := parseNarratorFromParens(baseName)
+	baseName, asinFromName := parseASINFromFolder(baseName)
+	baseName, yearFromName := parseYearPrefixFromFolder(baseName)
+	if narratorName == "" && len(narratorsFromBraces) > 0 {
+		narratorName = narratorsFromBraces[0]
+	}
+	if narratorName == "" && narratorFromParens != "" {
+		narratorName = narratorFromParens
+	}
+	if publishedYear == nil && yearFromName != "" {
+		if y, err := strconv.Atoi(yearFromName); err == nil && y > 0 {
+			publishedYear = &y
+		}
+	}
 	_, seriesIndexFromName, editionFromName := parseBookDirName(baseName)
 	if seriesIndex == nil && seriesIndexFromName != nil {
 		seriesIndex = seriesIndexFromName
@@ -1319,8 +1414,13 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 	}
 	// If the parent directory looks like a book folder (has a series index),
 	// treat the grandparent as the series name (single-file mode layout).
+	// Also handle year-prefixed parent dirs (e.g. "1989 - Hyperion") as implicit
+	// series ordering — the grandparent ("Hyperion Cantos") is the series.
+	_, parentYearStr := parseYearPrefixFromFolder(parentDir)
+	_, idxFromParentDir, _ := parseBookDirName(parentDir)
+	parentHasYearOrdering := parentYearStr != "" && idxFromParentDir == nil
 	usedGrandparentSeries := false
-	if _, idxFromParentDir, _ := parseBookDirName(parentDir); idxFromParentDir != nil {
+	if idxFromParentDir != nil || parentHasYearOrdering {
 		grandparentDir := filepath.Base(filepath.Dir(parentPath))
 		if isValidDirName(grandparentDir) && !isSeriesRootDir(grandparentDir, g.cfg.Dirs) {
 			seriesFromParent = grandparentDir
@@ -1338,7 +1438,7 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 			usedGrandparentSeries = true
 		}
 	}
-	if seriesName == "" && seriesFromParent != "" && (seriesIndex != nil || usedGrandparentSeries) {
+	if seriesName == "" && seriesFromParent != "" && (seriesIndex != nil || usedGrandparentSeries || parentHasYearOrdering) {
 		seriesName = cleanSeriesName(seriesFromParent)
 		seriesSource = "folder"
 		seriesConfidence = 0.7
@@ -1439,21 +1539,27 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 		seriesConfidencePtr = &seriesConfidence
 	}
 
+	var asinPtr *string
+	if asinFromName != "" {
+		asinPtr = &asinFromName
+	}
 	_, err = g.db.UpsertAudiobook(ctx, store.UpsertAudiobookParams{
-		ID:          audiobookID,
-		Title:       title,
-		Edition:     edition,
-		AuthorID:    &authorID,
-		CoverArtKey: coverArtKeyPtr,
-		Series:      seriesPtr,
-		SeriesIndex: seriesIndex,
-		SeriesSource: seriesSourcePtr,
+		ID:               audiobookID,
+		Title:            title,
+		Edition:          edition,
+		AuthorID:         &authorID,
+		CoverArtKey:      coverArtKeyPtr,
+		Series:           seriesPtr,
+		SeriesIndex:      seriesIndex,
+		SeriesSource:     seriesSourcePtr,
 		SeriesConfidence: seriesConfidencePtr,
-		FileKey:     &fileKey,
-		FileSize:    fi.Size(),
-		Format:      ext,
-		DurationMs:  durationMs,
-		Fingerprint: fingerprint,
+		PublishedYear:    publishedYear,
+		ASIN:             asinPtr,
+		FileKey:          &fileKey,
+		FileSize:         fi.Size(),
+		Format:           ext,
+		DurationMs:       durationMs,
+		Fingerprint:      fingerprint,
 	})
 	if err != nil {
 		return "", fmt.Errorf("upsert audiobook: %w", err)
@@ -1632,6 +1738,22 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 
 	// ── Parse book directory name for series index + title ────────────────
 	bookDirBase := filepath.Base(cand.dirPath)
+	// Strip folder-name annotations before pattern-matching the title.
+	bookDirBase, narratorsFromDir := parseNarratorsFromBraces(bookDirBase)
+	bookDirBase, narratorFromParens := parseNarratorFromParens(bookDirBase)
+	bookDirBase, asinFromDir := parseASINFromFolder(bookDirBase)
+	bookDirBase, yearFromDir := parseYearPrefixFromFolder(bookDirBase)
+	if narratorName == "" && len(narratorsFromDir) > 0 {
+		narratorName = narratorsFromDir[0]
+	}
+	if narratorName == "" && narratorFromParens != "" {
+		narratorName = narratorFromParens
+	}
+	if publishedYear == nil && yearFromDir != "" {
+		if y, err := strconv.Atoi(yearFromDir); err == nil && y > 0 {
+			publishedYear = &y
+		}
+	}
 	titleFromDir, seriesIndexFromDir, editionFromDir := parseBookDirName(bookDirBase)
 	if seriesIndex == nil && seriesIndexFromDir != nil {
 		seriesIndex = seriesIndexFromDir
@@ -1672,16 +1794,21 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 	// Handles two common library layouts:
 	//   3-level: Author/Series/Book N - Title/  → grandparent=Author, parent=Series
 	//   2-level: Author/Book Title/             → parent=Author
-	if seriesIndex != nil && seriesFromParent == "" && isValidDirName(parentDir) {
+	//
+	// Year-prefixed layouts (e.g. "1989 - Hyperion") also imply ordering:
+	// the parent dir is the series, not the author.
+	hasYearOrdering := yearFromDir != "" && seriesIndex == nil
+	if (seriesIndex != nil || hasYearOrdering) && seriesFromParent == "" && isValidDirName(parentDir) {
 		seriesFromParent = parentDir
 	}
 
 	if authorName == "" {
-		if seriesIndex != nil {
-			// Book has an index → likely 3-level: grandparent is the author,
-			// parent is the series name.
+		if seriesIndex != nil || hasYearOrdering {
+			// Book has an index or year ordering → likely 3-level: grandparent is
+			// the author, parent is the series name.
+			// Guard: if grandparent is the library root there is no author layer.
 			grandparentDir := filepath.Base(filepath.Dir(parentPath))
-			if isValidDirName(grandparentDir) {
+			if isValidDirName(grandparentDir) && !isSeriesRootDir(grandparentDir, g.cfg.Dirs) {
 				_, grandAuthor, grandNarrator := parseSeriesDirName(grandparentDir)
 				if grandAuthor != "" {
 					authorName = grandAuthor
@@ -1693,7 +1820,7 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 				}
 			}
 		} else if isValidDirName(parentDir) {
-			// No series index → likely 2-level: parent dir is the author.
+			// No series index or year ordering → likely 2-level: parent dir is the author.
 			authorName = parentDir
 		}
 	}
@@ -1710,7 +1837,7 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 			usedGrandparentSeries = true
 		}
 	}
-	if seriesName == "" && seriesFromParent != "" && (seriesIndex != nil || usedGrandparentSeries) {
+	if seriesName == "" && seriesFromParent != "" && (seriesIndex != nil || usedGrandparentSeries || hasYearOrdering) {
 		seriesName = cleanSeriesName(seriesFromParent)
 		seriesSource = "folder"
 		seriesConfidence = 0.7
@@ -1880,6 +2007,9 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 	}
 	if publishedYear != nil {
 		params.PublishedYear = publishedYear
+	}
+	if asinFromDir != "" {
+		params.ASIN = &asinFromDir
 	}
 	if _, err := g.db.UpsertAudiobook(ctx, params); err != nil {
 		return "", fmt.Errorf("upsert audiobook: %w", err)

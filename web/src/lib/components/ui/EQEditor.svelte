@@ -303,6 +303,9 @@
               placeholder="Search genres to set override…"
               bind:value={genreSearch}
             />
+            {#if genreSearch}
+              <button class="eq-genre-search-clear" on:click={() => (genreSearch = '')} aria-label="Clear">×</button>
+            {/if}
           </div>
 
           <!-- Filtered results -->
@@ -488,15 +491,14 @@
   .eq-genre-chip-remove:hover { opacity: 1; color: var(--text-1); }
 
   /* Search */
-  .eq-genre-search-row { display: flex; }
+  .eq-genre-search-row { display: flex; align-items: center; position: relative; max-width: 28rem; }
   .eq-genre-search-input {
     width: 100%;
-    max-width: 28rem;
     height: 32px;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 0 10px;
+    padding: 0 30px 0 10px;
     color: var(--text-1);
     font-size: 0.8125rem;
     outline: none;
@@ -504,6 +506,20 @@
   }
   .eq-genre-search-input:focus { border-color: var(--accent); }
   .eq-genre-search-input::placeholder { color: var(--text-2); }
+
+  .eq-genre-search-clear {
+    position: absolute;
+    right: 6px;
+    background: none;
+    border: none;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 4px;
+    line-height: 1;
+    opacity: 0.7;
+  }
+  .eq-genre-search-clear:hover { opacity: 1; color: var(--text-1); }
 
   /* Results list */
   .eq-genre-list {

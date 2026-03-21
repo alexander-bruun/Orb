@@ -482,3 +482,9 @@ ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS series_confidence REAL;
 
 -- Store edition/variant labels like "Unabridged".
 ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS edition TEXT;
+
+-- Amazon Standard Identification Number extracted from folder-name annotation "[B0015T963C]".
+ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS asin TEXT;
+
+-- Subtitle extracted from folder-name or metadata (e.g. "Book Title - Subtitle Here").
+ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS subtitle TEXT;

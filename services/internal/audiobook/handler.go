@@ -54,6 +54,10 @@ func (s *Service) Routes(r chi.Router) {
 	// Admin: trigger audiobook scan
 	r.Post("/admin/scan", s.triggerScan)
 	r.Post("/admin/rescan/{id}", s.triggerRescanAudiobook)
+
+	// Admin: missing metadata
+	r.Get("/admin/no-cover", s.listNoCover)
+	r.Get("/admin/no-series", s.listNoSeries)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -314,4 +318,76 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "scan started"})
+}
+
+func (s *Service) listNoCover(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromCtx(r)
+	if userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	u, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil || !u.IsAdmin || !u.IsActive {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	limit := int32(50)
+	offset := int32(0)
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = int32(n)
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = int32(n)
+		}
+	}
+
+	books, total, err := s.db.ListAudiobooksNoCover(r.Context(), limit, offset)
+	if err != nil {
+		http.Error(w, "list audiobooks no cover: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if books == nil {
+		books = []store.Audiobook{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "total": total})
+}
+
+func (s *Service) listNoSeries(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromCtx(r)
+	if userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	u, err := s.db.GetUserByID(r.Context(), userID)
+	if err != nil || !u.IsAdmin || !u.IsActive {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	limit := int32(50)
+	offset := int32(0)
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = int32(n)
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = int32(n)
+		}
+	}
+
+	books, total, err := s.db.ListAudiobooksNoSeries(r.Context(), limit, offset)
+	if err != nil {
+		http.Error(w, "list audiobooks no series: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if books == nil {
+		books = []store.Audiobook{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "total": total})
 }

@@ -531,22 +531,24 @@ func (s *Service) updateAudiobookMeta(w http.ResponseWriter, r *http.Request) {
 
 	// Resolve author name → author_id if provided.
 	var authorID *string
-	if body.AuthorName != nil && *body.AuthorName != "" {
-		aid, err := s.db.FindOrCreateArtistByName(r.Context(), *body.AuthorName)
-		if err != nil {
-			http.Error(w, "resolve author: "+err.Error(), http.StatusInternalServerError)
-			return
+	var updateAuthor bool
+	if body.AuthorName != nil {
+		updateAuthor = true
+		if *body.AuthorName != "" {
+			aid, err := s.db.FindOrCreateArtistByName(r.Context(), *body.AuthorName)
+			if err != nil {
+				http.Error(w, "resolve author: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			authorID = &aid
 		}
-		authorID = &aid
-	} else if body.AuthorName != nil {
-		// Empty string means clear the author.
-		empty := ""
-		authorID = &empty
+		// empty string → updateAuthor=true, authorID=nil → clears author_id to NULL
 	}
 
 	if err := s.db.UpdateAudiobookMeta(r.Context(), store.UpdateAudiobookMetaParams{
 		ID:            id,
 		Title:         body.Title,
+		UpdateAuthor:  updateAuthor,
 		AuthorID:      authorID,
 		Description:   body.Description,
 		Series:        body.Series,

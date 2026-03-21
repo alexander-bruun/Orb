@@ -18,6 +18,31 @@
 
   const APP_BASE = typeof location !== 'undefined' ? location.origin : '';
 
+  let partyHistoryPushed = false;
+
+  onMount(() => {
+    function handlePopState() {
+      if ($lpPanelOpen) {
+        partyHistoryPushed = false;
+        lpPanelOpen.set(false);
+      }
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  });
+
+  $effect(() => {
+    const open = $lpPanelOpen;
+    if (typeof window === 'undefined') return;
+    if (open && !partyHistoryPushed) {
+      history.pushState({ orbListenParty: true }, '');
+      partyHistoryPushed = true;
+    } else if (!open && partyHistoryPushed) {
+      partyHistoryPushed = false;
+      history.back();
+    }
+  });
+
   let copied = $state(false);
   let codeCopied = $state(false);
   let togglingCode = $state(false);

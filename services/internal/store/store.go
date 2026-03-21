@@ -1048,7 +1048,7 @@ func (s *Store) SearchTracks(ctx context.Context, p SearchTracksParams) ([]Track
 
 	args = append(args, p.Limit)
 	q := fmt.Sprintf(
-		`SELECT DISTINCT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
 FROM tracks t
 LEFT JOIN track_features tf ON tf.track_id = t.id
 LEFT JOIN artists ar ON ar.id = t.artist_id%s
@@ -1525,6 +1525,100 @@ func (s *Store) DeleteIngestStateForAlbum(ctx context.Context, albumID string) (
 		paths = append(paths, p)
 	}
 	return paths, rows.Err()
+}
+
+// PruneOrphanedTracks removes tracks whose source files are no longer present
+// on disk. foundPaths is the complete set of audio file paths collected during
+// the current scan. Ingest-state rows whose paths are absent from that set are
+// considered orphaned. The method also removes empty albums and artists left
+// behind after deletion, and returns the object-store keys that callers should
+// delete.
+func (s *Store) PruneOrphanedTracks(ctx context.Context, foundPaths []string) (int, []string, error) {
+	foundSet := make(map[string]struct{}, len(foundPaths))
+	for _, p := range foundPaths {
+		foundSet[p] = struct{}{}
+	}
+
+	stateRows, err := s.LoadIngestState(ctx)
+	if err != nil {
+		return 0, nil, fmt.Errorf("prune tracks: load ingest state: %w", err)
+	}
+
+	var orphanPaths []string
+	var orphanTrackIDs []string
+	for _, r := range stateRows {
+		if _, ok := foundSet[r.Path]; !ok {
+			orphanPaths = append(orphanPaths, r.Path)
+			if r.TrackID != "" {
+				orphanTrackIDs = append(orphanTrackIDs, r.TrackID)
+			}
+		}
+	}
+	if len(orphanTrackIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	// Collect track file_keys before deletion for caller objstore cleanup.
+	var objKeys []string
+	fkRows, err := s.pool.Query(ctx, `SELECT file_key FROM tracks WHERE id = ANY($1)`, orphanTrackIDs)
+	if err == nil {
+		for fkRows.Next() {
+			var k string
+			if fkRows.Scan(&k) == nil && k != "" {
+				objKeys = append(objKeys, k)
+			}
+		}
+		fkRows.Close()
+	}
+
+	// Remove orphaned ingest-state entries.
+	if _, err := s.pool.Exec(ctx, `DELETE FROM ingest_state WHERE path = ANY($1)`, orphanPaths); err != nil {
+		return 0, nil, fmt.Errorf("prune ingest_state: %w", err)
+	}
+
+	// Delete the tracks (cascades to playlist_tracks, play_history, etc.).
+	if _, err := s.pool.Exec(ctx, `DELETE FROM tracks WHERE id = ANY($1)`, orphanTrackIDs); err != nil {
+		return 0, nil, fmt.Errorf("prune orphaned tracks: %w", err)
+	}
+
+	// Delete albums that have no remaining tracks and collect their cover art keys.
+	albumRows, err := s.pool.Query(ctx,
+		`DELETE FROM albums
+		 WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL)
+		 RETURNING cover_art_key`)
+	if err == nil {
+		for albumRows.Next() {
+			var k sql.NullString
+			if albumRows.Scan(&k) == nil && k.Valid && k.String != "" {
+				objKeys = append(objKeys, k.String)
+			}
+		}
+		albumRows.Close()
+	}
+
+	// Delete artists with no remaining tracks, albums, or audiobooks.
+	// Also collect their image keys.
+	artistRows, err := s.pool.Query(ctx,
+		`DELETE FROM artists
+		 WHERE id NOT IN (
+		     SELECT DISTINCT artist_id FROM tracks   WHERE artist_id IS NOT NULL
+		     UNION
+		     SELECT DISTINCT artist_id FROM albums   WHERE artist_id IS NOT NULL
+		     UNION
+		     SELECT DISTINCT author_id  FROM audiobooks WHERE author_id IS NOT NULL
+		 )
+		 RETURNING image_key`)
+	if err == nil {
+		for artistRows.Next() {
+			var k sql.NullString
+			if artistRows.Scan(&k) == nil && k.Valid && k.String != "" {
+				objKeys = append(objKeys, k.String)
+			}
+		}
+		artistRows.Close()
+	}
+
+	return len(orphanTrackIDs), objKeys, nil
 }
 
 // GetTrackByFingerprint returns a track by fingerprint.

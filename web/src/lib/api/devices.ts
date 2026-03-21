@@ -14,6 +14,10 @@ export interface DeviceState {
 	 *  Computed server-side as (now_ms - position_ms) when playing=true.
 	 *  Clients can derive current position as Date.now() - playback_epoch_ms. */
 	playback_epoch_ms?: number;
+	/** Set when the active device is playing an audiobook instead of a music track. */
+	is_audiobook?: boolean;
+	audiobook_id?: string;
+	audiobook_title?: string;
 }
 
 export interface Device {
@@ -38,8 +42,9 @@ export interface DeviceEvent {
 	position_ms?: number;
 	queue?: Track[];           // embedded queue for play_command
 	// control_command fields
-	action?: 'toggle' | 'next' | 'previous' | 'seek' | 'volume';
+	action?: 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'skip_forward' | 'skip_backward' | 'speed';
 	volume?: number;           // 0.0–1.0; for 'volume' action
+	speed?: number;            // playback speed; for 'speed' action
 }
 
 export const devices = {
@@ -69,7 +74,7 @@ export const devices = {
 			body: JSON.stringify({ track_id, position_ms, queue })
 		}),
 
-	controlCommand: (id: string, action: 'toggle' | 'next' | 'previous' | 'seek' | 'volume', opts?: { position_ms?: number; volume?: number }) =>
+	controlCommand: (id: string, action: 'toggle' | 'next' | 'previous' | 'seek' | 'volume' | 'skip_forward' | 'skip_backward' | 'speed', opts?: { position_ms?: number; volume?: number; speed?: number }) =>
 		apiFetch<void>(`/user/devices/${id}/control`, {
 			method: 'POST',
 			body: JSON.stringify({ action, ...opts })

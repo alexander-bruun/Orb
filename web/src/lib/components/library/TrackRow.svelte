@@ -194,6 +194,11 @@
     opacity: 0;
     transition: opacity 0.15s;
   }
+  @media (max-width: 640px) {
+    .row-actions {
+      display: none !important;
+    }
+  }
   .track-row:hover .row-actions { opacity: 1; }
   .track-row.playing .row-actions { opacity: 1; }
   .fav-btn {
