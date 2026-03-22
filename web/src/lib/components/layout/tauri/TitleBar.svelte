@@ -1,7 +1,20 @@
 <script lang="ts">
+    import { onMount } from "svelte";
     import { getCurrentWindow } from "@tauri-apps/api/window";
 
     const appWindow = getCurrentWindow();
+
+    let title = $state(typeof document !== "undefined" ? document.title : "Orb");
+
+    onMount(() => {
+        const titleEl = document.querySelector("title");
+        if (!titleEl) return;
+        const observer = new MutationObserver(() => {
+            title = document.title;
+        });
+        observer.observe(titleEl, { childList: true });
+        return () => observer.disconnect();
+    });
 
     function minimizeWindow() {
         appWindow.minimize();
@@ -17,6 +30,15 @@
 </script>
 
 <div class="titlebar" data-tauri-drag-region aria-label="Window title bar">
+    <div class="app-icon" data-tauri-drag-region>
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="8.5" stroke="currentColor" stroke-width="1.2" opacity="0.35"/>
+            <circle cx="10" cy="10" r="3.8" fill="currentColor"/>
+        </svg>
+    </div>
+
+    <div class="window-title" data-tauri-drag-region>{title}</div>
+
     <div class="window-controls">
         <button
             class="wc-btn wc-minimize"
@@ -74,7 +96,6 @@
         grid-area: titlebar;
         display: flex;
         align-items: center;
-        justify-content: flex-end;
         height: var(--titlebar-h);
         background: var(--bg);
         border-bottom: 1px solid var(--border);
@@ -83,10 +104,32 @@
         -webkit-user-select: none;
     }
 
+    .app-icon {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        color: var(--accent);
+        padding: 0 6px 0 2px;
+    }
+
+    .window-title {
+        flex: 1;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-2);
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding: 0 8px;
+    }
+
     .window-controls {
         display: flex;
         align-items: center;
         gap: 6px;
+        flex-shrink: 0;
     }
 
     .wc-btn {

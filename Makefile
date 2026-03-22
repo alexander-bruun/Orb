@@ -17,6 +17,9 @@ docker-down:
 	sudo docker compose down -v
 
 # Tauri Windows targets (local)
+windows-setup:
+	powershell.exe -ExecutionPolicy Bypass -File "$(shell wslpath -w scripts/windows-setup.ps1)"
+
 windows-build: web-install
 	cd web && bunx tauri build --target x86_64-pc-windows-msvc
 
