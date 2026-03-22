@@ -62,6 +62,29 @@ fn get_companion_class<'a>(env: &mut JNIEnv<'a>) -> Result<JClass<'a>, jni::erro
     }
 }
 
+// ── JNI boilerplate helpers ──────────────────────────────────────────────────
+
+/// Attach to the JVM, run the closure with a mutable JNIEnv, and map errors.
+#[cfg(target_os = "android")]
+fn with_jni<T>(f: impl FnOnce(&mut JNIEnv) -> Result<T, jni::errors::Error>) -> Result<T, String> {
+    let jvm = get_jvm();
+    let res: Result<T, jni::errors::Error> = (|| {
+        let mut env = jvm.attach_current_thread()?;
+        f(&mut env)
+    })();
+    res.map_err(|e| e.to_string())
+}
+
+/// Call a no-arg static void method on the companion class.
+#[cfg(target_os = "android")]
+fn call_jni_void(method: &str, sig: &str) -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, method, sig, &[])?;
+        Ok(())
+    })
+}
+
 // ── Emit Tauri events to the frontend ────────────────────────────────────────
 
 #[cfg(target_os = "android")]
@@ -199,13 +222,8 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABChapterStart(
 
 #[cfg(target_os = "android")]
 pub fn play(url: String, title: Option<String>, artist: Option<String>, cover_url: Option<String>) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let url_jstring = env.new_string(&url)?;
         let null = JObject::null();
 
@@ -234,289 +252,130 @@ pub fn play(url: String, title: Option<String>, artist: Option<String>, cover_ur
         };
 
         env.call_static_method(
-            cls,
-            "playTrack",
+            cls, "playTrack",
             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-            &[
-                JValue::Object(&url_jstring),
-                title_val,
-                artist_val,
-                cover_val,
-            ],
+            &[JValue::Object(&url_jstring), title_val, artist_val, cover_val],
         )?;
-
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn pause() -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(cls, "pauseTrack", "()V", &[])?;
-
-        Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    call_jni_void("pauseTrack", "()V")
 }
 
 #[cfg(target_os = "android")]
 pub fn resume() -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(cls, "resumeTrack", "()V", &[])?;
-
-        Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    call_jni_void("resumeTrack", "()V")
 }
 
 #[cfg(target_os = "android")]
 pub fn seek(position_ms: i64) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "seekTo",
-            "(J)V",
-            &[JValue::Long(position_ms)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "seekTo", "(J)V", &[JValue::Long(position_ms)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn get_position() -> Result<i64, String> {
-    let jvm = get_jvm();
-    let res: Result<i64, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        let val = env.call_static_method(cls, "getPosition", "()J", &[])?;
-        Ok(val.j()? as i64)
-    })();
-
-    res.map_err(|e| e.to_string())
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        Ok(env.call_static_method(cls, "getPosition", "()J", &[])?.j()? as i64)
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn get_duration() -> Result<i64, String> {
-    let jvm = get_jvm();
-    let res: Result<i64, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        let val = env.call_static_method(cls, "getDuration", "()J", &[])?;
-        Ok(val.j()? as i64)
-    })();
-
-    res.map_err(|e| e.to_string())
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        Ok(env.call_static_method(cls, "getDuration", "()J", &[])?.j()? as i64)
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn get_is_playing() -> Result<bool, String> {
-    let jvm = get_jvm();
-    let res: Result<bool, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        let val = env.call_static_method(cls, "getIsPlaying", "()Z", &[])?;
-        Ok(val.z()?)
-    })();
-
-    res.map_err(|e| e.to_string())
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        Ok(env.call_static_method(cls, "getIsPlaying", "()Z", &[])?.z()?)
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn set_shuffle_state(shuffled: bool) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "setShuffleState",
-            "(Z)V",
-            &[JValue::Bool(shuffled as u8)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "setShuffleState", "(Z)V", &[JValue::Bool(shuffled as u8)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn set_favorite_state(favorited: bool) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "setFavoriteState",
-            "(Z)V",
-            &[JValue::Bool(favorited as u8)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "setFavoriteState", "(Z)V", &[JValue::Bool(favorited as u8)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn set_audiobook_mode(is_audiobook: bool) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "setAudiobookMode",
-            "(Z)V",
-            &[JValue::Bool(is_audiobook as u8)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "setAudiobookMode", "(Z)V", &[JValue::Bool(is_audiobook as u8)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn set_playback_speed(speed: f32) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "setPlaybackSpeed",
-            "(F)V",
-            &[JValue::Float(speed)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "setPlaybackSpeed", "(F)V", &[JValue::Float(speed)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn set_api_credentials(base_url: String, token: String) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let base_url_jstring = env.new_string(&base_url)?;
         let token_jstring = env.new_string(&token)?;
-
         env.call_static_method(
-            cls,
-            "setApiCredentials",
-            "(Ljava/lang/String;Ljava/lang/String;)V",
-            &[
-                JValue::Object(&base_url_jstring),
-                JValue::Object(&token_jstring),
-            ],
+            cls, "setApiCredentials", "(Ljava/lang/String;Ljava/lang/String;)V",
+            &[JValue::Object(&base_url_jstring), JValue::Object(&token_jstring)],
         )?;
-
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn sync_downloads(metadata_json: String) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let json_jstring = env.new_string(&metadata_json)?;
-
-        env.call_static_method(
-            cls,
-            "syncDownloads",
-            "(Ljava/lang/String;)V",
-            &[JValue::Object(&json_jstring)],
-        )?;
-
+        env.call_static_method(cls, "syncDownloads", "(Ljava/lang/String;)V", &[JValue::Object(&json_jstring)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, String> {
-    let jvm = get_jvm();
-    let res: Result<String, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
         let byte_array = env.byte_array_from_slice(&data)?;
-
         let result = env.call_static_method(
-            cls,
-            "saveOfflineFile",
-            "(Ljava/lang/String;[B)Ljava/lang/String;",
+            cls, "saveOfflineFile", "(Ljava/lang/String;[B)Ljava/lang/String;",
             &[JValue::Object(&id_jstring), JValue::Object(&byte_array)],
         )?.l()?;
-
         let path: String = env.get_string((&result).into())?.into();
         Ok(path)
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
@@ -525,182 +384,95 @@ pub fn download_track_native(
     url: String,
     token: Option<String>,
 ) -> Result<String, String> {
-    let jvm = get_jvm();
-    let res: Result<String, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
         let url_jstring = env.new_string(&url)?;
-
-        // 👇 give this a real lifetime
         let null_token = JObject::null();
-
-        // 👇 also store the optional string so it lives long enough
         let token_jstring;
-
         let token_obj = if let Some(ref t) = token {
             token_jstring = env.new_string(t)?;
             JObject::from(token_jstring)
         } else {
             null_token
         };
-
-        let result = env
-            .call_static_method(
-                cls,
-                "downloadTrackNative",
-                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
-                &[
-                    JValue::Object(&id_jstring),
-                    JValue::Object(&url_jstring),
-                    JValue::Object(&token_obj),
-                ],
-            )?
-            .l()?;
-
+        let result = env.call_static_method(
+            cls, "downloadTrackNative",
+            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
+            &[JValue::Object(&id_jstring), JValue::Object(&url_jstring), JValue::Object(&token_obj)],
+        )?.l()?;
         let path: String = env.get_string((&result).into())?.into();
         Ok(path)
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn save_cover_art(album_id: String, data: Vec<u8>) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&album_id)?;
         let byte_array = env.byte_array_from_slice(&data)?;
-
         env.call_static_method(
-            cls,
-            "saveCoverArt",
-            "(Ljava/lang/String;[B)V",
+            cls, "saveCoverArt", "(Ljava/lang/String;[B)V",
             &[JValue::Object(&id_jstring), JValue::Object(&byte_array)],
         )?;
-
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn delete_cover_art(album_id: String) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&album_id)?;
-
-        env.call_static_method(
-            cls,
-            "deleteCoverArt",
-            "(Ljava/lang/String;)V",
-            &[JValue::Object(&id_jstring)],
-        )?;
-
+        env.call_static_method(cls, "deleteCoverArt", "(Ljava/lang/String;)V", &[JValue::Object(&id_jstring)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn get_offline_file_path(track_id: String) -> Result<Option<String>, String> {
-    let jvm = get_jvm();
-    let res: Result<Option<String>, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
-
         let result = env.call_static_method(
-            cls,
-            "getOfflineFilePath",
-            "(Ljava/lang/String;)Ljava/lang/String;",
+            cls, "getOfflineFilePath", "(Ljava/lang/String;)Ljava/lang/String;",
             &[JValue::Object(&id_jstring)],
         )?.l()?;
-
         if result.is_null() {
             Ok(None)
         } else {
             let path: String = env.get_string((&result).into())?.into();
             Ok(Some(path))
         }
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn delete_offline_file(track_id: String) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
-
-        env.call_static_method(
-            cls,
-            "deleteOfflineFile",
-            "(Ljava/lang/String;)V",
-            &[JValue::Object(&id_jstring)],
-        )?;
-
+        env.call_static_method(cls, "deleteOfflineFile", "(Ljava/lang/String;)V", &[JValue::Object(&id_jstring)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn set_volume(volume: f32) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "setVolume",
-            "(F)V",
-            &[JValue::Float(volume)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "setVolume", "(F)V", &[JValue::Float(volume)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[cfg(target_os = "android")]
 pub fn get_volume() -> Result<f32, String> {
-    let jvm = get_jvm();
-    let res: Result<f32, jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        let val = env.call_static_method(cls, "getVolume", "()F", &[])?;
-        Ok(val.f()?)
-    })();
-
-    res.map_err(|e| e.to_string())
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        Ok(env.call_static_method(cls, "getVolume", "()F", &[])?.f()?)
+    })
 }
 
 /// Apply EQ bands to the hardware Android Equalizer.
@@ -708,72 +480,39 @@ pub fn get_volume() -> Result<f32, String> {
 /// Pass `enabled = false` to bypass the equalizer without clearing the bands.
 #[cfg(target_os = "android")]
 pub fn set_eq_bands(enabled: bool, bands_json: String) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         let json_jstring = env.new_string(&bands_json)?;
-
         env.call_static_method(
-            cls,
-            "setEQBands",
-            "(ZLjava/lang/String;)V",
+            cls, "setEQBands", "(ZLjava/lang/String;)V",
             &[JValue::Bool(enabled as u8), JValue::Object(&json_jstring)],
         )?;
-
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 /// Configure crossfade. When enabled, ExoPlayer fires nativeOnNext() [secs]
 /// seconds before the track ends; handlePlay() then cross-fades the volumes.
 #[cfg(target_os = "android")]
 pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
         env.call_static_method(
-            cls,
-            "setCrossfadeSettings",
-            "(ZF)V",
+            cls, "setCrossfadeSettings", "(ZF)V",
             &[JValue::Bool(enabled as u8), JValue::Float(secs)],
         )?;
-
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 /// Enable or disable gapless playback (reserved for future pre-buffering logic).
 #[cfg(target_os = "android")]
 pub fn set_gapless_enabled(enabled: bool) -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-
-        let cls = get_companion_class(&mut env)?;
-
-        env.call_static_method(
-            cls,
-            "setGaplessEnabled",
-            "(Z)V",
-            &[JValue::Bool(enabled as u8)],
-        )?;
-
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, "setGaplessEnabled", "(Z)V", &[JValue::Bool(enabled as u8)])?;
         Ok(())
-    })();
-
-    res.map_err(|e| e.to_string())
+    })
 }
 
 #[no_mangle]
@@ -802,13 +541,5 @@ pub fn get_device_id() -> Result<String, String> {
 
 #[cfg(target_os = "android")]
 pub fn open_bluetooth_settings() -> Result<(), String> {
-    let jvm = get_jvm();
-    let res: Result<(), jni::errors::Error> = (|| {
-        let guard = jvm.attach_current_thread()?;
-        let mut env = guard;
-        let cls = get_companion_class(&mut env)?;
-        env.call_static_method(cls, "openBluetoothSettings", "()V", &[])?;
-        Ok(())
-    })();
-    res.map_err(|e| e.to_string())
+    call_jni_void("openBluetoothSettings", "()V")
 }
