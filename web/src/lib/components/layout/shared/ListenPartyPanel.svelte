@@ -161,7 +161,7 @@
           value={inviteUrl}
           onclick={(e) => (e.target as HTMLInputElement).select()}
         />
-        <button class="copy-btn" onclick={copyLink}>
+        <button class="copy-btn" onclick={copyLink} aria-label="Copy invite link">
           {#if copied}
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="4 10 8 14 16 6"/>

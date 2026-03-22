@@ -9,7 +9,7 @@
   export let coverGrid: string[] | undefined;
 </script>
 
-<button class="playlist-card" on:click={() => goto(`/playlists/${playlist.id}`)}>
+<button class="playlist-card" on:click={() => goto(`/playlists/${playlist.id}`)} aria-label="View playlist {playlist.name}">
   <div class="cover cover-grid">
     {#if coverGrid && coverGrid.length > 0}
       <div class="grid">

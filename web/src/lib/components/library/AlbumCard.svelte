@@ -21,7 +21,7 @@
   });
 </script>
 
-<button class="album-card" on:click={() => goto(`/library/albums/${album.id}`)}>
+<button class="album-card" on:click={() => goto(`/library/albums/${album.id}`)} aria-label="View album {album.title}">
   <div class="cover-wrap">
     {#if album.cover_art_key}
       <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" loading="lazy" />

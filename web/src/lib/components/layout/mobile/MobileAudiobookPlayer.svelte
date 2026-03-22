@@ -3,10 +3,6 @@
   import {
     currentAudiobook,
     abPlaybackState,
-    abPositionMs,
-    abDurationMs,
-    abFormattedPosition,
-    abFormattedDuration,
     abProgress,
     abCurrentChapter,
     abSpeed,
@@ -14,29 +10,18 @@
     abBookmarks,
     sleepTimerMins,
     toggleABPlayPause,
-    seekAudiobook,
-    seekAudiobookMs,
     skipForward,
     skipBackward,
-    setABSpeed,
     setABVolume,
-    setSleepTimer,
-    jumpToChapter,
-    createBookmark,
-    deleteBookmark,
     closeAudiobook,
-    AB_SPEEDS,
-    SLEEP_PRESETS,
     abFormattedFormat,
-    abChapterProgress,
-    abPreviousChapter,
-    abNextChapter,
   } from '$lib/stores/player/audiobookPlayer';
   import { getApiBase } from '$lib/api/base';
-  import type { AudiobookChapter } from '$lib/types';
   import { goto } from '$app/navigation';
   import { activeDevices, deviceId, exclusiveMode } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
+  import MobileAudiobookSheets from './MobileAudiobookSheets.svelte';
+  import MobileAudiobookSeekBar from './MobileAudiobookSeekBar.svelte';
 
   let playerOpen = false;
   let playerHistoryPushed = false;
@@ -120,20 +105,6 @@
     openPlayer();
   }
 
-  function onSeek(e: Event) {
-    const pct = parseFloat((e.target as HTMLInputElement).value);
-    if ($abCurrentChapter) {
-      // Seek bar shows chapter-relative progress — map pct back to absolute ms
-      const nextChapter = $currentAudiobook?.chapters?.find(ch => ch.start_ms > $abCurrentChapter!.start_ms);
-      const chDurationMs = nextChapter
-        ? nextChapter.start_ms - $abCurrentChapter.start_ms
-        : ($currentAudiobook?.duration_ms ?? 0) - $abCurrentChapter.start_ms;
-      seekAudiobookMs($abCurrentChapter.start_ms + (pct / 100) * chDurationMs);
-    } else {
-      seekAudiobook(($abDurationMs / 1000) * (pct / 100));
-    }
-  }
-
   function openPlayer() {
     playerOpen = true;
     history.pushState({ orbPlayer: true }, '');
@@ -209,19 +180,6 @@
     devicePickerOpen = false;
     const { transferAudiobookPlayback } = await import('$lib/stores/player/audiobookPlayer');
     await transferAudiobookPlayback(targetId);
-  }
-
-  function chapterPct(ch: AudiobookChapter): number {
-    return $abDurationMs > 0 ? (ch.start_ms / $abDurationMs) * 100 : 0;
-  }
-
-  function fmtMs(ms: number): string {
-    const s = Math.floor(ms / 1000);
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-    return `${m}:${String(sec).padStart(2,'0')}`;
   }
 
   function goToAudiobook() {
@@ -408,81 +366,7 @@
         </div>
 
         <!-- Seek bar (chapter-aware) -->
-        <div class="fs-seek">
-          {#if $abCurrentChapter}
-            <!-- Chapter info header -->
-            <div class="chapter-nav-info">
-              {#if $abPreviousChapter}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <button class="chapter-nav prev-nav" on:click|stopPropagation={() => jumpToChapter($abPreviousChapter!)} title={$abPreviousChapter.title}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="15 18 9 12 15 6"></polyline>
-                  </svg>
-                  <span>{$abPreviousChapter.title}</span>
-                </button>
-              {:else}
-                <div class="chapter-nav-spacer"></div>
-              {/if}
-              <div class="current-chapter">{$abCurrentChapter.title}</div>
-              {#if $abNextChapter}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <button class="chapter-nav next-nav" on:click|stopPropagation={() => jumpToChapter($abNextChapter!)} title={$abNextChapter.title}>
-                  <span>{$abNextChapter.title}</span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="9 18 15 12 9 6"></polyline>
-                  </svg>
-                </button>
-              {:else}
-                <div class="chapter-nav-spacer"></div>
-              {/if}
-            </div>
-
-            <!-- Seek bar for current chapter -->
-            <div class="seek-bar-wrap">
-              <div class="seek-track">
-                <div class="seek-fill" style="width: {$abChapterProgress}%"></div>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="0.05"
-                value={$abChapterProgress}
-                on:input={onSeek}
-                on:touchstart|stopPropagation
-                on:touchmove|stopPropagation
-                on:touchend|stopPropagation
-                class="seek-input"
-                aria-label="Seek in chapter"
-              />
-            </div>
-          {:else}
-            <!-- Fallback to overall progress -->
-            <div class="seek-bar-wrap">
-              <div class="seek-track">
-                <div class="seek-fill" style="width: {$abProgress}%"></div>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="0.05"
-                value={$abProgress}
-                on:input={onSeek}
-                on:touchstart|stopPropagation
-                on:touchmove|stopPropagation
-                on:touchend|stopPropagation
-                class="seek-input"
-                aria-label="Seek"
-              />
-            </div>
-          {/if}
-
-          <div class="seek-times">
-            <span>{$abFormattedPosition}</span>
-            <span>{$abFormattedDuration}</span>
-          </div>
-        </div>
+        <MobileAudiobookSeekBar />
 
         <!-- Main controls -->
         <div class="fs-controls">
@@ -665,96 +549,13 @@
       </div>
 
       <!-- Bottom sheets -->
-      {#if showSpeed}
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="bottom-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
-          <div class="sheet-handle"></div>
-          <p class="sheet-title">Playback Speed</p>
-          <div class="speed-grid">
-            {#each AB_SPEEDS as s}
-              <button class="speed-chip" class:chip-active={$abSpeed === s}
-                on:click={() => { setABSpeed(s); showSpeed = false; }}>{s}×</button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if showSleep}
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="bottom-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
-          <div class="sheet-handle"></div>
-          <p class="sheet-title">Sleep Timer</p>
-          <div class="speed-grid">
-            <button class="speed-chip" class:chip-active={$sleepTimerMins === 0}
-              on:click={() => { setSleepTimer(0); showSleep = false; }}>Off</button>
-            {#each SLEEP_PRESETS as mins}
-              <button class="speed-chip" class:chip-active={$sleepTimerMins === mins}
-                on:click={() => { setSleepTimer(mins); showSleep = false; }}>{mins}m</button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if showChapters && $currentAudiobook.chapters?.length}
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="bottom-sheet chapter-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
-          <div class="sheet-handle"></div>
-          <p class="sheet-title">Chapters</p>
-          <div class="chapter-scroll">
-            {#each $currentAudiobook.chapters as ch (ch.id)}
-              {@const active = $abCurrentChapter?.id === ch.id}
-              <button class="chapter-row" class:ch-active={active}
-                on:click={() => { jumpToChapter(ch); showChapters = false; }}>
-                <span class="ch-num">{ch.chapter_num + 1}</span>
-                <span class="ch-name">{ch.title}</span>
-                <span class="ch-time">{fmtMs(ch.start_ms)}</span>
-                {#if active}<span class="ch-dot"></span>{/if}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if showBookmarks}
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="bottom-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
-          <div class="sheet-handle"></div>
-          <p class="sheet-title">Bookmarks</p>
-          <button class="bm-add-btn" on:click={() => { createBookmark(); showBookmarks = false; }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            Bookmark current position
-          </button>
-          {#if $abBookmarks.length === 0}
-            <p class="bm-empty">No bookmarks yet</p>
-          {:else}
-            <div class="bm-list">
-              {#each $abBookmarks as bm (bm.id)}
-                <div class="bm-row">
-                  <button class="bm-jump" on:click={() => { seekAudiobook(bm.position_ms / 1000); showBookmarks = false; }}>
-                    <span class="bm-t">{fmtMs(bm.position_ms)}</span>
-                    {#if bm.note}<span class="bm-n">{bm.note}</span>{/if}
-                  </button>
-                  <button class="bm-del" on:click={() => deleteBookmark(bm.id)} aria-label="Delete">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                  </button>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/if}
+      <MobileAudiobookSheets
+        bind:showSpeed
+        bind:showSleep
+        bind:showChapters
+        bind:showBookmarks
+        {closeSheets}
+      />
     </div>
   {/if}
 {/if}
@@ -1048,122 +849,6 @@
       flex-shrink: 0;
     }
 
-    .fs-seek {
-      flex-shrink: 0;
-      padding: 4px 0 12px;
-    }
-
-    .chapter-nav-info {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 8px;
-      font-size: 0.7rem;
-      color: rgba(255, 255, 255, 0.55);
-    }
-
-    .current-chapter {
-      flex: 1;
-      text-align: center;
-      color: rgba(255, 255, 255, 0.75);
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .chapter-nav {
-      flex: 0 0 35%;
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      opacity: 0.6;
-      /* button reset */
-      background: none;
-      border: none;
-      color: inherit;
-      font: inherit;
-      cursor: pointer;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .chapter-nav:active {
-      opacity: 0.9;
-    }
-
-    .chapter-nav-spacer {
-      flex: 0 0 35%;
-    }
-
-    .prev-nav {
-      justify-content: flex-start;
-      text-align: right;
-      flex-direction: row-reverse;
-    }
-
-    .next-nav {
-      justify-content: flex-end;
-    }
-
-    .seek-bar-wrap {
-      position: relative;
-      height: 4px;
-      display: flex;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .seek-track {
-      position: absolute;
-      left: 0; right: 0;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 2px;
-    }
-
-    .seek-fill {
-      position: absolute;
-      height: 100%;
-      background: #fff;
-      border-radius: 2px;
-      transition: width 0.22s linear;
-    }
-
-    .seek-input {
-      position: absolute;
-      left: -8px; right: -8px;
-      width: calc(100% + 16px);
-      height: 28px;
-      margin: 0;
-      cursor: pointer;
-      -webkit-appearance: none;
-      appearance: none;
-      background: transparent;
-      z-index: 2;
-    }
-
-    .seek-input::-webkit-slider-runnable-track {
-      background: transparent;
-      height: 4px;
-    }
-    .seek-input::-moz-range-track {
-      background: transparent;
-      height: 4px;
-      border: none;
-    }
-    .seek-input::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px; height: 16px; border-radius: 50%; background: #fff; margin-top: -6px;
-    }
-    .seek-input::-moz-range-thumb {
-      width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none;
-    }
-
     .volume-input {
       position: absolute;
       left: -8px; right: -8px;
@@ -1192,14 +877,6 @@
     }
     .volume-input::-moz-range-thumb {
       width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none;
-    }
-
-    .seek-times {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.72rem;
-      color: rgba(255, 255, 255, 0.55);
-      font-variant-numeric: tabular-nums;
     }
 
     .fs-controls {
@@ -1350,37 +1027,5 @@
     }
     .sheet-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
     .sheet-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 18px; text-align: center; }
-
-    .speed-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-    .speed-chip {
-      padding: 12px 20px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 24px;
-      font-size: 0.9rem; font-weight: 600; color: var(--text-muted); cursor: pointer;
-    }
-    .chip-active { background: var(--accent) !important; color: #fff !important; border-color: var(--accent) !important; font-weight: 700; }
-
-    .chapter-sheet { max-height: 70vh; display: flex; flex-direction: column; }
-    .chapter-scroll { overflow-y: auto; flex: 1; }
-    .chapter-row {
-      display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 8px;
-      background: none; border: none; border-bottom: 1px solid var(--border); cursor: pointer; text-align: left;
-    }
-    .ch-active { background: rgba(var(--accent-rgb), 0.1) !important; }
-    .ch-num { font-size: 0.75rem; color: var(--text-muted); width: 24px; text-align: right; }
-    .ch-name { flex: 1; font-size: 0.9rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ch-time { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .ch-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-
-    .bm-add-btn {
-      display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 8px;
-      background: none; border: none; border-bottom: 1px solid var(--border);
-      cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--accent);
-    }
-    .bm-empty { font-size: 0.85rem; color: var(--text-muted); text-align: center; padding: 24px 0; }
-    .bm-list { max-height: 300px; overflow-y: auto; }
-    .bm-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
-    .bm-jump { flex: 1; display: flex; align-items: center; gap: 12px; padding: 14px 8px; background: none; border: none; cursor: pointer; text-align: left; }
-    .bm-t { font-size: 0.85rem; color: var(--accent); font-weight: 600; }
-    .bm-n { font-size: 0.85rem; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bm-del { background: none; border: none; color: var(--text-muted); padding: 12px; }
   }
 </style>

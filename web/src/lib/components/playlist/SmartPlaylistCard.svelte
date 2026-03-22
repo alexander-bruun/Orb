@@ -13,7 +13,7 @@
   };
 </script>
 
-<button class="playlist-card" on:click={() => goto(`/smart-playlists/${playlist.id}`)}>
+<button class="playlist-card" on:click={() => goto(`/smart-playlists/${playlist.id}`)} aria-label="View smart playlist {playlist.name}">
   <div class="cover" class:system={playlist.system}>
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d={systemIcons[playlist.name] ?? 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01'}/>

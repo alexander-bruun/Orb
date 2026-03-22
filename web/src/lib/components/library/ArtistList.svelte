@@ -7,7 +7,7 @@
 
 <div class="artist-list">
   {#each artists as artist (artist.id)}
-    <button class="artist-row" on:click={() => goto(`/artists/${artist.id}`)}>
+    <button class="artist-row" on:click={() => goto(`/artists/${artist.id}`)} aria-label="View artist {artist.name}">
       <div class="monogram">{artist.name.slice(0, 1).toUpperCase()}</div>
       <span class="name">{artist.name}</span>
       <svg class="chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">

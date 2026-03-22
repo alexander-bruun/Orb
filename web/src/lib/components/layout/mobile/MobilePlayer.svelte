@@ -5,23 +5,12 @@
     playbackState,
     positionMs,
     durationMs,
-    formattedPosition,
-    formattedDuration,
-    volume,
-    bufferedPct,
-    repeatMode,
-    shuffle,
-    smartShuffleEnabled,
     userQueue,
-    queue,
     queueModalOpen,
     togglePlayPause,
     seek,
-    setVolume,
     next,
     previous,
-    toggleRepeat,
-    toggleShuffle,
     transferPlayback,
     formattedFormat,
   } from '$lib/stores/player';
@@ -31,21 +20,14 @@
   import { favorites } from '$lib/stores/library/favorites';
   import { writable } from 'svelte/store';
   import { getApiBase } from '$lib/api/base';
-  import { lyricsOpen, lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/player/lyrics';
+  import { lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/player/lyrics';
   import { goto } from '$app/navigation';
-  import { activeDevices, deviceId, exclusiveMode } from '$lib/stores/player/deviceSession';
-  import { devices as devicesApi } from '$lib/api/devices';
   import {
     castState,
     castDeviceName,
     initCastSdk,
     startCast,
     stopCast,
-    sinkIdSupported,
-    audioOutputDevices,
-    selectedAudioOutputId,
-    setAudioOutput,
-    refreshAudioOutputDevices,
     remotePlaybackSupported,
     promptRemotePlayback,
   } from '$lib/stores/player/casting';
@@ -56,9 +38,11 @@
     lpSessionId,
     createAndConnect,
   } from '$lib/stores/social/listenParty';
-  import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
   import StarRating from '$lib/components/ui/StarRating.svelte';
-  import { waveformEnabled } from '$lib/stores/settings/theme';
+  import MobilePlaybackControls from './MobilePlaybackControls.svelte';
+  import MobileProgressBar from './MobileProgressBar.svelte';
+  import MobileVolumeSlider from './MobileVolumeSlider.svelte';
+  import MobileDevicePicker from './MobileDevicePicker.svelte';
   import { nativePlatform } from '$lib/utils/platform';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -181,23 +165,6 @@
 
   $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
 
-  // Seek: track visual drag position separately; only actually seek on release
-  let seekDragValue: number | null = null;
-
-  function onSeekInput(e: Event) {
-    seekDragValue = parseFloat((e.target as HTMLInputElement).value);
-  }
-
-  function onSeek(e: Event) {
-    const pct = parseFloat((e.target as HTMLInputElement).value);
-    seekDragValue = null;
-    seek(($durationMs / 1000) * (pct / 100));
-  }
-
-  function onVolumeChange(e: Event) {
-    setVolume(parseFloat((e.target as HTMLInputElement).value));
-  }
-
   function openPlayer() {
     playerOpen = true;
     history.pushState({ orbPlayer: true }, '');
@@ -279,7 +246,6 @@
 
   // ── Device transfer ────────────────────────────────────────────────────────
   let devicePickerOpen = false;
-  let waveformWidth = 0;
 
   // Initialise Cast SDK so it's ready when the user opens the picker.
   initCastSdk();
@@ -568,140 +534,13 @@
       {/if}
 
       <!-- Seek bar -->
-      <div class="fs-seek">
-        {#if $waveformEnabled}
-          <!-- svelte-ignore a11y-no-static-element-interactions -->
-          <div
-            class="waveform-wrap"
-            bind:clientWidth={waveformWidth}
-            on:touchstart|stopPropagation={() => {}}
-            on:touchmove|stopPropagation={() => {}}
-          >
-            {#if waveformWidth > 0}
-              <TrackWaveform width={waveformWidth} height={48} />
-            {/if}
-          </div>
-        {:else}
-          <div class="seek-bar-wrap">
-            <div class="seek-track">
-              <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
-              <div class="seek-fill" style="width: {seekDragValue !== null ? seekDragValue : progress}%"></div>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="0.1"
-              value={seekDragValue !== null ? seekDragValue : progress}
-              on:input={onSeekInput}
-              on:change={onSeek}
-              on:touchstart|stopPropagation={() => {}}
-              on:touchmove|stopPropagation={() => {}}
-              class="seek-input"
-              aria-label="Seek"
-            />
-          </div>
-        {/if}
-        <div class="seek-times">
-          <span>{$formattedPosition}</span>
-          <span>{$formattedDuration}</span>
-        </div>
-      </div>
+      <MobileProgressBar />
 
       <!-- Main controls -->
-      <div class="fs-controls">
-        <button
-          class="fs-btn fs-btn--icon"
-          class:active={$shuffle}
-          on:click={toggleShuffle}
-          aria-label="Shuffle"
-          aria-pressed={$shuffle}
-          title={$shuffle && $smartShuffleEnabled ? 'Smart Shuffle on' : 'Shuffle'}
-          style="position:relative"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-            <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
-            <line x1="4" y1="4" x2="9" y2="9"/>
-          </svg>
-          {#if $shuffle && $smartShuffleEnabled}
-            <span class="smart-dot" aria-hidden="true"></span>
-          {/if}
-        </button>
-
-        <button class="fs-btn fs-btn--prev" on:click={previous} aria-label="Previous">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <polygon points="19,4 9,12 19,20"/>
-            <rect x="5" y="4" width="2.5" height="16" rx="1"/>
-          </svg>
-        </button>
-
-        <button
-          class="fs-btn fs-btn--play"
-          on:click={togglePlayPause}
-          aria-label={$playbackState === 'playing' ? 'Pause' : 'Play'}
-        >
-          {#if $playbackState === 'playing'}
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <rect x="6" y="4" width="4" height="16" rx="1.5"/>
-              <rect x="14" y="4" width="4" height="16" rx="1.5"/>
-            </svg>
-          {:else}
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <polygon points="5,3 19,12 5,21"/>
-            </svg>
-          {/if}
-        </button>
-
-        <button class="fs-btn fs-btn--next" on:click={next} aria-label="Next">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <polygon points="5,4 15,12 5,20"/>
-            <rect x="16" y="4" width="2.5" height="16" rx="1"/>
-          </svg>
-        </button>
-
-        <button
-          class="fs-btn fs-btn--icon"
-          class:active={$repeatMode !== 'off'}
-          on:click={toggleRepeat}
-          aria-label="Repeat"
-          aria-pressed={$repeatMode !== 'off'}
-          style="position: relative;"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
-            <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
-          </svg>
-          {#if $repeatMode === 'one'}
-            <span class="one-badge">1</span>
-          {/if}
-        </button>
-      </div>
+      <MobilePlaybackControls />
 
       <!-- Volume row -->
-      <div class="fs-volume">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-        </svg>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.01"
-          value={$volume}
-          on:input={onVolumeChange}
-          on:touchstart|stopPropagation={() => {}}
-          on:touchmove|stopPropagation={() => {}}
-          class="volume-slider"
-          aria-label="Volume"
-          style="background: linear-gradient(to right, rgba(255,255,255,0.85) {$volume * 100}%, rgba(255,255,255,0.25) {$volume * 100}%)"
-        />
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-        </svg>
-      </div>
+      <MobileVolumeSlider />
 
       <!-- Extras row: queue + listen along + device transfer -->
       <div class="fs-extras">
@@ -774,122 +613,11 @@
           <span>{$castState === 'connected' ? $castDeviceName : 'Cast'}</span>
         </button>
 
-        {#if ($exclusiveMode && $activeDevices.length > 0) || sinkIdSupported || $castState !== 'unavailable'}
-          <div class="fs-device-wrap">
-            <button
-              class="fs-extra-btn"
-              class:active={devicePickerOpen}
-              on:click|stopPropagation={() => { devicePickerOpen = !devicePickerOpen; if (devicePickerOpen) refreshAudioOutputDevices(); }}
-              aria-label="Switch playback device or audio output"
-              title="Switch device / audio output"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="2" y="3" width="20" height="14" rx="2"/>
-                <path d="M8 21h8"/>
-                <path d="M12 17v4"/>
-              </svg>
-              <span>Devices{#if $activeDevices.length > 1}&nbsp;<span class="queue-count">{$activeDevices.length}</span>{/if}</span>
-            </button>
-
-            {#if devicePickerOpen}
-              <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-              <div
-                class="fs-device-overlay"
-                on:click|stopPropagation={() => (devicePickerOpen = false)}
-                on:touchstart|stopPropagation={() => {}}
-                on:touchmove|stopPropagation={() => {}}
-              ></div>
-              <!-- svelte-ignore a11y-no-static-element-interactions -->
-              <div
-                class="fs-device-popup"
-                on:touchstart|stopPropagation={() => {}}
-                on:touchmove|stopPropagation={() => {}}
-              >
-                <!-- ── Chromecast section ─────────────────────────── -->
-                {#if $castState !== 'unavailable'}
-                  <div class="fs-device-header">Cast</div>
-                  <button
-                    class="fs-device-item"
-                    class:is-active={$castState === 'connected'}
-                    on:click={handleCastToggle}
-                    disabled={$castState === 'connecting'}
-                  >
-                    <div class="fs-device-left">
-                      <span class="fs-device-dot" class:fs-device-dot--active={$castState === 'connected'}></span>
-                      <div class="fs-device-info">
-                        <span class="fs-device-name">
-                          {$castState === 'connected' ? $castDeviceName : 'Chromecast / Cast device'}
-                        </span>
-                        <span class="fs-device-track">
-                          {#if $castState === 'connecting'}Connecting…
-                          {:else if $castState === 'connected'}Casting now — tap to stop
-                          {:else}Tap to cast to a nearby device{/if}
-                        </span>
-                      </div>
-                    </div>
-                    {#if $castState !== 'connected'}
-                      <span class="fs-transfer-hint">Cast</span>
-                    {:else}
-                      <span class="fs-transfer-hint" style="color:var(--error,#e55)">Stop</span>
-                    {/if}
-                  </button>
-                {/if}
-
-                <!-- ── Audio output section ──────────────────────── -->
-                {#if sinkIdSupported && $audioOutputDevices.length > 0}
-                  <div class="fs-device-header" style="margin-top:{$castState !== 'unavailable' ? '8px' : '0'}">Audio output</div>
-                  {#each $audioOutputDevices as out (out.deviceId)}
-                    <button
-                      class="fs-device-item"
-                      class:is-active={$selectedAudioOutputId === out.deviceId}
-                      on:click={() => { setAudioOutput(out.deviceId); devicePickerOpen = false; }}
-                    >
-                      <div class="fs-device-left">
-                        <span class="fs-device-dot" class:fs-device-dot--active={$selectedAudioOutputId === out.deviceId}></span>
-                        <div class="fs-device-info">
-                          <span class="fs-device-name">{out.label}</span>
-                          <span class="fs-device-track">{out.deviceId === 'default' ? 'System default' : 'Audio output'}</span>
-                        </div>
-                      </div>
-                      {#if $selectedAudioOutputId !== out.deviceId}
-                        <span class="fs-transfer-hint">Select</span>
-                      {/if}
-                    </button>
-                  {/each}
-                {/if}
-
-                <!-- ── Browser / app sessions (only in exclusive mode) ── -->
-                {#if $exclusiveMode && $activeDevices.length > 0}
-                  <div class="fs-device-header" style="margin-top:{($castState !== 'unavailable' || (sinkIdSupported && $audioOutputDevices.length > 0)) ? '8px' : '0'}">Sessions</div>
-                  {#each $activeDevices as device (device.id)}
-                    <button
-                      class="fs-device-item"
-                      class:is-active={device.is_active}
-                      class:is-this={device.id === deviceId}
-                      on:click={() => transferToDevice(device.id)}
-                    >
-                      <div class="fs-device-left">
-                        <span class="fs-device-dot" class:fs-device-dot--active={device.is_active}></span>
-                        <div class="fs-device-info">
-                          <span class="fs-device-name">
-                            {device.name}
-                            {#if device.id === deviceId}<span class="fs-this-badge">this device</span>{/if}
-                          </span>
-                          <span class="fs-device-track">{device.state.track_title || 'Idle'}</span>
-                        </div>
-                      </div>
-                      {#if device.id !== deviceId}
-                        <span class="fs-transfer-hint">Transfer</span>
-                      {:else if !device.is_active}
-                        <span class="fs-transfer-hint">Play here</span>
-                      {/if}
-                    </button>
-                  {/each}
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/if}
+        <MobileDevicePicker
+          bind:open={devicePickerOpen}
+          onCastToggle={handleCastToggle}
+          onTransfer={transferToDevice}
+        />
       </div>
     </div>
   </div>
@@ -1331,228 +1059,6 @@
       cursor: pointer;
     }
 
-    /* Seek bar */
-    .fs-seek {
-      flex-shrink: 0;
-      padding: 4px 0 12px;
-    }
-
-    .waveform-wrap {
-      width: 100%;
-      margin-bottom: 8px;
-    }
-
-    .seek-bar-wrap {
-      position: relative;
-      height: 4px;
-      display: flex;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .seek-track {
-      position: absolute;
-      left: 0; right: 0;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-
-    .seek-buffered {
-      position: absolute;
-      height: 100%;
-      background: rgba(255, 255, 255, 0.3);
-      pointer-events: none;
-    }
-
-    .seek-fill {
-      position: absolute;
-      height: 100%;
-      background: #fff;
-      pointer-events: none;
-    }
-
-    .seek-input {
-      position: absolute;
-      left: -8px; right: -8px;
-      width: calc(100% + 16px);
-      height: 28px;
-      margin: 0;
-      cursor: pointer;
-      -webkit-appearance: none;
-      appearance: none;
-      background: transparent;
-      touch-action: none;
-    }
-
-    .seek-input::-webkit-slider-runnable-track {
-      background: transparent;
-      height: 4px;
-    }
-
-    .seek-input::-moz-range-track {
-      background: transparent;
-      height: 4px;
-      border: none;
-    }
-
-    .seek-input::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: #fff;
-      margin-top: -6px;
-      cursor: pointer;
-    }
-
-    .seek-input::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: #fff;
-      border: none;
-      cursor: pointer;
-    }
-
-    .seek-times {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.72rem;
-      color: rgba(255, 255, 255, 0.55);
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Main controls */
-    .fs-controls {
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 0 16px;
-    }
-
-    .fs-btn {
-      background: none;
-      border: none;
-      color: rgba(255, 255, 255, 0.8);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px;
-      border-radius: 50%;
-      transition: color 0.15s, background 0.1s;
-      -webkit-tap-highlight-color: transparent;
-      position: relative;
-    }
-
-    .fs-btn:active {
-      background: rgba(255, 255, 255, 0.1);
-    }
-
-    .fs-btn--icon {
-      color: rgba(255, 255, 255, 0.5);
-    }
-
-    .smart-dot {
-      position: absolute;
-      top: 2px;
-      right: 2px;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      opacity: 0.9;
-    }
-
-    .fs-btn--icon.active {
-      color: var(--accent);
-    }
-
-    .fs-btn--icon.active::after {
-      content: '';
-      position: absolute;
-      bottom: 3px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 4px;
-      height: 4px;
-      border-radius: 50%;
-      background: var(--accent);
-    }
-
-    .fs-btn--prev,
-    .fs-btn--next {
-      color: #fff;
-    }
-
-    .fs-btn--play {
-      width: 68px;
-      height: 68px;
-      background: #fff;
-      color: #000;
-      border-radius: 50%;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-    }
-
-    .fs-btn--play:active {
-      background: rgba(255, 255, 255, 0.85);
-    }
-
-    .one-badge {
-      position: absolute;
-      bottom: 3px;
-      right: 2px;
-      font-size: 9px;
-      font-weight: 700;
-      line-height: 1;
-      color: var(--accent);
-      pointer-events: none;
-    }
-
-    /* Volume */
-    .fs-volume {
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 0 0 16px;
-      color: rgba(255, 255, 255, 0.45);
-    }
-
-    .volume-slider {
-      flex: 1;
-      height: 4px;
-      accent-color: #fff;
-      cursor: pointer;
-      -webkit-appearance: none;
-      appearance: none;
-      background: rgba(255, 255, 255, 0.25);
-      border-radius: 2px;
-      touch-action: none;
-      transition: background 0.15s ease;
-    }
-
-    .volume-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      background: #fff;
-      cursor: pointer;
-    }
-
-    .volume-slider::-moz-range-thumb {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      background: #fff;
-      border: none;
-      cursor: pointer;
-    }
-
     /* Extras */
     .fs-extras {
       flex-shrink: 0;
@@ -1592,134 +1098,5 @@
       font-weight: 700;
     }
 
-    /* Device picker */
-    .fs-device-wrap {
-      position: relative;
-    }
-
-    .fs-device-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 10;
-    }
-
-    .fs-device-popup {
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 50%;
-      transform: translateX(-50%);
-      width: 260px;
-      background: var(--bg-elevated, #1e1e1e);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 12px;
-      overflow: hidden;
-      z-index: 11;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
-    }
-
-    .fs-device-header {
-      padding: 10px 14px 6px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: rgba(255, 255, 255, 0.4);
-    }
-
-    .fs-device-item {
-      width: 100%;
-      background: none;
-      border: none;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 10px 14px;
-      cursor: pointer;
-      color: rgba(255, 255, 255, 0.85);
-      font-size: 0.875rem;
-      text-align: left;
-      transition: background 0.1s;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .fs-device-item:active,
-    .fs-device-item:hover {
-      background: rgba(255, 255, 255, 0.07);
-    }
-
-    .fs-device-item.is-active {
-      color: #fff;
-    }
-
-    .fs-device-left {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-    }
-
-    .fs-device-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      background: rgba(255, 255, 255, 0.25);
-    }
-
-    .fs-device-dot--active {
-      background: var(--accent, #1db954);
-      box-shadow: 0 0 6px var(--accent, #1db954);
-    }
-
-    /* Small pulsing dot shown on the Devices button when casting is active */
-    .fs-cast-dot {
-      position: absolute;
-      top: 4px;
-      right: 4px;
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--accent, #1db954);
-      box-shadow: 0 0 5px var(--accent, #1db954);
-    }
-
-    .fs-device-info {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    .fs-device-name {
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .fs-this-badge {
-      font-size: 10px;
-      font-weight: 400;
-      color: rgba(255, 255, 255, 0.4);
-    }
-
-    .fs-device-track {
-      font-size: 0.75rem;
-      color: rgba(255, 255, 255, 0.4);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .fs-transfer-hint {
-      font-size: 11px;
-      color: var(--accent, #1db954);
-      flex-shrink: 0;
-      font-weight: 500;
-    }
   }
 </style>

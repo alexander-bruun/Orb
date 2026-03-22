@@ -32,7 +32,7 @@
         <span class="count">{$userQueue.length}</span>
       </span>
       <div class="head-actions">
-        <button class="head-btn" on:click={toggleSize} title={maximized ? 'Collapse' : 'Expand'}>
+        <button class="head-btn" on:click={toggleSize} title={maximized ? 'Collapse' : 'Expand'} aria-label={maximized ? 'Collapse queue' : 'Expand queue'}>
           {#if maximized}
             <!-- Chevron down = collapse -->
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
@@ -45,7 +45,7 @@
             </svg>
           {/if}
         </button>
-        <button class="head-btn" on:click={close} title="Close">
+        <button class="head-btn" on:click={close} title="Close" aria-label="Close queue">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -69,6 +69,7 @@
               class="qi-act"
               on:click={() => playFromQueue(i)}
               title="Play now"
+              aria-label="Play {track.title} now"
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <polygon points="5,3 19,12 5,21"/>
@@ -78,6 +79,7 @@
               class="qi-act"
               on:click={() => removeFromUserQueue(i)}
               title="Remove"
+              aria-label="Remove {track.title} from queue"
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                 <line x1="18" y1="6" x2="6" y2="18"/>
