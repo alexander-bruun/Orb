@@ -295,7 +295,17 @@ if (typeof document !== 'undefined') {
 if (isTauri() && !isAndroidNative) {
 	function pushDiscordPresence(track: Track | null) {
 		if (!get(discordEnabled) || !track) return;
-		invoke('discord_update', { title: track.title, artist: track.artist_name ?? '', album: '' }).catch(() => {});
+		const apiBase = getApiBase();
+		const coverUrl = track.album_id && apiBase.startsWith('https://')
+			? `${apiBase}/covers/${track.album_id}`
+			: null;
+		invoke('discord_update', {
+			title: track.title,
+			artist: track.artist_name ?? '',
+			album: track.album_name ?? '',
+			playing: get(playbackState) === 'playing',
+			coverUrl,
+		}).catch((err) => console.error('[Discord] update failed:', err));
 	}
 
 	function clearDiscordPresence() {
@@ -309,16 +319,23 @@ if (isTauri() && !isAndroidNative) {
 		}
 	});
 
+	playbackState.subscribe((state) => {
+		if (get(discordEnabled) && state !== 'loading') {
+			pushDiscordPresence(get(currentTrack));
+		}
+	});
+
 	discordEnabled.subscribe(async (enabled) => {
 		if (!enabled) {
 			invoke('discord_disconnect').catch(() => {});
 			clearDiscordPresence();
 		} else {
-			const ok = await invoke<boolean>('discord_connect').catch(() => false);
-			if (ok) {
+			await invoke('discord_connect').then(() => {
 				const track = get(currentTrack);
 				if (track) pushDiscordPresence(track);
-			}
+			}).catch((err) => {
+				console.error('[Discord] connect failed:', err);
+			});
 		}
 	});
 }
@@ -333,56 +350,6 @@ if (isTauri() && !isAndroidNative) {
 	listen('tray-play-pause', () => togglePlayPause()).catch(() => {});
 	listen('tray-previous', () => previous()).catch(() => {});
 	listen('tray-next', () => next()).catch(() => {});
-}
-
-// ── Native SMTC / MPRIS / MediaRemote Integration (souvlaki) ─────────────────
-
-if (isTauri() && !isAndroidNative) {
-	function pushNativeMedia(track: Track | null) {
-		if (!track) {
-			invoke('native_media_clear').catch(() => {});
-			return;
-		}
-		const coverUrl = track.album_id ? `${getApiBase()}/covers/${track.album_id}` : null;
-		invoke('native_media_update', {
-			title: track.title,
-			artist: track.artist_name ?? '',
-			album: track.album_name ?? '',
-			coverUrl,
-			durationMs: get(durationMs),
-		}).catch(() => {});
-	}
-
-	currentTrack.subscribe((track) => {
-		pushNativeMedia(track);
-		if (track) {
-			invoke('native_media_playback', {
-				playing: get(playbackState) === 'playing',
-				positionMs: get(positionMs),
-			}).catch(() => {});
-		}
-	});
-
-	playbackState.subscribe((state) => {
-		if (get(currentTrack)) {
-			invoke('native_media_playback', {
-				playing: state === 'playing',
-				positionMs: get(positionMs),
-			}).catch(() => {});
-		}
-	});
-
-	listen('smtc-play', () => {
-		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
-	}).catch(() => {});
-	listen('smtc-pause', () => {
-		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
-	}).catch(() => {});
-	listen('smtc-toggle', () => {
-		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
-	}).catch(() => {});
-	listen('smtc-next', () => next()).catch(() => {});
-	listen('smtc-previous', () => previous()).catch(() => {});
 }
 
 // ── Position state sync (throttled) ──────────────────────────────────────────

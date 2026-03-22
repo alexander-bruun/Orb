@@ -32,6 +32,7 @@
   import { themeStore } from "$lib/stores/settings/theme";
   import { syncNativeCrossfade } from "$lib/stores/settings/crossfade";
   import { isTauri, isNative, isDesktop } from "$lib/utils/platform";
+  import { invoke } from "@tauri-apps/api/core";
   import TitleBar from "$lib/components/layout/tauri/TitleBar.svelte";
   import MobileNav from "$lib/components/layout/mobile/MobileNav.svelte";
   import MobilePlayer from "$lib/components/layout/mobile/MobilePlayer.svelte";
@@ -103,7 +104,7 @@
     const abPlaying = get(abPlaybackState) === 'playing';
     if (musicPlaying) {
       const track = get(currentTrack);
-      if (track) document.title = `${track.title} – Orb`;
+      if (track) document.title = `${track.title} – ${track.artist_name || track.artist?.name || 'Orb'}`;
     } else if (abPlaying) {
       const book = get(currentAudiobook);
       if (book) document.title = `${book.title} – Orb`;
@@ -113,7 +114,7 @@
   // Keep tab title in sync with whatever is actively playing.
   $effect(() => {
     if ($playbackState === 'playing' && $currentTrack) {
-      document.title = `${$currentTrack.title} – Orb`;
+      document.title = `${$currentTrack.title} – ${$currentTrack.artist_name || $currentTrack.artist?.name || 'Orb'}`;
     } else if ($abPlaybackState === 'playing' && $currentAudiobook) {
       document.title = `${$currentAudiobook.title} – Orb`;
     }
@@ -141,6 +142,13 @@
   ];
 
   function onKeydown(e: KeyboardEvent) {
+    // DevTools shortcut — F12 or Ctrl+Shift+I (Tauri desktop only).
+    if (isTauri() && (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I"))) {
+      e.preventDefault();
+      invoke("open_devtools").catch(() => {});
+      return;
+    }
+
     // Ignore when focus is inside a text field.
     const tag = (e.target as HTMLElement | null)?.tagName ?? "";
     if (
@@ -350,51 +358,74 @@
   <div class="window-frame" aria-hidden="true"></div>
 {/if}
 
-{#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname === "/verify-email" || $page.url.pathname === "/register" || $page.url.pathname.startsWith("/share/")}
-  <!-- Public page: render without shell or auth guards -->
-  {@render children()}
-{:else if $setupRequired === null && !$isOffline}
-  <!-- Checking setup status; render nothing to avoid a flash of wrong content.
-       When offline, $isOffline is true immediately (from navigator.onLine) so we
-       skip this blank-screen guard and fall through to the authenticated shell. -->
-{:else if $setupRequired && $page.url.pathname === "/setup"}
-  {@render children()}
-{:else if !$setupRequired && $page.url.pathname === "/login"}
-  {@render children()}
-{:else if !$setupRequired && $isAuthenticated}
-  <div
-    class="shell"
-    class:tauri={isDesktop()}
-    class:party-open={$lpPanelOpen && $lpRole === "host"}
-  >
-    {#if isDesktop()}<TitleBar />{/if}
-    <TopBar />
-    <Sidebar />
-    <main class="content">
-      {@render children()}
-    </main>
+{#snippet pageContent()}
+  {#if $page.url.pathname.startsWith("/listen/") || $page.url.pathname === "/connect" || $page.url.pathname === "/verify-email" || $page.url.pathname === "/register" || $page.url.pathname.startsWith("/share/")}
+    <!-- Public page: render without shell or auth guards -->
+    {@render children()}
+  {:else if $setupRequired === null && !$isOffline}
+    <!-- Checking setup status; render nothing to avoid a flash of wrong content.
+         When offline, $isOffline is true immediately (from navigator.onLine) so we
+         skip this blank-screen guard and fall through to the authenticated shell. -->
+  {:else if $setupRequired && $page.url.pathname === "/setup"}
+    {@render children()}
+  {:else if !$setupRequired && $page.url.pathname === "/login"}
+    {@render children()}
+  {:else if !$setupRequired && $isAuthenticated}
+    <div
+      class="shell"
+      class:party-open={$lpPanelOpen && $lpRole === "host"}
+    >
+      <TopBar />
+      <Sidebar />
+      <main class="content">
+        {@render children()}
+      </main>
+      {#if $currentAudiobook && $activePlayer === 'audiobook'}
+        <AudiobookBottomBar />
+      {:else}
+        <BottomBar />
+      {/if}
+      <ListenPartyPanel />
+    </div>
     {#if $currentAudiobook && $activePlayer === 'audiobook'}
-      <AudiobookBottomBar />
+      <MobileAudiobookPlayer />
     {:else}
-      <BottomBar />
+      <MobilePlayer />
     {/if}
-    <ListenPartyPanel />
-  </div>
-  {#if $currentAudiobook && $activePlayer === 'audiobook'}
-    <MobileAudiobookPlayer />
-  {:else}
-    <MobilePlayer />
+    <MobileNav />
+    <MobileAvatar />
+    <ContextMenu />
+    <QueueModal />
+    <LyricsModal />
+    <KeyboardShortcuts bind:open={shortcutsOpen} shortcuts={SHORTCUTS.map(({ label, description }) => ({ label, description }))} />
+    <ToastContainer />
   {/if}
-  <MobileNav />
-  <MobileAvatar />
-  <ContextMenu />
-  <QueueModal />
-  <LyricsModal />
-  <KeyboardShortcuts bind:open={shortcutsOpen} shortcuts={SHORTCUTS.map(({ label, description }) => ({ label, description }))} />
-  <ToastContainer />
+{/snippet}
+
+{#if isDesktop()}
+  <div class="tauri-chrome">
+    <TitleBar />
+    <div class="tauri-body">
+      {@render pageContent()}
+    </div>
+  </div>
+{:else}
+  {@render pageContent()}
 {/if}
 
 <style>
+  .tauri-chrome {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  .tauri-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .shell {
     display: grid;
     height: 100dvh;
@@ -407,14 +438,11 @@
     overflow: hidden;
   }
 
-  .shell.tauri {
-    grid-template-rows: var(--titlebar-h) var(--top-h) 1fr var(--bottom-h);
-    grid-template-areas:
-      "titlebar titlebar"
-      "top      top"
-      "sidebar  content"
-      "bottom   bottom";
+  /* When inside tauri-body flex container, fill the available height */
+  .tauri-body .shell {
+    height: 100%;
   }
+
   .content {
     grid-area: content;
     overflow-y: auto;
@@ -445,14 +473,6 @@
         "sidebar content party"
         "bottom bottom  bottom";
     }
-    .shell.tauri.party-open {
-      grid-template-columns: var(--sidebar-w) 1fr 280px;
-      grid-template-areas:
-        "titlebar titlebar titlebar"
-        "top      top      top"
-        "sidebar  content  party"
-        "bottom   bottom   bottom";
-    }
   }
 
   /* ── Mobile layout: full-screen content, fixed bottom mobile UI ─────────── */
@@ -464,13 +484,6 @@
       grid-template-rows: 1fr;
       grid-template-columns: 1fr;
       grid-template-areas: "content";
-    }
-    .shell.tauri {
-      height: calc(100dvh - 60px - env(safe-area-inset-bottom, 0px) - var(--titlebar-h, 0px));
-      grid-template-rows: var(--titlebar-h) 1fr;
-      grid-template-areas:
-        "titlebar"
-        "content";
     }
     /* Hide desktop navigation on mobile */
     :global(header.topbar) {

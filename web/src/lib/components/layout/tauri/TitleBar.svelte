@@ -30,10 +30,11 @@
 </script>
 
 <div class="titlebar" data-tauri-drag-region aria-label="Window title bar">
-    <div class="app-icon" data-tauri-drag-region>
-        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="10" cy="10" r="8.5" stroke="currentColor" stroke-width="1.2" opacity="0.35"/>
-            <circle cx="10" cy="10" r="3.8" fill="currentColor"/>
+    <div class="wordmark" data-tauri-drag-region>
+        <svg viewBox="0 0 52 28" height="18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="12" cy="14" r="10" stroke="currentColor" stroke-width="1.4" opacity="0.3"/>
+            <circle cx="12" cy="14" r="4.5" fill="currentColor"/>
+            <text x="27" y="21" font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="22" fill="currentColor" letter-spacing="-0.02em">orb</text>
         </svg>
     </div>
 
@@ -104,12 +105,12 @@
         -webkit-user-select: none;
     }
 
-    .app-icon {
+    .wordmark {
         display: flex;
         align-items: center;
         flex-shrink: 0;
         color: var(--accent);
-        padding: 0 6px 0 2px;
+        padding: 0 8px 0 2px;
     }
 
     .window-title {

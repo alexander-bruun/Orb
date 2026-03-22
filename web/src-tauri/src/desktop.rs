@@ -1,4 +1,4 @@
-use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+use discord_rich_presence::{activity, activity::ActivityType, DiscordIpc, DiscordIpcClient};
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
 use std::{
@@ -71,27 +71,64 @@ async fn discover_servers() -> Vec<DiscoveredServer> {
 struct DiscordState(Mutex<Option<DiscordIpcClient>>);
 
 #[tauri::command]
-fn discord_connect(state: State<'_, DiscordState>) -> bool {
+fn discord_connect(state: State<'_, DiscordState>) -> Result<(), String> {
     let mut guard = state.0.lock().unwrap();
     let app_id = option_env!("DISCORD_APP_ID").unwrap_or("1485330037191213260");
     let mut client = DiscordIpcClient::new(app_id);
-    if client.connect().is_err() {
-        return false;
+    match client.connect() {
+        Ok(_) => {
+            *guard = Some(client);
+            Ok(())
+        }
+        Err(e) => Err(format!("Discord IPC connect failed: {e:?}")),
     }
-    *guard = Some(client);
-    true
 }
 
 #[tauri::command]
-fn discord_update(title: String, artist: String, _album: String, state: State<'_, DiscordState>) {
+fn discord_update(
+    title: String,
+    artist: String,
+    album: String,
+    playing: bool,
+    cover_url: Option<String>,
+    state: State<'_, DiscordState>,
+) {
     let mut guard = state.0.lock().unwrap();
+    // Auto-reconnect if the client was never connected or dropped.
+    if guard.is_none() {
+        let app_id = option_env!("DISCORD_APP_ID").unwrap_or("1485330037191213260");
+        let mut client = DiscordIpcClient::new(app_id);
+        if let Ok(_) = client.connect() {
+            *guard = Some(client);
+        }
+    }
     if let Some(client) = guard.as_mut() {
-        let details = title.clone();
-        let state_text = artist.clone();
-        let payload = activity::Activity::new()
-            .details(&details)
-            .state(&state_text);
-        client.set_activity(payload).ok();
+        // When paused, clear presence — Listening type has no pause state.
+        if !playing {
+            client.clear_activity().ok();
+            return;
+        }
+
+        // Album art: prefer cover URL (works if server is HTTPS and publicly reachable).
+        // Falls back to the "orb" asset key uploaded in the Discord Developer Portal.
+        let mut assets = activity::Assets::new();
+        assets = match cover_url.as_deref() {
+            Some(url) if url.starts_with("https://") => assets.large_url(url).large_image(url),
+            _ => assets.large_image("orb"),
+        };
+
+        // Note: timestamps are not rendered as a progress bar for Listening activities
+        // (that is exclusive to Spotify's native Discord integration).
+        let act = activity::Activity::new()
+            .details(&title)
+            .state(&artist)
+            .assets(assets)
+            .activity_type(ActivityType::Listening);
+
+        if let Err(e) = client.set_activity(act) {
+            *guard = None;
+            eprintln!("[Discord] set_activity failed: {e:?}");
+        }
     }
 }
 
@@ -111,150 +148,6 @@ fn discord_disconnect(state: State<'_, DiscordState>) {
     }
 }
 
-// ─── Native Media Controls (SMTC / MPRIS / MediaRemote via souvlaki) ─────────
-
-enum MediaCmd {
-    Update {
-        title: String,
-        artist: String,
-        album: String,
-        cover_url: Option<String>,
-        duration_ms: u64,
-    },
-    SetPlayback {
-        playing: bool,
-        position_ms: u64,
-    },
-    Clear,
-}
-
-/// Holds the sender end of the channel to the souvlaki media-controls thread.
-/// `None` when souvlaki is not available for the current platform.
-struct NativeMediaSender(Mutex<Option<mpsc::Sender<MediaCmd>>>);
-
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-fn start_media_controls_thread(app: AppHandle, hwnd_raw: Option<usize>) -> mpsc::Sender<MediaCmd> {
-    use souvlaki::{
-        MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition,
-        PlatformConfig,
-    };
-
-    let (tx, rx) = mpsc::channel::<MediaCmd>();
-
-    std::thread::spawn(move || {
-        let config = PlatformConfig {
-            dbus_name: "org.orb.music",
-            display_name: "Orb",
-            #[cfg(target_os = "windows")]
-            hwnd: hwnd_raw.map(|h| h as *mut std::ffi::c_void),
-        };
-
-        let mut controls = match MediaControls::new(config) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-
-        let app_clone = app.clone();
-        let _ = controls.attach(move |event: MediaControlEvent| match event {
-            MediaControlEvent::Play => {
-                app_clone.emit("smtc-play", ()).ok();
-            }
-            MediaControlEvent::Pause => {
-                app_clone.emit("smtc-pause", ()).ok();
-            }
-            MediaControlEvent::Toggle => {
-                app_clone.emit("smtc-toggle", ()).ok();
-            }
-            MediaControlEvent::Next => {
-                app_clone.emit("smtc-next", ()).ok();
-            }
-            MediaControlEvent::Previous => {
-                app_clone.emit("smtc-previous", ()).ok();
-            }
-            _ => {}
-        });
-
-        while let Ok(cmd) = rx.recv() {
-            match cmd {
-                MediaCmd::Update {
-                    title,
-                    artist,
-                    album,
-                    cover_url,
-                    duration_ms,
-                } => {
-                    let duration = (duration_ms > 0)
-                        .then(|| std::time::Duration::from_millis(duration_ms));
-                    let _ = controls.set_metadata(MediaMetadata {
-                        title: Some(&title),
-                        artist: Some(&artist),
-                        album: if album.is_empty() { None } else { Some(&album) },
-                        cover_url: cover_url.as_deref(),
-                        duration,
-                    });
-                }
-                MediaCmd::SetPlayback {
-                    playing,
-                    position_ms,
-                } => {
-                    let progress =
-                        Some(MediaPosition(std::time::Duration::from_millis(position_ms)));
-                    let playback = if playing {
-                        MediaPlayback::Playing { progress }
-                    } else {
-                        MediaPlayback::Paused { progress }
-                    };
-                    let _ = controls.set_playback(playback);
-                }
-                MediaCmd::Clear => {
-                    let _ = controls.set_playback(MediaPlayback::Stopped);
-                }
-            }
-        }
-    });
-
-    tx
-}
-
-#[tauri::command]
-fn native_media_update(
-    title: String,
-    artist: String,
-    album: String,
-    cover_url: Option<String>,
-    duration_ms: u64,
-    state: State<'_, NativeMediaSender>,
-) {
-    if let Some(tx) = state.0.lock().unwrap().as_ref() {
-        tx.send(MediaCmd::Update {
-            title,
-            artist,
-            album,
-            cover_url,
-            duration_ms,
-        })
-        .ok();
-    }
-}
-
-#[tauri::command]
-fn native_media_playback(
-    playing: bool,
-    position_ms: u64,
-    state: State<'_, NativeMediaSender>,
-) {
-    if let Some(tx) = state.0.lock().unwrap().as_ref() {
-        tx.send(MediaCmd::SetPlayback { playing, position_ms }).ok();
-    }
-}
-
-#[tauri::command]
-fn native_media_clear(state: State<'_, NativeMediaSender>) {
-    if let Some(tx) = state.0.lock().unwrap().as_ref() {
-        tx.send(MediaCmd::Clear).ok();
-    }
-}
-
 // ─── System Tray ─────────────────────────────────────────────────────────────
 
 struct PlayPauseItem(Mutex<MenuItem<tauri::Wry>>);
@@ -270,9 +163,11 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let play_pause = MenuItem::with_id(app, "play_pause", "Play", true, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", "Next", true, None::<&str>)?;
     let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
+    let devtools = MenuItem::with_id(app, "devtools", "Open DevTools", true, None::<&str>)?;
+    let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Orb", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&previous, &play_pause, &next, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&previous, &play_pause, &next, &separator, &devtools, &sep2, &quit])?;
 
     // Store a reference to the play/pause item so we can update its label.
     app.manage(PlayPauseItem(Mutex::new(play_pause)));
@@ -291,6 +186,11 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             "next" => {
                 app.emit("tray-next", ()).ok();
             }
+            "devtools" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
             "quit" => {
                 app.exit(0);
             }
@@ -301,6 +201,13 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+// ─── DevTools ────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 // ─── Desktop Setup ───────────────────────────────────────────────────────────
 
 pub fn setup(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
@@ -309,23 +216,6 @@ pub fn setup(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> 
         .manage(NativeMediaSender(Mutex::new(None)))
         .setup(|app| {
             setup_tray(&app.handle())?;
-
-            // Start the native media controls thread (souvlaki) on supported platforms.
-            #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-            {
-                #[cfg(target_os = "windows")]
-                let hwnd_raw: Option<usize> = app
-                    .get_webview_window("main")
-                    .and_then(|w| w.hwnd().ok())
-                    .map(|h| h.0 as usize);
-
-                #[cfg(not(target_os = "windows"))]
-                let hwnd_raw: Option<usize> = None;
-
-                let tx = start_media_controls_thread(app.handle().clone(), hwnd_raw);
-                *app.state::<NativeMediaSender>().0.lock().unwrap() = Some(tx);
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -338,5 +228,6 @@ pub fn setup(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> 
             native_media_update,
             native_media_playback,
             native_media_clear,
+            open_devtools,
         ])
 }

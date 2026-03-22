@@ -4,6 +4,7 @@
   import { abFormattedFormat } from '$lib/stores/player/audiobookPlayer';
   import { activePlayer } from '$lib/stores/player/engine';
   import { sidebarOpen } from '$lib/stores/ui/sidebar';
+  import { isDesktop } from '$lib/utils/platform';
   import IngestIndicator from './IngestIndicator.svelte';
   import QuickSearch from './QuickSearch.svelte';
   import UserMenu from './UserMenu.svelte';
@@ -29,6 +30,7 @@
     </svg>
   </button>
 
+  {#if !isDesktop()}
   <a href="/" class="wordmark" aria-label="Orb">
     <svg viewBox="0 0 52 28" height="30" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <circle cx="12" cy="14" r="10" stroke="currentColor" stroke-width="1.4" opacity="0.3"/>
@@ -36,6 +38,7 @@
       <text x="27" y="21" font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="22" fill="currentColor" letter-spacing="-0.02em">orb</text>
     </svg>
   </a>
+  {/if}
 
   <QuickSearch bind:this={quickSearchRef} />
 
