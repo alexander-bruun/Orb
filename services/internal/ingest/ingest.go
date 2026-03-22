@@ -256,7 +256,9 @@ func (g *Ingester) publishEvent(ctx context.Context, ev ProgressEvent) {
 		return
 	}
 	data, _ := json.Marshal(ev)
-	_ = g.kv.Publish(ctx, kvkeys.IngestEvents(), string(data))
+	if err := g.kv.Publish(ctx, kvkeys.IngestEvents(), string(data)).Err(); err != nil {
+		slog.Warn("publish ingest event failed", "action", "publish ingest event", "err", err)
+	}
 }
 
 func (g *Ingester) loadState(ctx context.Context) error {
@@ -1483,7 +1485,9 @@ func (g *Ingester) workerLoop(ctx context.Context, kv *redis.Client) {
 		if !g.isStable(fi) {
 			slog.Debug("ingest worker: skipping unstable file (in-progress download?)", "path", path, "mtime_age_sec", int(time.Since(fi.ModTime()).Seconds()))
 			// Re-enqueue for later processing.
-			_ = g.kv.LPush(ctx, kvkeys.IngestWorkQueue(), path)
+			if err := g.kv.LPush(ctx, kvkeys.IngestWorkQueue(), path).Err(); err != nil {
+				slog.Warn("enqueue ingest path failed", "action", "enqueue ingest path", "err", err)
+			}
 			continue
 		}
 		trackID, err := g.ingestFile(ctx, path, fi)

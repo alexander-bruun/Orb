@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
@@ -126,27 +127,27 @@ func (s *Service) Routes(r chi.Router) {
 func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	var req createReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Type != "track" && req.Type != "album" {
-		writeErr(w, http.StatusBadRequest, "type must be 'track' or 'album'")
+		httputil.WriteErr(w, http.StatusBadRequest, "type must be 'track' or 'album'")
 		return
 	}
 	if req.ID == "" {
-		writeErr(w, http.StatusBadRequest, "id is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "id is required")
 		return
 	}
 
 	ctx := r.Context()
 	if req.Type == "track" {
 		if _, err := s.db.GetTrackByID(ctx, req.ID); err != nil {
-			writeErr(w, http.StatusNotFound, "track not found")
+			httputil.WriteErr(w, http.StatusNotFound, "track not found")
 			return
 		}
 	} else {
 		if _, err := s.db.GetAlbumByID(ctx, req.ID); err != nil {
-			writeErr(w, http.StatusNotFound, "album not found")
+			httputil.WriteErr(w, http.StatusNotFound, "album not found")
 			return
 		}
 	}
@@ -154,11 +155,11 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	token := uuid.New().String()
 	raw, _ := json.Marshal(sharePayload{Type: req.Type, ID: req.ID})
 	if err := s.kv.Set(ctx, kvkeys.ShareToken(token), raw, shareTTL).Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not create share token")
+		httputil.WriteErr(w, http.StatusInternalServerError, "could not create share token")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, createResp{Token: token})
+	httputil.WriteJSON(w, http.StatusCreated, createResp{Token: token})
 }
 
 // GET /share/{token}
@@ -169,16 +170,16 @@ func (s *Service) redeem(w http.ResponseWriter, r *http.Request) {
 	raw, err := s.kv.GetDel(ctx, kvkeys.ShareToken(token)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			writeErr(w, http.StatusGone, "share link has already been used or has expired")
+			httputil.WriteErr(w, http.StatusGone, "share link has already been used or has expired")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "could not redeem token")
+		httputil.WriteErr(w, http.StatusInternalServerError, "could not redeem token")
 		return
 	}
 
 	var payload sharePayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		writeErr(w, http.StatusInternalServerError, "malformed share token")
+		httputil.WriteErr(w, http.StatusInternalServerError, "malformed share token")
 		return
 	}
 
@@ -189,7 +190,7 @@ func (s *Service) redeem(w http.ResponseWriter, r *http.Request) {
 	case "track":
 		track, err := s.db.GetTrackByID(ctx, payload.ID)
 		if err != nil {
-			writeErr(w, http.StatusNotFound, "track not found")
+			httputil.WriteErr(w, http.StatusNotFound, "track not found")
 			return
 		}
 		resp.Track = &track
@@ -198,7 +199,7 @@ func (s *Service) redeem(w http.ResponseWriter, r *http.Request) {
 	case "album":
 		album, err := s.db.GetAlbumByID(ctx, payload.ID)
 		if err != nil {
-			writeErr(w, http.StatusNotFound, "album not found")
+			httputil.WriteErr(w, http.StatusNotFound, "album not found")
 			return
 		}
 		tracks, _ := s.db.ListTracksByAlbum(context.Background(), payload.ID)
@@ -214,7 +215,7 @@ func (s *Service) redeem(w http.ResponseWriter, r *http.Request) {
 	_ = s.kv.Set(ctx, kvkeys.ShareStreamSession(sessionToken), sessRaw, sessionTTL).Err()
 	resp.StreamSession = sessionToken
 
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 // GET /share/stream/{session}/{track_id}
@@ -226,16 +227,16 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request) {
 	raw, err := s.kv.Get(ctx, kvkeys.ShareStreamSession(sessionToken)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			http.Error(w, "streaming session expired or invalid", http.StatusForbidden)
+			httputil.WriteErr(w, http.StatusForbidden, "streaming session expired or invalid")
 			return
 		}
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	var sess streamSession
 	if err := json.Unmarshal(raw, &sess); err != nil {
-		http.Error(w, "malformed session", http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "malformed session")
 		return
 	}
 
@@ -247,13 +248,13 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !allowed {
-		http.Error(w, "track not covered by this share session", http.StatusForbidden)
+		httputil.WriteErr(w, http.StatusForbidden, "track not covered by this share session")
 		return
 	}
 
 	track, err := s.db.GetTrackByID(ctx, trackID)
 	if err != nil {
-		http.Error(w, "track not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "track not found")
 		return
 	}
 
@@ -266,7 +267,7 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request) {
 		offset, end, err = parseRange(rangeHeader, fileSize)
 		if err != nil {
 			w.Header().Set("Content-Range", "bytes */*")
-			http.Error(w, "invalid range", http.StatusRequestedRangeNotSatisfiable)
+			httputil.WriteErr(w, http.StatusRequestedRangeNotSatisfiable, "invalid range")
 			return
 		}
 		length = end - offset + 1
@@ -277,7 +278,7 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request) {
 
 	rc, err := s.obj.GetRange(ctx, track.FileKey, offset, length)
 	if err != nil {
-		http.Error(w, "storage error", http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "storage error")
 		return
 	}
 	defer rc.Close()
@@ -307,16 +308,6 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- helpers ---
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
 
 func mimeForFormat(format string) string {
 	switch format {
@@ -390,16 +381,16 @@ func (s *Service) lyrics(w http.ResponseWriter, r *http.Request) {
 	raw, err := s.kv.Get(ctx, kvkeys.ShareStreamSession(sessionToken)).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			writeJSON(w, http.StatusForbidden, []LyricLine{})
+			httputil.WriteJSON(w, http.StatusForbidden, []LyricLine{})
 			return
 		}
-		writeJSON(w, http.StatusInternalServerError, []LyricLine{})
+		httputil.WriteJSON(w, http.StatusInternalServerError, []LyricLine{})
 		return
 	}
 
 	var sess streamSession
 	if err := json.Unmarshal(raw, &sess); err != nil {
-		writeJSON(w, http.StatusInternalServerError, []LyricLine{})
+		httputil.WriteJSON(w, http.StatusInternalServerError, []LyricLine{})
 		return
 	}
 
@@ -411,14 +402,14 @@ func (s *Service) lyrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !allowed {
-		writeJSON(w, http.StatusForbidden, []LyricLine{})
+		httputil.WriteJSON(w, http.StatusForbidden, []LyricLine{})
 		return
 	}
 
 	// Fetch lyrics from cache
 	lrcRaw, err := s.db.GetTrackLyrics(ctx, trackID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, []LyricLine{})
+		httputil.WriteJSON(w, http.StatusOK, []LyricLine{})
 		return
 	}
 
@@ -426,7 +417,7 @@ func (s *Service) lyrics(w http.ResponseWriter, r *http.Request) {
 		// Auto-fetch via external providers
 		track, err := s.db.GetTrackByID(ctx, trackID)
 		if err != nil {
-			writeJSON(w, http.StatusOK, []LyricLine{})
+			httputil.WriteJSON(w, http.StatusOK, []LyricLine{})
 			return
 		}
 		artistName := ""
@@ -444,7 +435,7 @@ func (s *Service) lyrics(w http.ResponseWriter, r *http.Request) {
 
 		res, err := lyricfetch.Search(ctx, artistName, albumTitle, track.Title, track.DurationMs)
 		if err != nil || res == nil {
-			writeJSON(w, http.StatusOK, []LyricLine{})
+			httputil.WriteJSON(w, http.StatusOK, []LyricLine{})
 			return
 		}
 
@@ -464,5 +455,5 @@ func (s *Service) lyrics(w http.ResponseWriter, r *http.Request) {
 	if lines == nil {
 		lines = []LyricLine{}
 	}
-	writeJSON(w, http.StatusOK, lines)
+	httputil.WriteJSON(w, http.StatusOK, lines)
 }

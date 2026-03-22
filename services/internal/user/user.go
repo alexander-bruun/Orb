@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -51,17 +52,17 @@ func (s *Service) Routes(r chi.Router) {
 func (s *Service) getStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 
 	prefs, err := s.db.GetUserStreamingPrefs(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, prefs)
+	httputil.WriteJSON(w, http.StatusOK, prefs)
 }
 
 // updateStreamingPrefsReq is the body for PUT /user/streaming-prefs.
@@ -90,13 +91,13 @@ type updateStreamingPrefsReq struct {
 func (s *Service) putStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 
 	var req updateStreamingPrefsReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -118,7 +119,7 @@ func (s *Service) putStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, c := range checks {
 		if c.v != nil && *c.v <= 0 {
-			writeErr(w, http.StatusBadRequest, c.name+" must be positive or null")
+			httputil.WriteErr(w, http.StatusBadRequest, c.name+" must be positive or null")
 			return
 		}
 	}
@@ -127,7 +128,7 @@ func (s *Service) putStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 	validTranscodeFormats := map[string]bool{"mp3": true, "aac": true, "opus": true}
 	for _, f := range []*string{req.TranscodeFormat, req.WifiTranscodeFormat, req.MobileTranscodeFormat} {
 		if f != nil && !validTranscodeFormats[*f] {
-			writeErr(w, http.StatusBadRequest, "transcode_format must be one of: mp3, aac, opus (or null)")
+			httputil.WriteErr(w, http.StatusBadRequest, "transcode_format must be one of: mp3, aac, opus (or null)")
 			return
 		}
 	}
@@ -148,26 +149,14 @@ func (s *Service) putStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 		MobileTranscodeFormat: req.MobileTranscodeFormat,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
 	// Invalidate the KV cache entry so the stream handler picks up the new prefs.
 	s.kv.Del(r.Context(), kvkeys.UserStreamingPrefs(userID))
 
-	writeJSON(w, http.StatusOK, prefs)
-}
-
-// --- helpers ---
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	httputil.WriteJSON(w, http.StatusOK, prefs)
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -177,34 +166,34 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 func (s *Service) listEQProfiles(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	profiles, err := s.db.ListEQProfiles(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusOK, profiles)
+	httputil.WriteJSON(w, http.StatusOK, profiles)
 }
 
 func (s *Service) getEQProfile(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	p, err := s.db.GetEQProfile(r.Context(), id, userID)
 	if err != nil {
 		if err.Error() == "eq profile not found" {
-			writeErr(w, http.StatusNotFound, "not found")
+			httputil.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	httputil.WriteJSON(w, http.StatusOK, p)
 }
 
 type eqProfileReq struct {
@@ -216,16 +205,16 @@ type eqProfileReq struct {
 func (s *Service) createEQProfile(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	var req eqProfileReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	p, err := s.db.CreateEQProfile(r.Context(), store.CreateEQProfileParams{
@@ -236,26 +225,26 @@ func (s *Service) createEQProfile(w http.ResponseWriter, r *http.Request) {
 		IsDefault: req.IsDefault,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, p)
+	httputil.WriteJSON(w, http.StatusCreated, p)
 }
 
 func (s *Service) updateEQProfile(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	var req eqProfileReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	p, err := s.db.UpdateEQProfile(r.Context(), store.UpdateEQProfileParams{
@@ -266,28 +255,28 @@ func (s *Service) updateEQProfile(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if err.Error() == "eq profile not found" {
-			writeErr(w, http.StatusNotFound, "not found")
+			httputil.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	httputil.WriteJSON(w, http.StatusOK, p)
 }
 
 func (s *Service) deleteEQProfile(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	if err := s.db.DeleteEQProfile(r.Context(), id, userID); err != nil {
 		if err.Error() == "eq profile not found" {
-			writeErr(w, http.StatusNotFound, "not found")
+			httputil.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -296,16 +285,16 @@ func (s *Service) deleteEQProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Service) setDefaultEQProfile(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	if err := s.db.SetDefaultEQProfile(r.Context(), id, userID); err != nil {
 		if err.Error() == "eq profile not found" {
-			writeErr(w, http.StatusNotFound, "not found")
+			httputil.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -314,11 +303,11 @@ func (s *Service) setDefaultEQProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Service) clearDefaultEQProfile(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	if err := s.db.ClearDefaultEQProfile(r.Context(), userID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -331,21 +320,21 @@ func (s *Service) clearDefaultEQProfile(w http.ResponseWriter, r *http.Request) 
 func (s *Service) listGenreEQ(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	mappings, err := s.db.ListGenreEQMappings(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusOK, mappings)
+	httputil.WriteJSON(w, http.StatusOK, mappings)
 }
 
 func (s *Service) setGenreEQ(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	genreID := chi.URLParam(r, "genre_id")
@@ -353,15 +342,15 @@ func (s *Service) setGenreEQ(w http.ResponseWriter, r *http.Request) {
 		ProfileID string `json:"profile_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.ProfileID == "" {
-		writeErr(w, http.StatusBadRequest, "profile_id is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "profile_id is required")
 		return
 	}
 	if err := s.db.SetGenreEQMapping(r.Context(), userID, genreID, req.ProfileID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -370,12 +359,12 @@ func (s *Service) setGenreEQ(w http.ResponseWriter, r *http.Request) {
 func (s *Service) deleteGenreEQ(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	genreID := chi.URLParam(r, "genre_id")
 	if err := s.db.DeleteGenreEQMapping(r.Context(), userID, genreID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

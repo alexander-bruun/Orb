@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -36,10 +37,10 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	// EnsureSystemPlaylists is called inside ListSmartPlaylistsByUser.
 	pls, err := s.db.ListSmartPlaylistsByUser(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, pls)
+	httputil.WriteJSON(w, http.StatusOK, pls)
 }
 
 type upsertReq struct {
@@ -56,11 +57,11 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	var req upsertReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	req = applyDefaults(req)
@@ -76,36 +77,36 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		LimitCount:  req.LimitCount,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, pl)
+	httputil.WriteJSON(w, http.StatusCreated, pl)
 }
 
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	pl, err := s.db.GetSmartPlaylistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "smart playlist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "smart playlist not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, pl)
+	httputil.WriteJSON(w, http.StatusOK, pl)
 }
 
 func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.db.GetSmartPlaylistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "smart playlist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "smart playlist not found")
 		return
 	}
 	if existing.System {
-		writeErr(w, http.StatusForbidden, "system playlists cannot be modified")
+		httputil.WriteErr(w, http.StatusForbidden, "system playlists cannot be modified")
 		return
 	}
 	var req upsertReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	// Merge: keep existing values for fields not set in request.
@@ -141,25 +142,25 @@ func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 		LimitCount:  req.LimitCount,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, pl)
+	httputil.WriteJSON(w, http.StatusOK, pl)
 }
 
 func (s *Service) delete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.db.GetSmartPlaylistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "smart playlist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "smart playlist not found")
 		return
 	}
 	if existing.System {
-		writeErr(w, http.StatusForbidden, "system playlists cannot be deleted")
+		httputil.WriteErr(w, http.StatusForbidden, "system playlists cannot be deleted")
 		return
 	}
 	if err := s.db.DeleteSmartPlaylist(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -169,15 +170,15 @@ func (s *Service) tracks(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	pl, err := s.db.GetSmartPlaylistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "smart playlist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "smart playlist not found")
 		return
 	}
 	tracks, err := s.db.EvaluateSmartPlaylist(r.Context(), pl)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, tracks)
+	httputil.WriteJSON(w, http.StatusOK, tracks)
 }
 
 func applyDefaults(req upsertReq) upsertReq {
@@ -196,12 +197,3 @@ func applyDefaults(req upsertReq) upsertReq {
 	return req
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

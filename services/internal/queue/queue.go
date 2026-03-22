@@ -3,10 +3,12 @@ package queue
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -50,14 +52,14 @@ func (s *Service) getQueue(w http.ResponseWriter, r *http.Request) {
 	// Fall back to Postgres.
 	tracks, err := s.db.GetQueue(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if tracks == nil {
 		tracks = []store.Track{}
 	}
 	s.cacheQueue(r, userID, tracks)
-	writeJSON(w, http.StatusOK, tracks)
+	httputil.WriteJSON(w, http.StatusOK, tracks)
 }
 
 type replaceReq struct {
@@ -69,22 +71,24 @@ func (s *Service) replaceQueue(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	var req replaceReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	// Write to Postgres.
 	if err := s.db.ClearQueue(r.Context(), userID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	for i, trackID := range req.TrackIDs {
-		_ = s.db.InsertQueueEntry(r.Context(), store.InsertQueueEntryParams{
+		if err := s.db.InsertQueueEntry(r.Context(), store.InsertQueueEntryParams{
 			UserID:   userID,
 			TrackID:  trackID,
 			Position: i + 1,
 			Source:   req.Source,
-		})
+		}); err != nil {
+			slog.Warn("insert queue entry failed", "action", "insert queue entry", "err", err)
+		}
 	}
 	// Invalidate KeyVal cache.
 	s.kv.Del(r.Context(), kvkeys.UserQueue(userID))
@@ -93,7 +97,9 @@ func (s *Service) replaceQueue(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) clearQueue(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
-	_ = s.db.ClearQueue(r.Context(), userID)
+	if err := s.db.ClearQueue(r.Context(), userID); err != nil {
+		slog.Warn("clear queue failed", "action", "clear queue", "err", err)
+	}
 	s.kv.Del(r.Context(), kvkeys.UserQueue(userID))
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -107,16 +113,18 @@ func (s *Service) addNext(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	var req addTrackReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	minPos, _ := s.db.GetMinQueuePosition(r.Context(), userID)
-	_ = s.db.InsertQueueEntry(r.Context(), store.InsertQueueEntryParams{
+	if err := s.db.InsertQueueEntry(r.Context(), store.InsertQueueEntryParams{
 		UserID:   userID,
 		TrackID:  req.TrackID,
 		Position: minPos - 1,
 		Source:   req.Source,
-	})
+	}); err != nil {
+		slog.Warn("insert queue entry failed", "action", "insert queue entry", "err", err)
+	}
 	s.kv.Del(r.Context(), kvkeys.UserQueue(userID))
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -125,16 +133,18 @@ func (s *Service) addLast(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	var req addTrackReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	maxPos, _ := s.db.GetMaxQueuePosition(r.Context(), userID)
-	_ = s.db.InsertQueueEntry(r.Context(), store.InsertQueueEntryParams{
+	if err := s.db.InsertQueueEntry(r.Context(), store.InsertQueueEntryParams{
 		UserID:   userID,
 		TrackID:  req.TrackID,
 		Position: maxPos + 1,
 		Source:   req.Source,
-	})
+	}); err != nil {
+		slog.Warn("insert queue entry failed", "action", "insert queue entry", "err", err)
+	}
 	s.kv.Del(r.Context(), kvkeys.UserQueue(userID))
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -147,12 +157,3 @@ func (s *Service) cacheQueue(r *http.Request, userID string, tracks []store.Trac
 	s.kv.Set(r.Context(), kvkeys.UserQueue(userID), b, queueCacheTTL)
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

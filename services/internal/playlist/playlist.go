@@ -4,9 +4,9 @@ package playlist
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -38,10 +38,10 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	pls, err := s.db.ListPlaylistsByUser(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, pls)
+	httputil.WriteJSON(w, http.StatusOK, pls)
 }
 
 type createReq struct {
@@ -53,11 +53,11 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	var req createReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	pl, err := s.db.CreatePlaylist(r.Context(), store.CreatePlaylistParams{
@@ -68,25 +68,25 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		CoverArtKey: "",
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, pl)
+	httputil.WriteJSON(w, http.StatusCreated, pl)
 }
 
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	pl, err := s.db.GetPlaylistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "playlist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "playlist not found")
 		return
 	}
 	tracks, err := s.db.ListPlaylistTracks(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"playlist": pl, "tracks": tracks})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"playlist": pl, "tracks": tracks})
 }
 
 type updateReq struct {
@@ -98,12 +98,12 @@ func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	pl, err := s.db.GetPlaylistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "playlist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "playlist not found")
 		return
 	}
 	var req updateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	name := pl.Name
@@ -121,10 +121,10 @@ func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 		CoverArtKey: "",
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, pl)
+	httputil.WriteJSON(w, http.StatusOK, pl)
 }
 
 func (s *Service) delete(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +132,7 @@ func (s *Service) delete(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.DeletePlaylist(r.Context(), store.DeletePlaylistParams{
 		ID: id,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -146,7 +146,7 @@ func (s *Service) addTrack(w http.ResponseWriter, r *http.Request) {
 	playlistID := chi.URLParam(r, "id")
 	var req addTrackReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	pos, _ := s.db.GetMaxPlaylistPosition(r.Context(), playlistID)
@@ -155,7 +155,7 @@ func (s *Service) addTrack(w http.ResponseWriter, r *http.Request) {
 		TrackID:    req.TrackID,
 		Position:   pos + 1,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -166,7 +166,7 @@ func (s *Service) removeTrack(w http.ResponseWriter, r *http.Request) {
 		PlaylistID: chi.URLParam(r, "id"),
 		TrackID:    chi.URLParam(r, "track_id"),
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -183,7 +183,7 @@ func (s *Service) reorderTracks(w http.ResponseWriter, r *http.Request) {
 	playlistID := chi.URLParam(r, "id")
 	var req orderReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	for _, item := range req.Order {
@@ -192,21 +192,9 @@ func (s *Service) reorderTracks(w http.ResponseWriter, r *http.Request) {
 			TrackID:    item.TrackID,
 			Position:   int32(item.Position),
 		}); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}
-
-var _ = strconv.Itoa // silence unused import

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/store"
@@ -144,35 +145,35 @@ func (s *Service) Routes(r chi.Router) {
 func (s *Service) tracksBatch(w http.ResponseWriter, r *http.Request) {
 	idsParam := r.URL.Query().Get("ids")
 	if idsParam == "" {
-		writeJSON(w, http.StatusOK, []trackWithArtists{})
+		httputil.WriteJSON(w, http.StatusOK, []trackWithArtists{})
 		return
 	}
 	ids := strings.Split(idsParam, ",")
 	tracks, err := s.db.GetTracksByIDs(r.Context(), ids)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
+	httputil.WriteJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
 }
 
 func (s *Service) listTracks(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
-	limit, offset := pagination(r)
+	limit, offset := httputil.Pagination(r, 50, 500)
 	tracks, err := s.db.ListTracksByUser(r.Context(), store.ListTracksByUserParams{
 		UserID: userID,
 		Limit:  int32(limit),
 		Offset: int32(offset),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
+	httputil.WriteJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
 }
 
 func (s *Service) listAlbums(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r)
+	limit, offset := httputil.Pagination(r, 50, 500)
 	sortBy := r.URL.Query().Get("sort_by")
 	switch sortBy {
 	case "artist", "year":
@@ -186,40 +187,40 @@ func (s *Service) listAlbums(w http.ResponseWriter, r *http.Request) {
 		SortBy: sortBy,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	total, err := s.db.CountAlbums(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": albums, "total": total})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": albums, "total": total})
 }
 
 func (s *Service) listArtists(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pagination(r)
+	limit, offset := httputil.Pagination(r, 50, 500)
 	artists, err := s.db.ListArtists(r.Context(), store.ListArtistsParams{
 		Limit:  int32(limit),
 		Offset: int32(offset),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, artists)
+	httputil.WriteJSON(w, http.StatusOK, artists)
 }
 
 func (s *Service) albumDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	album, err := s.db.GetAlbumByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "album not found")
+		httputil.WriteErr(w, http.StatusNotFound, "album not found")
 		return
 	}
 	tracks, err := s.db.ListTracksByAlbum(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	resp := map[string]any{"album": album, "tracks": s.enrichTracks(r.Context(), tracks)}
@@ -237,19 +238,19 @@ func (s *Service) albumDetail(w http.ResponseWriter, r *http.Request) {
 			resp["variants"] = variants
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) artistDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	artist, err := s.db.GetArtistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "artist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "artist not found")
 		return
 	}
 	albums, err := s.db.ListAlbumsByArtist(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	resp := map[string]any{"artist": artist, "albums": albums}
@@ -262,25 +263,25 @@ func (s *Service) artistDetail(w http.ResponseWriter, r *http.Request) {
 	if appearsOn, err := s.db.ListAlbumsWithFeaturedArtist(r.Context(), id); err == nil && len(appearsOn) > 0 {
 		resp["appears_on"] = appearsOn
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) artistBio(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	artist, err := s.db.GetArtistByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "artist not found")
+		httputil.WriteErr(w, http.StatusNotFound, "artist not found")
 		return
 	}
 	empty := map[string]string{"bio": "", "bio_url": ""}
 	if artist.Mbid == nil || s.mb == nil {
-		writeJSON(w, http.StatusOK, empty)
+		httputil.WriteJSON(w, http.StatusOK, empty)
 		return
 	}
 	detail, err := s.mb.GetArtist(r.Context(), *artist.Mbid)
 	if err != nil {
 		slog.Warn("artistBio: mb fetch failed", "mbid", *artist.Mbid, "err", err)
-		writeJSON(w, http.StatusOK, empty)
+		httputil.WriteJSON(w, http.StatusOK, empty)
 		return
 	}
 	var wikiURL string
@@ -291,14 +292,14 @@ func (s *Service) artistBio(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if wikiURL == "" {
-		writeJSON(w, http.StatusOK, empty)
+		httputil.WriteJSON(w, http.StatusOK, empty)
 		return
 	}
 	bio, err := fetchWikipediaBio(r.Context(), wikiURL)
 	if err != nil {
 		slog.Warn("artistBio: wikipedia fetch failed", "url", wikiURL, "err", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"bio": bio, "bio_url": wikiURL})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"bio": bio, "bio_url": wikiURL})
 }
 
 // fetchWikipediaBio fetches the article extract from the Wikipedia REST API.
@@ -344,27 +345,27 @@ func (s *Service) trackWaveform(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	peaks, err := s.db.GetTrackWaveform(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "track not found")
+		httputil.WriteErr(w, http.StatusNotFound, "track not found")
 		return
 	}
 	if peaks == nil {
 		peaks = []float32{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"peaks": peaks})
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"peaks": peaks})
 }
 
 func (s *Service) trackDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	track, err := s.db.GetTrackByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "track not found")
+		httputil.WriteErr(w, http.StatusNotFound, "track not found")
 		return
 	}
 	resp := map[string]any{"track": s.enrichTracks(r.Context(), []store.Track{track})[0]}
 	if genres, err := s.db.ListGenresByTrack(r.Context(), id); err == nil {
 		resp["genres"] = genres
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Service) addTrack(w http.ResponseWriter, r *http.Request) {
@@ -374,7 +375,7 @@ func (s *Service) addTrack(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 		TrackID: trackID,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -384,7 +385,7 @@ func (s *Service) removeTrack(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	trackID := chi.URLParam(r, "id")
 	if err := s.db.RemoveTrackFromLibrary(r.Context(), userID, trackID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -393,7 +394,7 @@ func (s *Service) removeTrack(w http.ResponseWriter, r *http.Request) {
 func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		writeErr(w, http.StatusBadRequest, "q is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "q is required")
 		return
 	}
 	qs := r.URL.Query()
@@ -476,7 +477,7 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		out["artists"] = []any{}
 	}
 
-	writeJSON(w, http.StatusOK, out)
+	httputil.WriteJSON(w, http.StatusOK, out)
 }
 
 func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
@@ -492,10 +493,10 @@ func (s *Service) recentlyPlayed(w http.ResponseWriter, r *http.Request) {
 		To:     parseDateParam(r.URL.Query().Get("to")),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), rows))
+	httputil.WriteJSON(w, http.StatusOK, s.enrichTracks(r.Context(), rows))
 }
 
 func (s *Service) mostPlayed(w http.ResponseWriter, r *http.Request) {
@@ -511,10 +512,10 @@ func (s *Service) mostPlayed(w http.ResponseWriter, r *http.Request) {
 		To:     parseDateParam(r.URL.Query().Get("to")),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), rows))
+	httputil.WriteJSON(w, http.StatusOK, s.enrichTracks(r.Context(), rows))
 }
 
 func (s *Service) recentlyPlayedAlbums(w http.ResponseWriter, r *http.Request) {
@@ -524,20 +525,20 @@ func (s *Service) recentlyPlayedAlbums(w http.ResponseWriter, r *http.Request) {
 		Limit:  20,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, albums)
+	httputil.WriteJSON(w, http.StatusOK, albums)
 }
 
 func (s *Service) recentlyAddedAlbums(w http.ResponseWriter, r *http.Request) {
 	limit := 20
 	albums, err := s.db.ListRecentAlbums(r.Context(), store.ListRecentAlbumsParams{Limit: limit})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, albums)
+	httputil.WriteJSON(w, http.StatusOK, albums)
 }
 
 func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
@@ -547,7 +548,7 @@ func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
 		DurationPlayedMs int    `json:"duration_played_ms"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TrackID == "" {
-		writeErr(w, http.StatusBadRequest, "track_id required")
+		httputil.WriteErr(w, http.StatusBadRequest, "track_id required")
 		return
 	}
 	if err := s.db.RecordPlay(r.Context(), store.RecordPlayParams{
@@ -555,7 +556,7 @@ func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
 		TrackID:          body.TrackID,
 		DurationPlayedMs: body.DurationPlayedMs,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if s.dispatcher != nil {
@@ -572,23 +573,23 @@ func (s *Service) listFavorites(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	tracks, err := s.db.ListFavorites(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
+	httputil.WriteJSON(w, http.StatusOK, s.enrichTracks(r.Context(), tracks))
 }
 
 func (s *Service) listFavoriteIDs(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	ids, err := s.db.ListFavoriteIDs(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if ids == nil {
 		ids = []string{}
 	}
-	writeJSON(w, http.StatusOK, ids)
+	httputil.WriteJSON(w, http.StatusOK, ids)
 }
 
 func (s *Service) addFavorite(w http.ResponseWriter, r *http.Request) {
@@ -598,7 +599,7 @@ func (s *Service) addFavorite(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 		TrackID: trackID,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -611,7 +612,7 @@ func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
 		UserID:  userID,
 		TrackID: trackID,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -621,13 +622,13 @@ func (s *Service) listRatings(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	ratings, err := s.db.ListRatings(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if ratings == nil {
 		ratings = map[string]int{}
 	}
-	writeJSON(w, http.StatusOK, ratings)
+	httputil.WriteJSON(w, http.StatusOK, ratings)
 }
 
 func (s *Service) setRating(w http.ResponseWriter, r *http.Request) {
@@ -637,7 +638,7 @@ func (s *Service) setRating(w http.ResponseWriter, r *http.Request) {
 		Rating int `json:"rating"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Rating < 1 || body.Rating > 5 {
-		writeErr(w, http.StatusBadRequest, "rating must be 1–5")
+		httputil.WriteErr(w, http.StatusBadRequest, "rating must be 1–5")
 		return
 	}
 	if err := s.db.SetRating(r.Context(), store.RateTrackParams{
@@ -645,7 +646,7 @@ func (s *Service) setRating(w http.ResponseWriter, r *http.Request) {
 		TrackID: trackID,
 		Rating:  body.Rating,
 	}); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -655,7 +656,7 @@ func (s *Service) deleteRating(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	trackID := chi.URLParam(r, "track_id")
 	if err := s.db.DeleteRating(r.Context(), userID, trackID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -666,42 +667,42 @@ func (s *Service) deleteRating(w http.ResponseWriter, r *http.Request) {
 func (s *Service) listGenres(w http.ResponseWriter, r *http.Request) {
 	genres, err := s.db.ListGenres(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, genres)
+	httputil.WriteJSON(w, http.StatusOK, genres)
 }
 
 func (s *Service) genreDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	genre, err := s.db.GetGenreByID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "genre not found")
+		httputil.WriteErr(w, http.StatusNotFound, "genre not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, genre)
+	httputil.WriteJSON(w, http.StatusOK, genre)
 }
 
 func (s *Service) genreArtists(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	limit, offset := pagination(r)
+	limit, offset := httputil.Pagination(r, 50, 500)
 	artists, err := s.db.ListArtistsByGenre(r.Context(), id, limit, offset)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, artists)
+	httputil.WriteJSON(w, http.StatusOK, artists)
 }
 
 func (s *Service) genreAlbums(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	limit, offset := pagination(r)
+	limit, offset := httputil.Pagination(r, 50, 500)
 	albums, err := s.db.ListAlbumsByGenre(r.Context(), id, limit, offset)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, albums)
+	httputil.WriteJSON(w, http.StatusOK, albums)
 }
 
 // --- lyrics ---
@@ -744,7 +745,7 @@ func (s *Service) getTrackLyrics(w http.ResponseWriter, r *http.Request) {
 	// 1. Check if we already have lyrics cached in the DB.
 	raw, err := s.db.GetTrackLyrics(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "track not found")
+		httputil.WriteErr(w, http.StatusNotFound, "track not found")
 		return
 	}
 	if raw != "" {
@@ -752,14 +753,14 @@ func (s *Service) getTrackLyrics(w http.ResponseWriter, r *http.Request) {
 		if lines == nil {
 			lines = []LyricLine{}
 		}
-		writeJSON(w, http.StatusOK, lines)
+		httputil.WriteJSON(w, http.StatusOK, lines)
 		return
 	}
 
 	// 2. No cached lyrics — auto-fetch from external providers.
 	track, err := s.db.GetTrackByID(r.Context(), id)
 	if err != nil {
-		writeJSON(w, http.StatusOK, []LyricLine{})
+		httputil.WriteJSON(w, http.StatusOK, []LyricLine{})
 		return
 	}
 	artistName := ""
@@ -777,7 +778,7 @@ func (s *Service) getTrackLyrics(w http.ResponseWriter, r *http.Request) {
 
 	res, err := lyricfetch.Search(r.Context(), artistName, albumTitle, track.Title, track.DurationMs)
 	if err != nil || res == nil {
-		writeJSON(w, http.StatusOK, []LyricLine{})
+		httputil.WriteJSON(w, http.StatusOK, []LyricLine{})
 		return
 	}
 
@@ -798,7 +799,7 @@ func (s *Service) getTrackLyrics(w http.ResponseWriter, r *http.Request) {
 	if lines == nil {
 		lines = []LyricLine{}
 	}
-	writeJSON(w, http.StatusOK, lines)
+	httputil.WriteJSON(w, http.StatusOK, lines)
 }
 
 func (s *Service) setTrackLyrics(w http.ResponseWriter, r *http.Request) {
@@ -807,11 +808,11 @@ func (s *Service) setTrackLyrics(w http.ResponseWriter, r *http.Request) {
 		Lyrics string `json:"lyrics"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if err := s.db.SetTrackLyrics(r.Context(), id, body.Lyrics); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -832,21 +833,3 @@ func parseDateParam(s string) *time.Time {
 	return nil
 }
 
-func pagination(r *http.Request) (limit, offset int) {
-	limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
-	offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
-	if limit <= 0 || limit > 500 {
-		limit = 50
-	}
-	return
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

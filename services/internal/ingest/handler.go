@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
@@ -206,12 +207,12 @@ func (s *Service) releaseScanLock() {
 
 func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 	if !s.running.CompareAndSwap(false, true) {
-		http.Error(w, "scan already in progress", http.StatusConflict)
+		httputil.WriteErr(w, http.StatusConflict, "scan already in progress")
 		return
 	}
 	if !s.acquireScanLock(r.Context()) {
 		s.running.Store(false)
-		http.Error(w, "scan already in progress on another instance", http.StatusConflict)
+		httputil.WriteErr(w, http.StatusConflict, "scan already in progress on another instance")
 		return
 	}
 
@@ -285,7 +286,7 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 func (s *Service) triggerReingestAlbum(w http.ResponseWriter, r *http.Request) {
 	albumID := chi.URLParam(r, "albumID")
 	if albumID == "" {
-		http.Error(w, "missing albumID", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "missing albumID")
 		return
 	}
 
@@ -311,7 +312,7 @@ func (s *Service) triggerReingestAlbum(w http.ResponseWriter, r *http.Request) {
 func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

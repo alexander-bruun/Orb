@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/mailer"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
@@ -51,12 +52,12 @@ func (s *Service) AdminMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID := auth.UserIDFromCtx(r.Context())
 		if userID == "" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		u, err := s.db.GetUserByID(r.Context(), userID)
 		if err != nil || !u.IsAdmin || !u.IsActive {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			httputil.WriteErr(w, http.StatusForbidden, "forbidden")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -119,63 +120,63 @@ func (s *Service) Routes(r chi.Router) {
 func (s *Service) summary(w http.ResponseWriter, r *http.Request) {
 	sum, err := s.db.GetAdminSummary(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, sum)
+	httputil.WriteOK(w, sum)
 }
 
 // GET /admin/users
 func (s *Service) listUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.db.ListUsersWithStats(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, users)
+	httputil.WriteOK(w, users)
 }
 
 // GET /admin/top-tracks?limit=10
 func (s *Service) topTracks(w http.ResponseWriter, r *http.Request) {
-	limit := intQuery(r, "limit", 10)
+	limit := httputil.QueryInt(r, "limit", 10)
 	tracks, err := s.db.GetTopTracks(r.Context(), limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, tracks)
+	httputil.WriteOK(w, tracks)
 }
 
 // GET /admin/top-artists?limit=10
 func (s *Service) topArtists(w http.ResponseWriter, r *http.Request) {
-	limit := intQuery(r, "limit", 10)
+	limit := httputil.QueryInt(r, "limit", 10)
 	artists, err := s.db.GetTopArtists(r.Context(), limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, artists)
+	httputil.WriteOK(w, artists)
 }
 
 // GET /admin/plays-by-day?days=30
 func (s *Service) playsByDay(w http.ResponseWriter, r *http.Request) {
-	days := intQuery(r, "days", 30)
+	days := httputil.QueryInt(r, "days", 30)
 	data, err := s.db.GetPlaysByDay(r.Context(), days)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, data)
+	httputil.WriteOK(w, data)
 }
 
 // GET /admin/storage
 func (s *Service) storageStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.db.GetStorageStats(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stats)
+	httputil.WriteOK(w, stats)
 }
 
 // ── User management ──────────────────────────────────────────────────────────
@@ -188,15 +189,17 @@ func (s *Service) setUserAdmin(w http.ResponseWriter, r *http.Request) {
 		IsAdmin bool `json:"is_admin"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if err := s.db.SetUserAdmin(r.Context(), targetID, body.IsAdmin); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "set_admin", "user", targetID,
-		map[string]any{"is_admin": body.IsAdmin})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "set_admin", "user", targetID,
+		map[string]any{"is_admin": body.IsAdmin}); err != nil {
+		slog.Warn("audit log failed", "action", "set_admin", "err", err)
+	}
 	event := webhook.EventUserAdminGranted
 	if !body.IsAdmin {
 		event = webhook.EventUserAdminRevoked
@@ -213,19 +216,23 @@ func (s *Service) setUserActive(w http.ResponseWriter, r *http.Request) {
 		Active bool `json:"active"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if err := s.db.SetUserActive(r.Context(), targetID, body.Active); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Immediately invalidate any active session so the user is logged out.
 	if !body.Active && s.kv != nil {
-		_ = s.kv.Del(r.Context(), kvkeys.Session(targetID))
+		if err := s.kv.Del(r.Context(), kvkeys.Session(targetID)).Err(); err != nil {
+			slog.Warn("session invalidation failed", "action", "set_active", "err", err)
+		}
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "set_active", "user", targetID,
-		map[string]any{"active": body.Active})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "set_active", "user", targetID,
+		map[string]any{"active": body.Active}); err != nil {
+		slog.Warn("audit log failed", "action", "set_active", "err", err)
+	}
 	event := webhook.EventUserActivated
 	if !body.Active {
 		event = webhook.EventUserDeactivated
@@ -242,15 +249,17 @@ func (s *Service) setUserQuota(w http.ResponseWriter, r *http.Request) {
 		QuotaBytes *int64 `json:"quota_bytes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if err := s.db.SetUserQuota(r.Context(), targetID, body.QuotaBytes); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "set_quota", "user", targetID,
-		map[string]any{"quota_bytes": body.QuotaBytes})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "set_quota", "user", targetID,
+		map[string]any{"quota_bytes": body.QuotaBytes}); err != nil {
+		slog.Warn("audit log failed", "action", "set_quota", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -259,14 +268,16 @@ func (s *Service) deleteUser(w http.ResponseWriter, r *http.Request) {
 	targetID := chi.URLParam(r, "id")
 	actorID := auth.UserIDFromCtx(r.Context())
 	if targetID == actorID {
-		http.Error(w, "cannot delete your own account", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "cannot delete your own account")
 		return
 	}
 	if err := s.db.DeleteUser(r.Context(), targetID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "delete_user", "user", targetID, nil)
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "delete_user", "user", targetID, nil); err != nil {
+		slog.Warn("audit log failed", "action", "delete_user", "err", err)
+	}
 	s.dispatch(r.Context(), webhook.EventUserDeleted, map[string]any{"user_id": targetID})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -280,25 +291,27 @@ func (s *Service) createInvite(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
-		http.Error(w, "email required", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "email required")
 		return
 	}
 
 	// Generate a secure 32-byte token.
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
-		http.Error(w, "token generation failed", http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "token generation failed")
 		return
 	}
 	token := hex.EncodeToString(raw)
 	expiresAt := time.Now().Add(7 * 24 * time.Hour)
 
 	if err := s.db.CreateInviteToken(r.Context(), token, body.Email, actorID, expiresAt); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "create_invite", "invite", token,
-		map[string]any{"email": body.Email, "expires_at": expiresAt})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "create_invite", "invite", token,
+		map[string]any{"email": body.Email, "expires_at": expiresAt}); err != nil {
+		slog.Warn("audit log failed", "action", "create_invite", "err", err)
+	}
 
 	// Try to send invite email if SMTP is configured (best-effort).
 	smtpKeys := []string{"site_base_url", "smtp_host", "smtp_port", "smtp_username", "smtp_password",
@@ -325,7 +338,7 @@ func (s *Service) createInvite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, map[string]string{
+	httputil.WriteOK(w, map[string]string{
 		"token":      token,
 		"invite_url": inviteURL,
 		"expires_at": expiresAt.Format(time.RFC3339),
@@ -336,10 +349,10 @@ func (s *Service) createInvite(w http.ResponseWriter, r *http.Request) {
 func (s *Service) listInvites(w http.ResponseWriter, r *http.Request) {
 	tokens, err := s.db.ListInviteTokens(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, tokens)
+	httputil.WriteOK(w, tokens)
 }
 
 // DELETE /admin/invites/{token}
@@ -347,10 +360,12 @@ func (s *Service) revokeInvite(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	actorID := auth.UserIDFromCtx(r.Context())
 	if err := s.db.RevokeInviteToken(r.Context(), token); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "revoke_invite", "invite", token, nil)
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "revoke_invite", "invite", token, nil); err != nil {
+		slog.Warn("audit log failed", "action", "revoke_invite", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -358,28 +373,28 @@ func (s *Service) revokeInvite(w http.ResponseWriter, r *http.Request) {
 
 // GET /admin/audit-logs?limit=50&offset=0
 func (s *Service) auditLogs(w http.ResponseWriter, r *http.Request) {
-	limit := intQuery(r, "limit", 50)
-	offset := intQuery(r, "offset", 0)
+	limit := httputil.QueryInt(r, "limit", 50)
+	offset := httputil.QueryInt(r, "offset", 0)
 	logs, total, err := s.db.ListAuditLogs(r.Context(), limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"logs": logs, "total": total})
+	httputil.WriteOK(w, map[string]any{"logs": logs, "total": total})
 }
 
 // ── Artwork ───────────────────────────────────────────────────────────────────
 
 // GET /admin/albums/no-cover?limit=50&offset=0
 func (s *Service) albumsNoCover(w http.ResponseWriter, r *http.Request) {
-	limit := intQuery(r, "limit", 50)
-	offset := intQuery(r, "offset", 0)
+	limit := httputil.QueryInt(r, "limit", 50)
+	offset := httputil.QueryInt(r, "offset", 0)
 	albums, total, err := s.db.ListAlbumsWithoutCover(r.Context(), limit, offset)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"albums": albums, "total": total})
+	httputil.WriteOK(w, map[string]any{"albums": albums, "total": total})
 }
 
 // POST /admin/albums/{id}/refetch-cover
@@ -388,13 +403,13 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 	actorID := auth.UserIDFromCtx(r.Context())
 
 	if s.mb == nil {
-		http.Error(w, "MusicBrainz client not configured", http.StatusServiceUnavailable)
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "MusicBrainz client not configured")
 		return
 	}
 
 	album, err := s.db.GetAlbumByID(r.Context(), albumID)
 	if err != nil {
-		http.Error(w, "album not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "album not found")
 		return
 	}
 
@@ -409,10 +424,7 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 
 	// Fall back to MusicBrainz search if no MBID or fetch failed.
 	if imgData == nil {
-		artistName := ""
-		if album.ArtistName != nil {
-			artistName = *album.ArtistName
-		}
+		artistName := derefOr(album.ArtistName, "")
 		enrichment, searchErr := s.mb.EnrichAlbum(r.Context(), album.Title, artistName)
 		if searchErr == nil && enrichment != nil && enrichment.ReleaseGroupMbid != "" {
 			imgData, err = s.mb.FetchAlbumCoverArt(r.Context(), enrichment.ReleaseGroupMbid)
@@ -423,21 +435,23 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if imgData == nil {
-		http.Error(w, "no cover art found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "no cover art found")
 		return
 	}
 
 	coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
 	if err := storeCoverArt(r.Context(), s.obj, coverKey, imgData); err != nil {
-		http.Error(w, "failed to store cover art: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "failed to store cover art: "+err.Error())
 		return
 	}
 	if err := s.db.UpdateAlbumCoverArt(r.Context(), albumID, coverKey); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "refetch_cover", "album", albumID, nil)
-	writeJSON(w, map[string]string{"cover_art_key": coverKey})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "refetch_cover", "album", albumID, nil); err != nil {
+		slog.Warn("audit log failed", "action", "refetch_cover", "err", err)
+	}
+	httputil.WriteOK(w, map[string]string{"cover_art_key": coverKey})
 }
 
 // ── Metadata editing ─────────────────────────────────────────────────────────
@@ -452,11 +466,11 @@ func (s *Service) updateAlbumMeta(w http.ResponseWriter, r *http.Request) {
 		Label       *string `json:"label"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if body.Title == "" {
-		http.Error(w, "title required", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "title required")
 		return
 	}
 	if err := s.db.UpdateAlbumMeta(r.Context(), store.UpdateAlbumMetaParams{
@@ -465,11 +479,13 @@ func (s *Service) updateAlbumMeta(w http.ResponseWriter, r *http.Request) {
 		ReleaseYear: body.ReleaseYear,
 		Label:       body.Label,
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_album_meta", "album", id,
-		map[string]any{"title": body.Title})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_album_meta", "album", id,
+		map[string]any{"title": body.Title}); err != nil {
+		slog.Warn("audit log failed", "action", "update_album_meta", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -483,28 +499,27 @@ func (s *Service) updateTrackMeta(w http.ResponseWriter, r *http.Request) {
 		DiscNumber  *int   `json:"disc_number"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if body.Title == "" {
-		http.Error(w, "title required", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "title required")
 		return
 	}
-	discNumber := 1
-	if body.DiscNumber != nil {
-		discNumber = *body.DiscNumber
-	}
+	discNumber := derefOr(body.DiscNumber, 1)
 	if err := s.db.UpdateTrackMeta(r.Context(), store.UpdateTrackMetaParams{
 		ID:          id,
 		Title:       body.Title,
 		TrackNumber: body.TrackNumber,
 		DiscNumber:  discNumber,
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_track_meta", "track", id,
-		map[string]any{"title": body.Title})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_track_meta", "track", id,
+		map[string]any{"title": body.Title}); err != nil {
+		slog.Warn("audit log failed", "action", "update_track_meta", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -521,11 +536,11 @@ func (s *Service) updateAudiobookMeta(w http.ResponseWriter, r *http.Request) {
 		PublishedYear *int     `json:"published_year"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if body.Title == "" {
-		http.Error(w, "title required", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "title required")
 		return
 	}
 
@@ -537,7 +552,7 @@ func (s *Service) updateAudiobookMeta(w http.ResponseWriter, r *http.Request) {
 		if *body.AuthorName != "" {
 			aid, err := s.db.FindOrCreateArtistByName(r.Context(), *body.AuthorName)
 			if err != nil {
-				http.Error(w, "resolve author: "+err.Error(), http.StatusInternalServerError)
+				httputil.WriteErr(w, http.StatusInternalServerError, "resolve author: "+err.Error())
 				return
 			}
 			authorID = &aid
@@ -555,11 +570,13 @@ func (s *Service) updateAudiobookMeta(w http.ResponseWriter, r *http.Request) {
 		SeriesIndex:   body.SeriesIndex,
 		PublishedYear: body.PublishedYear,
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_audiobook_meta", "audiobook", id,
-		map[string]any{"title": body.Title})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_audiobook_meta", "audiobook", id,
+		map[string]any{"title": body.Title}); err != nil {
+		slog.Warn("audit log failed", "action", "update_audiobook_meta", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -570,17 +587,14 @@ func (s *Service) refreshAudiobookMeta(w http.ResponseWriter, r *http.Request) {
 
 	book, err := s.db.GetAudiobook(r.Context(), id)
 	if err != nil {
-		http.Error(w, "audiobook not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "audiobook not found")
 		return
 	}
 
 	// Fetch cover from OpenLibrary using ISBN or title+author.
 	var coverData []byte
 	ol := openlibrary.New()
-	authorName := ""
-	if book.AuthorName != nil {
-		authorName = *book.AuthorName
-	}
+	authorName := derefOr(book.AuthorName, "")
 	meta, olErr := ol.Search(r.Context(), book.Title, authorName)
 	if olErr == nil && meta != nil {
 		if meta.CoverID > 0 {
@@ -597,19 +611,25 @@ func (s *Service) refreshAudiobookMeta(w http.ResponseWriter, r *http.Request) {
 		if meta.PublishedYear > 0 {
 			params.PublishedYear = &meta.PublishedYear
 		}
-		_ = s.db.UpdateAudiobookMeta(r.Context(), params)
+		if err := s.db.UpdateAudiobookMeta(r.Context(), params); err != nil {
+			slog.Warn("update audiobook meta failed", "action", "refresh_audiobook_meta", "err", err)
+		}
 	}
 
 	// Store cover art if fetched.
 	if len(coverData) > 0 {
 		coverKey := fmt.Sprintf("covers/audiobook/%s.jpg", id)
 		if err := storeCoverArt(r.Context(), s.obj, coverKey, coverData); err == nil {
-			_ = s.db.UpdateAudiobookCoverArt(r.Context(), id, coverKey)
+			if err := s.db.UpdateAudiobookCoverArt(r.Context(), id, coverKey); err != nil {
+				slog.Warn("update audiobook cover art failed", "action", "refresh_audiobook_meta", "err", err)
+			}
 		}
 	}
 
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "refresh_audiobook_meta", "audiobook", id, nil)
-	writeJSON(w, map[string]string{"status": "refreshed"})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "refresh_audiobook_meta", "audiobook", id, nil); err != nil {
+		slog.Warn("audit log failed", "action", "refresh_audiobook_meta", "err", err)
+	}
+	httputil.WriteOK(w, map[string]string{"status": "refreshed"})
 }
 
 // requestBaseURL derives the site base URL from the incoming HTTP request.
@@ -646,14 +666,14 @@ var smtpSettingKeys = []string{
 func (s *Service) getSettings(w http.ResponseWriter, r *http.Request) {
 	vals, err := s.db.GetSiteSettings(r.Context(), smtpSettingKeys)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Never return the password to the client.
 	if _, ok := vals["smtp_password"]; ok {
 		vals["smtp_password"] = "••••••••"
 	}
-	writeJSON(w, vals)
+	httputil.WriteOK(w, vals)
 }
 
 // PUT /admin/settings/smtp
@@ -670,7 +690,7 @@ func (s *Service) updateSmtpSettings(w http.ResponseWriter, r *http.Request) {
 		SiteBaseURL string `json:"site_base_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	kvs := map[string]string{
@@ -688,11 +708,13 @@ func (s *Service) updateSmtpSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	for k, v := range kvs {
 		if err := s.db.SetSiteSetting(r.Context(), k, v); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_smtp_settings", "settings", "", nil)
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_smtp_settings", "settings", "", nil); err != nil {
+		slog.Warn("audit log failed", "action", "update_smtp_settings", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -702,14 +724,14 @@ func (s *Service) testSmtp(w http.ResponseWriter, r *http.Request) {
 		To string `json:"to"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
-		http.Error(w, "to address required", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "to address required")
 		return
 	}
 	smtpKeys := []string{"smtp_host", "smtp_port", "smtp_username", "smtp_password",
 		"smtp_from_address", "smtp_from_name", "smtp_tls"}
 	cfg, err := s.db.GetSiteSettings(r.Context(), smtpKeys)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	m := mailer.New(mailer.Config{
@@ -722,49 +744,31 @@ func (s *Service) testSmtp(w http.ResponseWriter, r *http.Request) {
 		TLS:         cfg["smtp_tls"] == "true",
 	})
 	if err := m.Validate(); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		httputil.WriteErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
 	if err := m.SendTest(r.Context(), body.To); err != nil {
-		http.Error(w, "smtp error: "+err.Error(), http.StatusBadGateway)
+		httputil.WriteErr(w, http.StatusBadGateway, "smtp error: "+err.Error())
 		return
 	}
-	writeJSON(w, map[string]string{"status": "sent"})
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-func intQuery(r *http.Request, key string, def int) int {
-	if v := r.URL.Query().Get(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			return n
-		}
-	}
-	return def
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
+	httputil.WriteOK(w, map[string]string{"status": "sent"})
 }
 
 // ── Webhooks ─────────────────────────────────────────────────────────────────
 
 // GET /admin/webhooks/events — list all supported event types.
 func (s *Service) listWebhookEvents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, webhook.AllEvents)
+	httputil.WriteOK(w, webhook.AllEvents)
 }
 
 // GET /admin/webhooks
 func (s *Service) listWebhooks(w http.ResponseWriter, r *http.Request) {
 	hooks, err := s.db.ListWebhooks(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, hooks)
+	httputil.WriteOK(w, hooks)
 }
 
 // POST /admin/webhooks — body: {url, secret, events, description}
@@ -777,16 +781,16 @@ func (s *Service) createWebhook(w http.ResponseWriter, r *http.Request) {
 		Description string   `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if body.URL == "" {
-		http.Error(w, "url required", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "url required")
 		return
 	}
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
-		http.Error(w, "failed to generate id", http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "failed to generate id")
 		return
 	}
 	id := hex.EncodeToString(raw)
@@ -798,13 +802,15 @@ func (s *Service) createWebhook(w http.ResponseWriter, r *http.Request) {
 		Description: body.Description,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "create_webhook", "webhook", id,
-		map[string]any{"url": body.URL, "events": body.Events})
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "create_webhook", "webhook", id,
+		map[string]any{"url": body.URL, "events": body.Events}); err != nil {
+		slog.Warn("audit log failed", "action", "create_webhook", "err", err)
+	}
 	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, hook)
+	httputil.WriteOK(w, hook)
 }
 
 // GET /admin/webhooks/{id}
@@ -812,10 +818,10 @@ func (s *Service) getWebhook(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	hook, err := s.db.GetWebhook(r.Context(), id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	writeJSON(w, hook)
+	httputil.WriteOK(w, hook)
 }
 
 // PUT /admin/webhooks/{id} — body: {url, secret, events, enabled, description}
@@ -830,7 +836,7 @@ func (s *Service) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		Description string   `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	hook, err := s.db.UpdateWebhook(r.Context(), store.UpdateWebhookParams{
@@ -842,12 +848,14 @@ func (s *Service) updateWebhook(w http.ResponseWriter, r *http.Request) {
 		Description: body.Description,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "update_webhook", "webhook", id,
-		map[string]any{"url": body.URL, "enabled": body.Enabled})
-	writeJSON(w, hook)
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_webhook", "webhook", id,
+		map[string]any{"url": body.URL, "enabled": body.Enabled}); err != nil {
+		slog.Warn("audit log failed", "action", "update_webhook", "err", err)
+	}
+	httputil.WriteOK(w, hook)
 }
 
 // DELETE /admin/webhooks/{id}
@@ -855,23 +863,25 @@ func (s *Service) deleteWebhook(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	actorID := auth.UserIDFromCtx(r.Context())
 	if err := s.db.DeleteWebhook(r.Context(), id); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.db.InsertAuditLog(r.Context(), actorID, "delete_webhook", "webhook", id, nil)
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "delete_webhook", "webhook", id, nil); err != nil {
+		slog.Warn("audit log failed", "action", "delete_webhook", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // GET /admin/webhooks/{id}/deliveries?limit=50
 func (s *Service) listWebhookDeliveries(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	limit := intQuery(r, "limit", 50)
+	limit := httputil.QueryInt(r, "limit", 50)
 	deliveries, err := s.db.ListWebhookDeliveries(r.Context(), id, limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, deliveries)
+	httputil.WriteOK(w, deliveries)
 }
 
 // POST /admin/webhooks/{id}/test — sends a test event immediately.
@@ -879,7 +889,7 @@ func (s *Service) testWebhook(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	hook, err := s.db.GetWebhook(r.Context(), id)
 	if err != nil {
-		http.Error(w, "webhook not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "webhook not found")
 		return
 	}
 	if s.dispatcher != nil {
@@ -896,6 +906,14 @@ func (s *Service) dispatch(ctx context.Context, event string, data any) {
 	if s.dispatcher != nil {
 		s.dispatcher.Dispatch(ctx, event, data)
 	}
+}
+
+// derefOr safely dereferences a pointer, returning fallback if the pointer is nil.
+func derefOr[T any](p *T, fallback T) T {
+	if p != nil {
+		return *p
+	}
+	return fallback
 }
 
 // storeCoverArt stores a cover art image, re-encoding as JPEG for consistency.

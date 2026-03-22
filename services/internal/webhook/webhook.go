@@ -131,13 +131,15 @@ func (d *Dispatcher) deliver(ctx context.Context, h store.Webhook, event string,
 		}
 	}
 
-	_ = d.db.CreateWebhookDelivery(ctx, store.CreateWebhookDeliveryParams{
+	if err := d.db.CreateWebhookDelivery(ctx, store.CreateWebhookDeliveryParams{
 		WebhookID:  h.ID,
 		Event:      event,
 		Payload:    body,
 		StatusCode: statusCode,
 		Error:      errMsg,
-	})
+	}); err != nil {
+		slog.Warn("record webhook delivery failed", "action", "record webhook delivery", "err", err)
+	}
 	slog.Info("webhook delivered", "id", h.ID, "event", event, "status", statusCode)
 }
 

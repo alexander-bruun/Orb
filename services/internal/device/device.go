@@ -13,10 +13,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
@@ -105,10 +107,10 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	devices, err := s.scanDevices(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "redis error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "redis error")
 		return
 	}
-	writeJSON(w, http.StatusOK, devices)
+	httputil.WriteJSON(w, http.StatusOK, devices)
 }
 
 // ── register ─────────────────────────────────────────────────────────────────
@@ -122,7 +124,7 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" || req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "device_id and name are required")
+		httputil.WriteErr(w, http.StatusBadRequest, "device_id and name are required")
 		return
 	}
 
@@ -132,12 +134,14 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		LastSeen: time.Now().UTC(),
 	}
 	if err := s.saveDevice(r.Context(), userID, d); err != nil {
-		writeErr(w, http.StatusInternalServerError, "redis error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "redis error")
 		return
 	}
 
-	_ = s.publish(r.Context(), userID, eventMsg{Type: "registered", DeviceID: d.ID})
-	writeJSON(w, http.StatusOK, d)
+	if err := s.publish(r.Context(), userID, eventMsg{Type: "registered", DeviceID: d.ID}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
+	httputil.WriteJSON(w, http.StatusOK, d)
 }
 
 // ── heartbeat ────────────────────────────────────────────────────────────────
@@ -158,18 +162,20 @@ func (s *Service) heartbeat(w http.ResponseWriter, r *http.Request) {
 
 	d, err := s.loadDevice(r.Context(), userID, deviceID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "device not found")
+		httputil.WriteErr(w, http.StatusNotFound, "device not found")
 		return
 	}
 	d.State = state
 	d.LastSeen = time.Now().UTC()
 	if err := s.saveDevice(r.Context(), userID, d); err != nil {
-		writeErr(w, http.StatusInternalServerError, "redis error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "redis error")
 		return
 	}
 
 	// Notify peers of the updated state.
-	_ = s.publish(r.Context(), userID, eventMsg{Type: "state", DeviceID: deviceID, State: &state})
+	if err := s.publish(r.Context(), userID, eventMsg{Type: "state", DeviceID: deviceID, State: &state}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -188,7 +194,9 @@ func (s *Service) unregister(w http.ResponseWriter, r *http.Request) {
 		s.kv.Del(r.Context(), kvkeys.UserActiveDevice(userID))
 	}
 
-	_ = s.publish(r.Context(), userID, eventMsg{Type: "unregistered", DeviceID: deviceID})
+	if err := s.publish(r.Context(), userID, eventMsg{Type: "unregistered", DeviceID: deviceID}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -202,7 +210,9 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 	s.kv.Set(r.Context(), kvkeys.UserActiveDevice(userID), deviceID, 0)
 
 	// Tell all other devices to pause via pub/sub.
-	_ = s.publish(r.Context(), userID, eventMsg{Type: "pause_others", DeviceID: deviceID})
+	if err := s.publish(r.Context(), userID, eventMsg{Type: "pause_others", DeviceID: deviceID}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -220,7 +230,7 @@ func (s *Service) playCommand(w http.ResponseWriter, r *http.Request) {
 
 	var req playCommandReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -237,14 +247,18 @@ func (s *Service) playCommand(w http.ResponseWriter, r *http.Request) {
 	// Tell all other devices to pause first, then send the play command.
 	// Without pause_others, peers that still hold a stale active-device
 	// pointer may mis-delegate playTrack() back to the originator.
-	_ = s.publish(r.Context(), userID, eventMsg{Type: "pause_others", DeviceID: deviceID})
-	_ = s.publish(r.Context(), userID, eventMsg{
+	if err := s.publish(r.Context(), userID, eventMsg{Type: "pause_others", DeviceID: deviceID}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
+	if err := s.publish(r.Context(), userID, eventMsg{
 		Type:       "play_command",
 		DeviceID:   deviceID,
 		TrackID:    req.TrackID,
 		PositionMs: req.PositionMs,
 		Queue:      req.Queue,
-	})
+	}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -262,17 +276,19 @@ func (s *Service) controlCommand(w http.ResponseWriter, r *http.Request) {
 
 	var req controlCommandReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Action == "" {
-		writeErr(w, http.StatusBadRequest, "action is required")
+		httputil.WriteErr(w, http.StatusBadRequest, "action is required")
 		return
 	}
 
-	_ = s.publish(r.Context(), userID, eventMsg{
+	if err := s.publish(r.Context(), userID, eventMsg{
 		Type:       "control_command",
 		DeviceID:   deviceID,
 		Action:     req.Action,
 		PositionMs: req.PositionMs,
 		Volume:     req.Volume,
-	})
+	}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -283,7 +299,7 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, http.StatusInternalServerError, "streaming not supported")
+		httputil.WriteErr(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
 
@@ -331,7 +347,7 @@ type playbackSettings struct {
 func (s *Service) getPlaybackSettings(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	val, _ := s.kv.Get(r.Context(), kvkeys.UserExclusiveMode(userID)).Result()
-	writeJSON(w, http.StatusOK, playbackSettings{ExclusiveMode: val == "1"})
+	httputil.WriteJSON(w, http.StatusOK, playbackSettings{ExclusiveMode: val == "1"})
 }
 
 func (s *Service) patchPlaybackSettings(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +355,7 @@ func (s *Service) patchPlaybackSettings(w http.ResponseWriter, r *http.Request) 
 
 	var req playbackSettings
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
@@ -350,9 +366,11 @@ func (s *Service) patchPlaybackSettings(w http.ResponseWriter, r *http.Request) 
 	s.kv.Set(r.Context(), kvkeys.UserExclusiveMode(userID), val, 0)
 
 	// Notify all SSE clients of the mode change.
-	_ = s.publish(r.Context(), userID, eventMsg{Type: "exclusive_mode", Enabled: req.ExclusiveMode})
+	if err := s.publish(r.Context(), userID, eventMsg{Type: "exclusive_mode", Enabled: req.ExclusiveMode}); err != nil {
+		slog.Warn("publish device event failed", "action", "publish device event", "err", err)
+	}
 
-	writeJSON(w, http.StatusOK, req)
+	httputil.WriteJSON(w, http.StatusOK, req)
 }
 
 // ── internal helpers ─────────────────────────────────────────────────────────
@@ -406,12 +424,3 @@ func (s *Service) publish(ctx context.Context, userID string, msg eventMsg) erro
 	return s.kv.Publish(ctx, kvkeys.UserDeviceEvents(userID), b).Err()
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

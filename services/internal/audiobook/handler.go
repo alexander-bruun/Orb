@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/ingest"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
 	"github.com/alexander-bruun/orb/services/internal/store"
@@ -62,12 +62,6 @@ func (s *Service) Routes(r chi.Router) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-func writeJSON(w http.ResponseWriter, code int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
 func userIDFromCtx(r *http.Request) string {
 	return auth.UserIDFromCtx(r.Context())
 }
@@ -75,18 +69,7 @@ func userIDFromCtx(r *http.Request) string {
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
-	limit := 50
-	offset := 0
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-			limit = n
-		}
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = n
-		}
-	}
+	limit, offset := httputil.Pagination(r, 50, 200)
 	sortBy := r.URL.Query().Get("sort_by")
 
 	books, err := s.db.ListAudiobooks(r.Context(), store.ListAudiobooksParams{
@@ -95,36 +78,34 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		SortBy: sortBy,
 	})
 	if err != nil {
-		http.Error(w, "list audiobooks: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "list audiobooks: "+err.Error())
 		return
 	}
 	if books == nil {
 		books = []store.Audiobook{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books})
 }
 
 func (s *Service) listInProgress(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	limit := 20
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 100 {
-			limit = n
-		}
+	limit := httputil.QueryInt(r, "limit", 20)
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
 	books, err := s.db.ListInProgressAudiobooks(r.Context(), userID, limit)
 	if err != nil {
-		http.Error(w, "list in-progress audiobooks: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "list in-progress audiobooks: "+err.Error())
 		return
 	}
 	if books == nil {
 		books = []store.AudiobookWithProgress{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books})
 }
 
 func (s *Service) get(w http.ResponseWriter, r *http.Request) {
@@ -132,19 +113,19 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 	book, err := s.db.GetAudiobook(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			http.Error(w, "not found", http.StatusNotFound)
+			httputil.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		http.Error(w, "get audiobook: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "get audiobook: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobook": book})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobook": book})
 }
 
 func (s *Service) getProgress(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -152,21 +133,21 @@ func (s *Service) getProgress(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// No progress yet — return zeros.
-			writeJSON(w, http.StatusOK, map[string]interface{}{
+			httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{
 				"progress": store.AudiobookProgress{UserID: userID, AudiobookID: id},
 			})
 			return
 		}
-		http.Error(w, "get progress: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "get progress: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"progress": progress})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"progress": progress})
 }
 
 func (s *Service) upsertProgress(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -176,7 +157,7 @@ func (s *Service) upsertProgress(w http.ResponseWriter, r *http.Request) {
 		Completed  bool  `json:"completed"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if err := s.db.UpsertAudiobookProgress(r.Context(), store.UpsertAudiobookProgressParams{
@@ -185,7 +166,7 @@ func (s *Service) upsertProgress(w http.ResponseWriter, r *http.Request) {
 		PositionMs:  body.PositionMs,
 		Completed:   body.Completed,
 	}); err != nil {
-		http.Error(w, "upsert progress: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "upsert progress: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -194,25 +175,25 @@ func (s *Service) upsertProgress(w http.ResponseWriter, r *http.Request) {
 func (s *Service) listBookmarks(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	bookmarks, err := s.db.ListAudiobookBookmarks(r.Context(), userID, id)
 	if err != nil {
-		http.Error(w, "list bookmarks: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "list bookmarks: "+err.Error())
 		return
 	}
 	if bookmarks == nil {
 		bookmarks = []store.AudiobookBookmark{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"bookmarks": bookmarks})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"bookmarks": bookmarks})
 }
 
 func (s *Service) createBookmark(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := chi.URLParam(r, "id")
@@ -222,7 +203,7 @@ func (s *Service) createBookmark(w http.ResponseWriter, r *http.Request) {
 		Note       *string `json:"note,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid body", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 
@@ -234,21 +215,21 @@ func (s *Service) createBookmark(w http.ResponseWriter, r *http.Request) {
 		Note:        body.Note,
 	})
 	if err != nil {
-		http.Error(w, "create bookmark: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "create bookmark: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]interface{}{"bookmark": bm})
+	httputil.WriteJSON(w, http.StatusCreated, map[string]interface{}{"bookmark": bm})
 }
 
 func (s *Service) deleteBookmark(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	bookmarkID := chi.URLParam(r, "bookmark_id")
 	if err := s.db.DeleteAudiobookBookmark(r.Context(), bookmarkID, userID); err != nil {
-		http.Error(w, "delete bookmark: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "delete bookmark: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -258,136 +239,116 @@ func (s *Service) listBySeries(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	books, err := s.db.ListAudiobooksBySeries(r.Context(), name)
 	if err != nil {
-		http.Error(w, "list series: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "list series: "+err.Error())
 		return
 	}
 	if books == nil {
 		books = []store.Audiobook{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "series": name})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "series": name})
 }
 
 func (s *Service) triggerRescanAudiobook(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	u, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil || !u.IsAdmin || !u.IsActive {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		httputil.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	if s.ingestService == nil {
-		http.Error(w, "audiobook ingest not configured (set AUDIOBOOK_DIRS)", http.StatusServiceUnavailable)
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "audiobook ingest not configured (set AUDIOBOOK_DIRS)")
 		return
 	}
 	id := chi.URLParam(r, "id")
 	if err := s.ingestService.TriggerReingestAudiobook(id); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		httputil.WriteErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "reingest started"})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"status": "reingest started"})
 }
 
 func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	u, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil || !u.IsAdmin || !u.IsActive {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		httputil.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	if s.ingestService == nil {
-		http.Error(w, "audiobook ingest not configured (set AUDIOBOOK_DIRS)", http.StatusServiceUnavailable)
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "audiobook ingest not configured (set AUDIOBOOK_DIRS)")
 		return
 	}
 	if r.URL.Query().Get("force") == "true" {
 		if err := s.ingestService.TriggerForceScan(s.ingestService.RootCtx()); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
+			httputil.WriteErr(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "force scan started"})
+		httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"status": "force scan started"})
 		return
 	}
 	if err := s.ingestService.TriggerScan(s.ingestService.RootCtx()); err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		httputil.WriteErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "scan started"})
+	httputil.WriteJSON(w, http.StatusAccepted, map[string]string{"status": "scan started"})
 }
 
 func (s *Service) listNoCover(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	u, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil || !u.IsAdmin || !u.IsActive {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		httputil.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	limit := int32(50)
-	offset := int32(0)
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-			limit = int32(n)
-		}
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = int32(n)
-		}
-	}
+	l, o := httputil.Pagination(r, 50, 200)
+	limit, offset := int32(l), int32(o)
 
 	books, total, err := s.db.ListAudiobooksNoCover(r.Context(), limit, offset)
 	if err != nil {
-		http.Error(w, "list audiobooks no cover: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "list audiobooks no cover: "+err.Error())
 		return
 	}
 	if books == nil {
 		books = []store.Audiobook{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "total": total})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "total": total})
 }
 
 func (s *Service) listNoSeries(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromCtx(r)
 	if userID == "" {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	u, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil || !u.IsAdmin || !u.IsActive {
-		http.Error(w, "forbidden", http.StatusForbidden)
+		httputil.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	limit := int32(50)
-	offset := int32(0)
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
-			limit = int32(n)
-		}
-	}
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			offset = int32(n)
-		}
-	}
+	l, o := httputil.Pagination(r, 50, 200)
+	limit, offset := int32(l), int32(o)
 
 	books, total, err := s.db.ListAudiobooksNoSeries(r.Context(), limit, offset)
 	if err != nil {
-		http.Error(w, "list audiobooks no series: "+err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, "list audiobooks no series: "+err.Error())
 		return
 	}
 	if books == nil {
 		books = []store.Audiobook{}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "total": total})
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books, "total": total})
 }

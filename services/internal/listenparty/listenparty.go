@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"regexp"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/store"
@@ -346,7 +348,7 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "user not found")
+		httputil.WriteErr(w, http.StatusInternalServerError, "user not found")
 		return
 	}
 
@@ -360,18 +362,18 @@ func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	b, _ := json.Marshal(sess)
 	if err := s.kv.Set(r.Context(), kvkeys.ListenSession(sessionID), b, sessionTTL).Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not create session")
+		httputil.WriteErr(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{"session_id": sessionID})
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"session_id": sessionID})
 }
 
 func (s *Service) getSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "id")
 	sess, err := s.loadSession(r.Context(), sessionID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "session not found")
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -380,7 +382,7 @@ func (s *Service) getSession(w http.ResponseWriter, r *http.Request) {
 		participantCount = len(h.participants())
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"session_id":        sess.ID,
 		"host_name":         sess.HostName,
 		"participant_count": participantCount,
@@ -397,11 +399,11 @@ func (s *Service) endSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "id")
 	sess, err := s.loadSession(r.Context(), sessionID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "session not found")
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 	if sess.HostID != userID {
-		writeErr(w, http.StatusForbidden, "not the session host")
+		httputil.WriteErr(w, http.StatusForbidden, "not the session host")
 		return
 	}
 	s.kv.Del(r.Context(), kvkeys.ListenSession(sessionID))
@@ -417,11 +419,11 @@ func (s *Service) enableCode(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "id")
 	sess, err := s.loadSession(r.Context(), sessionID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "session not found")
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 	if sess.HostID != userID {
-		writeErr(w, http.StatusForbidden, "not the session host")
+		httputil.WriteErr(w, http.StatusForbidden, "not the session host")
 		return
 	}
 	code := fmt.Sprintf("%04d", rand.Intn(10000))
@@ -429,10 +431,10 @@ func (s *Service) enableCode(w http.ResponseWriter, r *http.Request) {
 	sess.AccessCode = code
 	b, _ := json.Marshal(sess)
 	if err := s.kv.Set(r.Context(), kvkeys.ListenSession(sessionID), b, sessionTTL).Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not update session")
+		httputil.WriteErr(w, http.StatusInternalServerError, "could not update session")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"code": code})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"code": code})
 }
 
 func (s *Service) disableCode(w http.ResponseWriter, r *http.Request) {
@@ -443,18 +445,18 @@ func (s *Service) disableCode(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "id")
 	sess, err := s.loadSession(r.Context(), sessionID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "session not found")
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 	if sess.HostID != userID {
-		writeErr(w, http.StatusForbidden, "not the session host")
+		httputil.WriteErr(w, http.StatusForbidden, "not the session host")
 		return
 	}
 	sess.CodeEnabled = false
 	sess.AccessCode = ""
 	b, _ := json.Marshal(sess)
 	if err := s.kv.Set(r.Context(), kvkeys.ListenSession(sessionID), b, sessionTTL).Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "could not update session")
+		httputil.WriteErr(w, http.StatusInternalServerError, "could not update session")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -467,7 +469,7 @@ func (s *Service) ws(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.loadSession(r.Context(), sessionID)
 	if err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -774,20 +776,20 @@ func (s *Service) guestStream(w http.ResponseWriter, r *http.Request) {
 	trackID := chi.URLParam(r, "track_id")
 	guestToken := r.URL.Query().Get("guest_token")
 	if guestToken == "" {
-		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
 		return
 	}
 
 	// Validate token → session.
 	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
 	if err != nil || storedSessionID != sessionID {
-		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
 		return
 	}
 
 	// Verify session still exists.
 	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -799,16 +801,16 @@ func (s *Service) guestAudiobookStream(w http.ResponseWriter, r *http.Request) {
 	audiobookID := chi.URLParam(r, "audiobook_id")
 	guestToken := r.URL.Query().Get("guest_token")
 	if guestToken == "" {
-		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
 		return
 	}
 	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
 	if err != nil || storedSessionID != sessionID {
-		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
 		return
 	}
 	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 	s.streamSvc.ServeByAudiobookID(w, r, audiobookID)
@@ -819,16 +821,16 @@ func (s *Service) guestAudiobookChapterStream(w http.ResponseWriter, r *http.Req
 	chapterID := chi.URLParam(r, "chapter_id")
 	guestToken := r.URL.Query().Get("guest_token")
 	if guestToken == "" {
-		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
 		return
 	}
 	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
 	if err != nil || storedSessionID != sessionID {
-		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
 		return
 	}
 	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 	s.streamSvc.ServeByAudiobookChapterID(w, r, chapterID)
@@ -841,18 +843,18 @@ func (s *Service) guestCover(w http.ResponseWriter, r *http.Request) {
 	albumID := chi.URLParam(r, "album_id")
 	guestToken := r.URL.Query().Get("guest_token")
 	if guestToken == "" {
-		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
 		return
 	}
 
 	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
 	if err != nil || storedSessionID != sessionID {
-		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
 		return
 	}
 
 	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -864,16 +866,16 @@ func (s *Service) guestAudiobookCover(w http.ResponseWriter, r *http.Request) {
 	audiobookID := chi.URLParam(r, "audiobook_id")
 	guestToken := r.URL.Query().Get("guest_token")
 	if guestToken == "" {
-		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
 		return
 	}
 	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
 	if err != nil || storedSessionID != sessionID {
-		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
 		return
 	}
 	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 	s.streamSvc.ServeAudiobookCover(w, r, audiobookID)
@@ -919,25 +921,25 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 	trackID := chi.URLParam(r, "track_id")
 	guestToken := r.URL.Query().Get("guest_token")
 	if guestToken == "" {
-		http.Error(w, "missing guest_token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
 		return
 	}
 
 	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
 	if err != nil || storedSessionID != sessionID {
-		http.Error(w, "invalid or expired guest token", http.StatusUnauthorized)
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
 		return
 	}
 
 	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
-		http.Error(w, "session not found", http.StatusNotFound)
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
 		return
 	}
 
 	// Check DB cache first.
 	raw, err := s.db.GetTrackLyrics(r.Context(), trackID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, []lrcLine{})
+		httputil.WriteJSON(w, http.StatusOK, []lrcLine{})
 		return
 	}
 
@@ -945,7 +947,7 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 		// Auto-fetch from external providers.
 		track, err := s.db.GetTrackByID(r.Context(), trackID)
 		if err != nil {
-			writeJSON(w, http.StatusOK, []lrcLine{})
+			httputil.WriteJSON(w, http.StatusOK, []lrcLine{})
 			return
 		}
 		artistName := ""
@@ -963,7 +965,7 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 
 		res, fetchErr := lyricfetch.Search(r.Context(), artistName, albumTitle, track.Title, track.DurationMs)
 		if fetchErr != nil || res == nil {
-			writeJSON(w, http.StatusOK, []lrcLine{})
+			httputil.WriteJSON(w, http.StatusOK, []lrcLine{})
 			return
 		}
 		raw = res.LRC
@@ -971,11 +973,13 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 			raw = res.Plain
 		}
 		if raw != "" {
-			_ = s.db.SetTrackLyrics(r.Context(), trackID, raw)
+			if err := s.db.SetTrackLyrics(r.Context(), trackID, raw); err != nil {
+				slog.Warn("set track lyrics failed", "action", "set track lyrics", "err", err)
+			}
 		}
 	}
 
-	writeJSON(w, http.StatusOK, parseLRC(raw))
+	httputil.WriteJSON(w, http.StatusOK, parseLRC(raw))
 }
 
 // --- Helpers ---
@@ -1059,12 +1063,12 @@ func (s *Service) fetchTrackInfo(trackID string) *TrackInfo {
 func (s *Service) requireAuth(w http.ResponseWriter, r *http.Request) (string, bool) {
 	tokenStr := tokenFromRequest(r)
 	if tokenStr == "" {
-		writeErr(w, http.StatusUnauthorized, "missing token")
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing token")
 		return "", false
 	}
 	userID, ok := s.validateJWT(tokenStr)
 	if !ok {
-		writeErr(w, http.StatusUnauthorized, "invalid token")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid token")
 		return "", false
 	}
 	return userID, true
@@ -1113,12 +1117,3 @@ func mustMarshal(v any) []byte {
 	return b
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

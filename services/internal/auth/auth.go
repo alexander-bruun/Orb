@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/mailer"
 	"github.com/alexander-bruun/orb/services/internal/store"
@@ -162,26 +163,26 @@ func requestBaseURL(r *http.Request) string {
 func (s *Service) emailConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, _ := s.db.GetSiteSettings(r.Context(), []string{"smtp_host", "smtp_from_address"})
 	smtpConfigured := cfg["smtp_host"] != "" && cfg["smtp_from_address"] != ""
-	writeJSON(w, http.StatusOK, map[string]bool{"verification_enabled": smtpConfigured})
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"verification_enabled": smtpConfigured})
 }
 
 // GET /auth/verify-email?token=... — verifies the token and marks the email as verified.
 func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		writeErr(w, http.StatusBadRequest, "token required")
+		httputil.WriteErr(w, http.StatusBadRequest, "token required")
 		return
 	}
 	_, err := s.db.VerifyEmailToken(r.Context(), token)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeErr(w, http.StatusBadRequest, "invalid or already used verification token")
+			httputil.WriteErr(w, http.StatusBadRequest, "invalid or already used verification token")
 			return
 		}
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httputil.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "email verified"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "email verified"})
 }
 
 // POST /auth/resend-verification — resends the verification email (requires JWT).
@@ -189,20 +190,20 @@ func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromCtx(r.Context())
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if user.EmailVerified {
-		writeErr(w, http.StatusConflict, "email already verified")
+		httputil.WriteErr(w, http.StatusConflict, "email already verified")
 		return
 	}
 	m, _ := s.loadMailer(r.Context())
 	if m == nil {
-		writeErr(w, http.StatusServiceUnavailable, "email verification not configured")
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "email verification not configured")
 		return
 	}
 	s.sendVerificationEmail(r.Context(), user, requestBaseURL(r))
-	writeJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
 }
 
 // --- handlers ---
@@ -210,10 +211,10 @@ func (s *Service) resendVerification(w http.ResponseWriter, r *http.Request) {
 func (s *Service) setup(w http.ResponseWriter, r *http.Request) {
 	has, err := s.db.HasAnyUser(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"setup_required": !has})
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"setup_required": !has})
 }
 
 type registerReq struct {
@@ -226,44 +227,44 @@ type registerReq struct {
 func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	has, err := s.db.HasAnyUser(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
 	var req registerReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Username == "" || req.Email == "" || req.Password == "" {
-		writeErr(w, http.StatusBadRequest, "username, email, and password required")
+		httputil.WriteErr(w, http.StatusBadRequest, "username, email, and password required")
 		return
 	}
 
 	// After setup: require a valid invite token.
 	if has {
 		if req.InviteToken == "" {
-			writeErr(w, http.StatusForbidden, "registration requires an invite")
+			httputil.WriteErr(w, http.StatusForbidden, "registration requires an invite")
 			return
 		}
 		invite, err := s.db.GetInviteToken(r.Context(), req.InviteToken)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "db error")
+			httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 			return
 		}
 		if invite == nil || invite.UsedAt != nil || invite.ExpiresAt.Before(time.Now()) {
-			writeErr(w, http.StatusForbidden, "invalid or expired invite token")
+			httputil.WriteErr(w, http.StatusForbidden, "invalid or expired invite token")
 			return
 		}
 		if !strings.EqualFold(invite.Email, req.Email) {
-			writeErr(w, http.StatusForbidden, "invite email does not match")
+			httputil.WriteErr(w, http.StatusForbidden, "invite email does not match")
 			return
 		}
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "hash error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "hash error")
 		return
 	}
 	userID := uuid.New().String()
@@ -275,28 +276,32 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "unique") {
-			writeErr(w, http.StatusConflict, "username or email already exists")
+			httputil.WriteErr(w, http.StatusConflict, "username or email already exists")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	// First user becomes admin automatically.
 	if !has {
-		_ = s.db.SetUserAdmin(r.Context(), user.ID, true)
+		if err := s.db.SetUserAdmin(r.Context(), user.ID, true); err != nil {
+			slog.Warn("set first user admin failed", "action", "set first user admin", "err", err)
+		}
 	}
 
 	// Consume the invite token if one was used.
 	if req.InviteToken != "" {
-		_ = s.db.ConsumeInviteToken(r.Context(), req.InviteToken, user.ID)
+		if err := s.db.ConsumeInviteToken(r.Context(), req.InviteToken, user.ID); err != nil {
+			slog.Warn("consume invite token failed", "action", "consume invite token", "err", err)
+		}
 	}
 
 	// Send verification email if SMTP is configured (best-effort).
 	origin := requestBaseURL(r)
 	go s.sendVerificationEmail(context.Background(), user, origin)
 
-	writeJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "username": user.Username})
+	httputil.WriteJSON(w, http.StatusCreated, map[string]string{"id": user.ID, "username": user.Username})
 }
 
 type loginReq struct {
@@ -312,27 +317,27 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		s.kv.Expire(r.Context(), kvkeys.LoginAttempts(ip), loginWindow)
 	}
 	if attempts > loginLimit {
-		writeErr(w, http.StatusTooManyRequests, "too many login attempts")
+		httputil.WriteErr(w, http.StatusTooManyRequests, "too many login attempts")
 		return
 	}
 
 	var req loginReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	user, err := s.db.GetUserByEmail(r.Context(), req.Email)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeErr(w, http.StatusUnauthorized, "invalid credentials")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		writeErr(w, http.StatusUnauthorized, "invalid credentials")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
@@ -340,10 +345,10 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	if user.TOTPEnabled {
 		pendingToken := uuid.New().String()
 		if err := s.kv.Set(r.Context(), kvkeys.TOTPPending(pendingToken), user.ID, totpPendingTTL).Err(); err != nil {
-			writeErr(w, http.StatusInternalServerError, "session error")
+			httputil.WriteErr(w, http.StatusInternalServerError, "session error")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
 			"totp_required": true,
 			"temp_token":    pendingToken,
 		})
@@ -352,7 +357,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 
 	accessToken, err := s.issueJWT(user.ID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "jwt error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "jwt error")
 		return
 	}
 	refreshToken := uuid.New().String()
@@ -362,13 +367,15 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	pipe.Set(r.Context(), kvkeys.Session(user.ID), "1", jwtTTL)
 	pipe.Set(r.Context(), kvkeys.RefreshToken(refreshToken), user.ID, refreshTTL)
 	if _, err := pipe.Exec(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "session error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "session error")
 		return
 	}
 
-	_ = s.db.UpdateLastLogin(r.Context(), user.ID)
+	if err := s.db.UpdateLastLogin(r.Context(), user.ID); err != nil {
+		slog.Warn("update last login failed", "action", "update last login", "err", err)
+	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"access_token":   accessToken,
 		"refresh_token":  refreshToken,
 		"user_id":        user.ID,
@@ -386,19 +393,19 @@ type refreshReq struct {
 func (s *Service) refresh(w http.ResponseWriter, r *http.Request) {
 	var req refreshReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
 	userID, err := s.kv.Get(r.Context(), kvkeys.RefreshToken(req.RefreshToken)).Result()
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired refresh token")
 		return
 	}
 
 	accessToken, err := s.issueJWT(userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "jwt error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "jwt error")
 		return
 	}
 	// Rotate refresh token.
@@ -408,11 +415,11 @@ func (s *Service) refresh(w http.ResponseWriter, r *http.Request) {
 	pipe.Set(r.Context(), kvkeys.Session(userID), "1", jwtTTL)
 	pipe.Set(r.Context(), kvkeys.RefreshToken(newRefresh), userID, refreshTTL)
 	if _, err := pipe.Exec(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "session error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "session error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{
 		"access_token":  accessToken,
 		"refresh_token": newRefresh,
 	})
@@ -421,7 +428,7 @@ func (s *Service) refresh(w http.ResponseWriter, r *http.Request) {
 func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromCtx(r.Context())
 	if userID == "" {
-		writeErr(w, http.StatusUnauthorized, "not authenticated")
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	s.kv.Del(r.Context(), kvkeys.Session(userID))
@@ -438,35 +445,35 @@ func (s *Service) changePassword(w http.ResponseWriter, r *http.Request) {
 
 	var req changePasswordReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.CurrentPassword == "" || req.NewPassword == "" {
-		writeErr(w, http.StatusBadRequest, "current_password and new_password required")
+		httputil.WriteErr(w, http.StatusBadRequest, "current_password and new_password required")
 		return
 	}
 	if len(req.NewPassword) < 8 {
-		writeErr(w, http.StatusBadRequest, "new password must be at least 8 characters")
+		httputil.WriteErr(w, http.StatusBadRequest, "new password must be at least 8 characters")
 		return
 	}
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
-		writeErr(w, http.StatusUnauthorized, "current password is incorrect")
+		httputil.WriteErr(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "hash error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "hash error")
 		return
 	}
 	if err := s.db.UpdateUserPassword(r.Context(), userID, string(hash)); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -482,38 +489,40 @@ func (s *Service) changeEmail(w http.ResponseWriter, r *http.Request) {
 
 	var req changeEmailReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.NewEmail == "" || req.CurrentPassword == "" {
-		writeErr(w, http.StatusBadRequest, "new_email and current_password required")
+		httputil.WriteErr(w, http.StatusBadRequest, "new_email and current_password required")
 		return
 	}
 	if !strings.Contains(req.NewEmail, "@") {
-		writeErr(w, http.StatusBadRequest, "invalid email address")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid email address")
 		return
 	}
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
-		writeErr(w, http.StatusUnauthorized, "current password is incorrect")
+		httputil.WriteErr(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
 
 	if err := s.db.UpdateUserEmail(r.Context(), userID, req.NewEmail); err != nil {
 		if strings.Contains(err.Error(), "unique") {
-			writeErr(w, http.StatusConflict, "email already in use")
+			httputil.WriteErr(w, http.StatusConflict, "email already in use")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	// Reset verification state for the new address.
-	_ = s.db.ResetEmailVerification(r.Context(), userID)
+	if err := s.db.ResetEmailVerification(r.Context(), userID); err != nil {
+		slog.Warn("reset email verification failed", "action", "reset email verification", "err", err)
+	}
 	// Send a fresh verification email (best-effort).
 	user.Email = req.NewEmail
 	origin := requestBaseURL(r)
@@ -528,10 +537,10 @@ func (s *Service) totpStatus(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromCtx(r.Context())
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"enabled": user.TOTPEnabled})
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"enabled": user.TOTPEnabled})
 }
 
 type totpSetupReq struct {
@@ -545,7 +554,7 @@ func (s *Service) totpSetup(w http.ResponseWriter, r *http.Request) {
 	userID := UserIDFromCtx(r.Context())
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
@@ -554,16 +563,16 @@ func (s *Service) totpSetup(w http.ResponseWriter, r *http.Request) {
 		AccountName: user.Email,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "totp generate error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "totp generate error")
 		return
 	}
 
 	if err := s.db.SetTOTPSecret(r.Context(), userID, key.Secret()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{
 		"secret":      key.Secret(),
 		"otpauth_url": key.URL(),
 	})
@@ -580,50 +589,50 @@ func (s *Service) totpEnable(w http.ResponseWriter, r *http.Request) {
 
 	var req totpEnableReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Code == "" {
-		writeErr(w, http.StatusBadRequest, "code required")
+		httputil.WriteErr(w, http.StatusBadRequest, "code required")
 		return
 	}
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if user.TOTPSecret == nil || *user.TOTPSecret == "" {
-		writeErr(w, http.StatusBadRequest, "run /totp/setup first")
+		httputil.WriteErr(w, http.StatusBadRequest, "run /totp/setup first")
 		return
 	}
 	if user.TOTPEnabled {
-		writeErr(w, http.StatusConflict, "2FA already enabled")
+		httputil.WriteErr(w, http.StatusConflict, "2FA already enabled")
 		return
 	}
 
 	if !totp.Validate(req.Code, *user.TOTPSecret) {
-		writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid TOTP code")
 		return
 	}
 
 	plain, hashed, err := generateBackupCodes()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "backup code generation error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "backup code generation error")
 		return
 	}
 	codesJSON, err := json.Marshal(hashed)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "encoding error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "encoding error")
 		return
 	}
 
 	if err := s.db.EnableTOTP(r.Context(), userID, string(codesJSON)); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"backup_codes": plain,
 	})
 }
@@ -639,34 +648,34 @@ func (s *Service) totpDisable(w http.ResponseWriter, r *http.Request) {
 
 	var req totpDisableReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Password == "" || req.Code == "" {
-		writeErr(w, http.StatusBadRequest, "password and code required")
+		httputil.WriteErr(w, http.StatusBadRequest, "password and code required")
 		return
 	}
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if !user.TOTPEnabled {
-		writeErr(w, http.StatusConflict, "2FA is not enabled")
+		httputil.WriteErr(w, http.StatusConflict, "2FA is not enabled")
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		writeErr(w, http.StatusUnauthorized, "invalid password")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid password")
 		return
 	}
 	if !totp.Validate(req.Code, *user.TOTPSecret) {
-		writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid TOTP code")
 		return
 	}
 
 	if err := s.db.DisableTOTP(r.Context(), userID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -683,27 +692,27 @@ type totpVerifyReq struct {
 func (s *Service) totpVerify(w http.ResponseWriter, r *http.Request) {
 	var req totpVerifyReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.TempToken == "" || req.Code == "" {
-		writeErr(w, http.StatusBadRequest, "temp_token and code required")
+		httputil.WriteErr(w, http.StatusBadRequest, "temp_token and code required")
 		return
 	}
 
 	userID, err := s.kv.Get(r.Context(), kvkeys.TOTPPending(req.TempToken)).Result()
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "invalid or expired token")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired token")
 		return
 	}
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if user.TOTPSecret == nil {
-		writeErr(w, http.StatusInternalServerError, "totp not configured")
+		httputil.WriteErr(w, http.StatusInternalServerError, "totp not configured")
 		return
 	}
 
@@ -713,12 +722,14 @@ func (s *Service) totpVerify(w http.ResponseWriter, r *http.Request) {
 		// Check backup codes.
 		consumed, remaining, ok := consumeBackupCode(req.Code, user.TOTPBackupCodes)
 		if !ok {
-			writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
+			httputil.WriteErr(w, http.StatusUnauthorized, "invalid TOTP code")
 			return
 		}
 		_ = consumed
 		codesJSON, _ := json.Marshal(remaining)
-		_ = s.db.UpdateTOTPBackupCodes(r.Context(), userID, string(codesJSON))
+		if err := s.db.UpdateTOTPBackupCodes(r.Context(), userID, string(codesJSON)); err != nil {
+			slog.Warn("update totp backup codes failed", "action", "update totp backup codes", "err", err)
+		}
 	}
 
 	// Consume the pending token so it can't be used again.
@@ -726,7 +737,7 @@ func (s *Service) totpVerify(w http.ResponseWriter, r *http.Request) {
 
 	accessToken, err := s.issueJWT(userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "jwt error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "jwt error")
 		return
 	}
 	refreshToken := uuid.New().String()
@@ -735,13 +746,15 @@ func (s *Service) totpVerify(w http.ResponseWriter, r *http.Request) {
 	pipe.Set(r.Context(), kvkeys.Session(userID), "1", jwtTTL)
 	pipe.Set(r.Context(), kvkeys.RefreshToken(refreshToken), userID, refreshTTL)
 	if _, err := pipe.Exec(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "session error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "session error")
 		return
 	}
 
-	_ = s.db.UpdateLastLogin(r.Context(), userID)
+	if err := s.db.UpdateLastLogin(r.Context(), userID); err != nil {
+		slog.Warn("update last login failed", "action", "update last login", "err", err)
+	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"access_token":   accessToken,
 		"refresh_token":  refreshToken,
 		"user_id":        user.ID,
@@ -762,40 +775,40 @@ func (s *Service) totpRegenerateBackupCodes(w http.ResponseWriter, r *http.Reque
 
 	var req totpRegenerateBackupCodesReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON")
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	if req.Code == "" {
-		writeErr(w, http.StatusBadRequest, "code required")
+		httputil.WriteErr(w, http.StatusBadRequest, "code required")
 		return
 	}
 
 	user, err := s.db.GetUserByID(r.Context(), userID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 	if !user.TOTPEnabled || user.TOTPSecret == nil {
-		writeErr(w, http.StatusBadRequest, "2FA is not enabled")
+		httputil.WriteErr(w, http.StatusBadRequest, "2FA is not enabled")
 		return
 	}
 	if !totp.Validate(req.Code, *user.TOTPSecret) {
-		writeErr(w, http.StatusUnauthorized, "invalid TOTP code")
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid TOTP code")
 		return
 	}
 
 	plain, hashed, err := generateBackupCodes()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "backup code generation error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "backup code generation error")
 		return
 	}
 	codesJSON, _ := json.Marshal(hashed)
 	if err := s.db.UpdateTOTPBackupCodes(r.Context(), userID, string(codesJSON)); err != nil {
-		writeErr(w, http.StatusInternalServerError, "db error")
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{
 		"backup_codes": plain,
 	})
 }
@@ -888,7 +901,7 @@ func JWTMiddleware(secret string, kv *redis.Client) func(http.Handler) http.Hand
 				}
 			}
 			if tokenStr == "" {
-				writeErr(w, http.StatusUnauthorized, "missing token")
+				httputil.WriteErr(w, http.StatusUnauthorized, "missing token")
 				return
 			}
 			var c claims
@@ -899,13 +912,13 @@ func JWTMiddleware(secret string, kv *redis.Client) func(http.Handler) http.Hand
 				return key, nil
 			})
 			if err != nil || !tok.Valid {
-				writeErr(w, http.StatusUnauthorized, "invalid token")
+				httputil.WriteErr(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
 			// Check session is still active (not logged out).
 			exists, err := kv.Exists(r.Context(), kvkeys.Session(c.UserID)).Result()
 			if err != nil || exists == 0 {
-				writeErr(w, http.StatusUnauthorized, "session expired")
+				httputil.WriteErr(w, http.StatusUnauthorized, "session expired")
 				return
 			}
 			ctx := context.WithValue(r.Context(), ctxUserID, c.UserID)
@@ -920,14 +933,3 @@ func UserIDFromCtx(ctx context.Context) string {
 	return v
 }
 
-// --- helpers ---
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
-}

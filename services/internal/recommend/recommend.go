@@ -2,12 +2,11 @@
 package recommend
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 )
@@ -33,22 +32,22 @@ func (s *Service) Routes(r chi.Router) {
 // GET /recommend/similar/{track_id}?limit=20&exclude_album=<album_id>
 func (s *Service) similarTracks(w http.ResponseWriter, r *http.Request) {
 	trackID := chi.URLParam(r, "track_id")
-	limit := intQuery(r, "limit", 20)
+	limit := httputil.QueryInt(r, "limit", 20)
 	excludeAlbum := r.URL.Query().Get("exclude_album")
 
 	tracks, err := s.db.ListSimilarTracks(r.Context(), trackID, limit, excludeAlbum)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, tracks)
+	httputil.WriteOK(w, tracks)
 }
 
 // radio returns a personalized mix based on recent listening history.
 // GET /recommend/radio?limit=50&seed_artist_id=<artist_id>
 func (s *Service) radio(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
-	limit := intQuery(r, "limit", 50)
+	limit := httputil.QueryInt(r, "limit", 50)
 	seedArtistID := r.URL.Query().Get("seed_artist_id")
 
 	var (
@@ -61,10 +60,10 @@ func (s *Service) radio(w http.ResponseWriter, r *http.Request) {
 		tracks, err = s.db.RecommendForUser(r.Context(), userID, limit)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, tracks)
+	httputil.WriteOK(w, tracks)
 }
 
 // autoplay returns tracks to auto-play after the given track ends.
@@ -73,10 +72,10 @@ func (s *Service) autoplay(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r.Context())
 	afterID := r.URL.Query().Get("after")
 	if afterID == "" {
-		http.Error(w, "missing 'after' parameter", http.StatusBadRequest)
+		httputil.WriteErr(w, http.StatusBadRequest, "missing 'after' parameter")
 		return
 	}
-	limit := intQuery(r, "limit", 5)
+	limit := httputil.QueryInt(r, "limit", 5)
 
 	var exclude []string
 	if ex := r.URL.Query().Get("exclude"); ex != "" {
@@ -85,24 +84,9 @@ func (s *Service) autoplay(w http.ResponseWriter, r *http.Request) {
 
 	tracks, err := s.db.AutoplayAfter(r.Context(), userID, afterID, exclude, limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, tracks)
+	httputil.WriteOK(w, tracks)
 }
 
-func intQuery(r *http.Request, key string, def int) int {
-	if v := r.URL.Query().Get(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return n
-		}
-	}
-	return def
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}

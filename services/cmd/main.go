@@ -59,64 +59,61 @@ func main() {
 	}
 }
 
-func run(ctx context.Context) error {
-	// Log build information
-	slog.Info("orb server starting", "version", buildTag, "sha", buildSHA)
-
-	// --- Config from env ---
-	dbURL := config.DSN()
-	kvMode := config.Env("KV_MODE", "standalone") // standalone | sentinel
-	kvAddr := config.Env("KV_ADDR", "localhost:6379")
-	kvAddrs := strings.Split(config.Env("KV_SENTINEL_ADDRS", "localhost:26379"), ",")
-	kvMaster := config.Env("KV_SENTINEL_MASTER", "mymaster")
-	storeRoot := config.Env("STORE_ROOT", "./data/audio")
-	jwtSecret := config.Env("JWT_SECRET", "dev-secret-change-in-prod")
-	port := config.Env("HTTP_PORT", "8080")
-
-	// --- Postgres ---
+// initPostgres connects to Postgres, runs migrations, and returns the store.
+func initPostgres(ctx context.Context, dbURL string) (*store.Store, error) {
 	db, err := store.Connect(ctx, dbURL)
 	if err != nil {
-		return fmt.Errorf("connect postgres: %w", err)
+		return nil, fmt.Errorf("connect postgres: %w", err)
 	}
-	defer db.Close()
 	slog.Info("postgres connected")
 
 	if err := db.Migrate(ctx); err != nil {
-		return fmt.Errorf("migrate schema: %w", err)
+		db.Close()
+		return nil, fmt.Errorf("migrate schema: %w", err)
 	}
 	slog.Info("schema up to date")
+	return db, nil
+}
 
-	// --- KeyVal (Valkey/Redis) ---
+// initRedis creates a Redis/Valkey client (standalone or sentinel) and pings it.
+func initRedis(ctx context.Context, mode, addr string, sentinelAddrs []string, master string) (*redis.Client, error) {
 	var kv *redis.Client
-	if kvMode == "sentinel" {
+	if mode == "sentinel" {
 		kv = redis.NewFailoverClient(&redis.FailoverOptions{
-			MasterName:    kvMaster,
-			SentinelAddrs: kvAddrs,
+			MasterName:    master,
+			SentinelAddrs: sentinelAddrs,
 		})
 	} else {
-		kv = redis.NewClient(&redis.Options{Addr: kvAddr})
+		kv = redis.NewClient(&redis.Options{Addr: addr})
 	}
-	defer kv.Close()
 	if err := kv.Ping(ctx).Err(); err != nil {
 		slog.Warn("keyval unreachable at startup", "err", err)
 	} else {
 		slog.Info("keyval connected")
 	}
+	return kv, nil
+}
 
-	// --- Object store ---
-	obj, err := objstore.NewLocalFS(storeRoot)
+// initObjectStore creates a local filesystem object store at root.
+func initObjectStore(root string) (*objstore.LocalFS, error) {
+	obj, err := objstore.NewLocalFS(root)
 	if err != nil {
-		return fmt.Errorf("local store: %w", err)
+		return nil, fmt.Errorf("local store: %w", err)
 	}
-	slog.Info("object store ready", "root", storeRoot)
+	slog.Info("object store ready", "root", root)
+	return obj, nil
+}
 
-	// --- Ingest service (shared between HTTP handler and background watcher) ---
-	ingestSvc := buildIngestService(ctx, db, obj, kv)
-
-	// --- Audiobook ingest service (optional, requires AUDIOBOOK_DIRS) ---
-	audiobookIngestSvc := buildAudiobookIngestService(ctx, db, obj)
-
-	// --- Router ---
+// registerRoutes builds the chi router with all route groups.
+func registerRoutes(
+	db *store.Store,
+	kv *redis.Client,
+	obj *objstore.LocalFS,
+	jwtSecret string,
+	port string,
+	ingestSvc *ingest.Service,
+	audiobookIngestSvc *ingest.AudiobookIngestService,
+) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
@@ -206,6 +203,55 @@ func run(ctx context.Context) error {
 	castBaseURL := config.Env("CAST_BASE_URL", fmt.Sprintf("http://%s:%s", detectLANIP(), port))
 	castSvc := castproxy.New(db, obj, castBaseURL)
 	castSvc.Routes(r)
+
+	return r
+}
+
+func run(ctx context.Context) error {
+	// Log build information
+	slog.Info("orb server starting", "version", buildTag, "sha", buildSHA)
+
+	// --- Config from env ---
+	dbURL := config.DSN()
+	kvMode := config.Env("KV_MODE", "standalone") // standalone | sentinel
+	kvAddr := config.Env("KV_ADDR", "localhost:6379")
+	kvAddrs := strings.Split(config.Env("KV_SENTINEL_ADDRS", "localhost:26379"), ",")
+	kvMaster := config.Env("KV_SENTINEL_MASTER", "mymaster")
+	storeRoot := config.Env("STORE_ROOT", "./data/audio")
+	jwtSecret := config.Env("JWT_SECRET", "dev-secret-change-in-prod")
+	if jwtSecret == "dev-secret-change-in-prod" {
+		slog.Warn("using default JWT secret — set JWT_SECRET in production")
+	}
+	port := config.Env("HTTP_PORT", "8080")
+
+	// --- Postgres ---
+	db, err := initPostgres(ctx, dbURL)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// --- KeyVal (Valkey/Redis) ---
+	kv, err := initRedis(ctx, kvMode, kvAddr, kvAddrs, kvMaster)
+	if err != nil {
+		return err
+	}
+	defer kv.Close()
+
+	// --- Object store ---
+	obj, err := initObjectStore(storeRoot)
+	if err != nil {
+		return err
+	}
+
+	// --- Ingest service (shared between HTTP handler and background watcher) ---
+	ingestSvc := buildIngestService(ctx, db, obj, kv)
+
+	// --- Audiobook ingest service (optional, requires AUDIOBOOK_DIRS) ---
+	audiobookIngestSvc := buildAudiobookIngestService(ctx, db, obj)
+
+	// --- Router ---
+	r := registerRoutes(db, kv, obj, jwtSecret, port, ingestSvc, audiobookIngestSvc)
 
 	// --- Background ingest watcher (leader-elected, no-op if Watch=false) ---
 	if ingestSvc != nil {
