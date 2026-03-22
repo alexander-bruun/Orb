@@ -24,7 +24,7 @@ ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, sort_name = EXCLUDED.sort_n
 
 func (s *Store) ListArtists(ctx context.Context, p ListArtistsParams) ([]Artist, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, sort_name, mbid, created_at FROM artists ORDER BY sort_name ASC LIMIT $1 OFFSET $2`,
+		`SELECT id, name, sort_name, mbid, image_key, created_at FROM artists ORDER BY sort_name ASC LIMIT $1 OFFSET $2`,
 		p.Limit, p.Offset)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (s *Store) GetArtistNamesByIDs(ctx context.Context, ids []string) (map[stri
 
 func (s *Store) SearchArtists(ctx context.Context, p SearchArtistsParams) ([]Artist, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, sort_name, mbid, created_at FROM artists
+		`SELECT id, name, sort_name, mbid, image_key, created_at FROM artists
 WHERE search_vector @@ websearch_to_tsquery('english', $1)
   AND EXISTS (SELECT 1 FROM albums WHERE artist_id = artists.id)
 ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', $1)) DESC LIMIT $2`,
@@ -203,7 +203,7 @@ func (s *Store) ListAllRelatedArtists(ctx context.Context) ([]RelatedArtistPair,
 // ListUnenrichedArtists returns artists that haven't been enriched yet.
 // If force is true, returns all artists regardless of enrichment status.
 func (s *Store) ListUnenrichedArtists(ctx context.Context, limit int, force bool) ([]Artist, error) {
-	q := `SELECT id, name, sort_name, mbid, created_at FROM artists`
+	q := `SELECT id, name, sort_name, mbid, image_key, created_at FROM artists`
 	if !force {
 		q += ` WHERE enriched_at IS NULL`
 	}
@@ -219,7 +219,7 @@ func (s *Store) ListUnenrichedArtists(ctx context.Context, limit int, force bool
 // ListArtistsByGenre returns artists that have a given genre.
 func (s *Store) ListArtistsByGenre(ctx context.Context, genreID string, limit, offset int) ([]Artist, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT a.id, a.name, a.sort_name, a.mbid, a.created_at
+		`SELECT a.id, a.name, a.sort_name, a.mbid, a.image_key, a.created_at
 FROM artists a
 JOIN artist_genres ag ON ag.artist_id = a.id
 WHERE ag.genre_id = $1
@@ -238,12 +238,15 @@ func scanArtists(rows pgx.Rows) ([]Artist, error) {
 	out := make([]Artist, 0)
 	for rows.Next() {
 		var a Artist
-		var mbid sql.NullString
-		if err := rows.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &a.CreatedAt); err != nil {
+		var mbid, imageKey sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &imageKey, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		if mbid.Valid {
 			a.Mbid = &mbid.String
+		}
+		if imageKey.Valid {
+			a.ImageKey = &imageKey.String
 		}
 		out = append(out, a)
 	}
