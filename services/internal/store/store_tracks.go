@@ -1344,7 +1344,9 @@ func (s *Store) RecommendForUser(ctx context.Context, userID string, limit int) 
 }
 
 // AutoplayAfter returns tracks to auto-play after the given track, excluding
-// the provided track IDs (already in queue).
+// the provided track IDs (already in queue). When no pre-computed similarity
+// data exists it falls back to tracks by the same artist, then random tracks
+// from the user's library.
 func (s *Store) AutoplayAfter(ctx context.Context, userID, trackID string, exclude []string, limit int) ([]TrackWithScore, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
@@ -1363,6 +1365,69 @@ func (s *Store) AutoplayAfter(ctx context.Context, userID, trackID string, exclu
 		 ORDER BY s.score DESC, random()
 		 LIMIT $3`,
 		trackID, exclude, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result, err := scanTracksWithScore(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(result) > 0 {
+		return result, nil
+	}
+
+	// Fallback: tracks by the same artist, ordered randomly.
+	result, err = s.autoplayFallbackArtist(ctx, trackID, exclude, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(result) > 0 {
+		return result, nil
+	}
+
+	// Last resort: random tracks from the user's library.
+	return s.autoplayFallbackRandom(ctx, userID, exclude, limit)
+}
+
+// autoplayFallbackArtist returns random tracks by the same artist as trackID.
+func (s *Store) autoplayFallbackArtist(ctx context.Context, trackID string, exclude []string, limit int) ([]TrackWithScore, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        COALESCE(tf.replay_gain, 0) AS replay_gain_track, 0::float8 AS score, ar.name AS artist_name
+		 FROM tracks t
+		 LEFT JOIN track_features tf ON tf.track_id = t.id
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 WHERE t.artist_id = (SELECT artist_id FROM tracks WHERE id = $1)
+		   AND t.id != $1
+		   AND t.id != ALL($2::text[])
+		 ORDER BY random()
+		 LIMIT $3`,
+		trackID, exclude, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracksWithScore(rows)
+}
+
+// autoplayFallbackRandom returns random tracks from the user's library.
+func (s *Store) autoplayFallbackRandom(ctx context.Context, userID string, exclude []string, limit int) ([]TrackWithScore, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate,
+		        t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        COALESCE(tf.replay_gain, 0) AS replay_gain_track, 0::float8 AS score, ar.name AS artist_name
+		 FROM tracks t
+		 JOIN user_library ul ON ul.track_id = t.id AND ul.user_id = $1
+		 LEFT JOIN track_features tf ON tf.track_id = t.id
+		 LEFT JOIN artists ar ON ar.id = t.artist_id
+		 WHERE t.id != ALL($2::text[])
+		 ORDER BY random()
+		 LIMIT $3`,
+		userID, exclude, limit)
 	if err != nil {
 		return nil, err
 	}

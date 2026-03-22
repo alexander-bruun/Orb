@@ -1299,6 +1299,22 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 	}
 	slog.Info("ingest leader: initial scan complete", "enqueued", n)
 
+	// Wait for workers to drain the queue, then compute similarity.
+	if g.cfg.ComputeSimilarity && n > 0 {
+		go func() {
+			if err := g.waitForQueueDrain(ctx, kv); err != nil {
+				slog.Warn("ingest leader: queue drain wait aborted", "err", err)
+				return
+			}
+			// Pass nil newTrackIDs — we don't track which IDs workers processed,
+			// so runSimilarity will check HasSimilarityData and do a full or
+			// incremental recompute as appropriate.
+			if err := g.runSimilarity(ctx, nil); err != nil {
+				slog.Error("similarity computation failed", "err", err)
+			}
+		}()
+	}
+
 	enqueue := func(path string) {
 		if err := kv.LPush(ctx, kvkeys.IngestWorkQueue(), path).Err(); err != nil {
 			slog.Warn("ingest leader: enqueue failed", "path", path, "err", err)
@@ -1424,6 +1440,27 @@ func (g *Ingester) watchWithPollingLeader(ctx context.Context, kv *redis.Client)
 			} else if n > 0 {
 				slog.Info("ingest leader: poll enqueued", "count", n)
 			}
+		}
+	}
+}
+
+// waitForQueueDrain polls the Redis work queue until it is empty, then returns.
+// This lets the leader know when all enqueued files have been processed by workers.
+func (g *Ingester) waitForQueueDrain(ctx context.Context, kv *redis.Client) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(3 * time.Second):
+			n, err := kv.LLen(ctx, kvkeys.IngestWorkQueue()).Result()
+			if err != nil {
+				return fmt.Errorf("check queue length: %w", err)
+			}
+			if n == 0 {
+				slog.Info("ingest leader: work queue drained, proceeding with similarity")
+				return nil
+			}
+			slog.Debug("ingest leader: waiting for queue drain", "remaining", n)
 		}
 	}
 }

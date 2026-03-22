@@ -506,13 +506,12 @@ export async function next() {
 					queueIndex.set(nextIdx);
 					await playTrack(newQueue[actualIndex(nextIdx)]);
 					return;
-				} else {
-					addToast('No similar tracks found — run the ingest to compute similarities.', 'info');
 				}
 			} catch {
 				// Fall through to stop.
 			}
 		}
+		addToast('No more tracks available for autoplay.', 'info');
 		audioEngine.stop();
 		positionMs.set(0);
 		playbackState.set('paused');

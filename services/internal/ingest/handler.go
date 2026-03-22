@@ -256,6 +256,11 @@ func (s *Service) triggerScan(w http.ResponseWriter, r *http.Request) {
 			if s.dispatcher != nil {
 				s.dispatcher.Dispatch(scanCtx, webhook.EventIngestCompleted, result)
 			}
+			if s.ingester.cfg.ComputeSimilarity && n > 0 {
+				if err := s.ingester.waitForQueueDrain(scanCtx, s.kv); err == nil {
+					_ = s.ingester.runSimilarity(scanCtx, nil)
+				}
+			}
 		} else {
 			// Single-instance mode: process everything in-process.
 			newIDs, skipped, errs := s.ingester.Scan(scanCtx)
