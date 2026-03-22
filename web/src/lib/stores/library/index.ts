@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import type { Track, Album, Artist, SearchFilters, SavedFilter } from '$lib/types';
+import { STORAGE_KEYS } from '$lib/constants';
 
 export const libraryTracks = writable<Track[]>([]);
 export const libraryAlbums = writable<Album[]>([]);
@@ -12,7 +13,7 @@ export const searchResults = writable<{
 export const searchQuery = writable('');
 export const searchFilters = writable<SearchFilters>({});
 
-const SAVED_FILTERS_KEY = 'orb:savedSearchFilters';
+const SAVED_FILTERS_KEY = STORAGE_KEYS.SAVED_SEARCH_FILTERS;
 
 function loadSavedFilters(): SavedFilter[] {
 	try {

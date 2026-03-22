@@ -6,6 +6,24 @@ import { ExpirationPlugin } from 'workbox-expiration';
 
 declare const self: ServiceWorkerGlobalScope;
 
+/** Minimal interface for a Background Fetch record (non-standard, Chromium only). */
+interface BackgroundFetchRecord {
+	request: Request;
+	responseReady: Promise<Response>;
+}
+
+/** Minimal interface for a Background Fetch registration. */
+interface BackgroundFetchRegistration {
+	id: string;
+	matchAll(): Promise<BackgroundFetchRecord[]>;
+}
+
+/** Minimal interface for Background Fetch events dispatched to the service worker. */
+interface BackgroundFetchEvent extends ExtendableEvent {
+	registration: BackgroundFetchRegistration;
+	updateUI(options: { title: string }): Promise<void>;
+}
+
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
@@ -111,11 +129,11 @@ self.addEventListener('fetch', (event: FetchEvent) => {
 // ── Background Fetch (Android Phase 2) ───────────────────────────────────────
 
 self.addEventListener('backgroundfetchsuccess', (event: Event) => {
-  const bgEvent = event as any;
+  const bgEvent = event as BackgroundFetchEvent;
   bgEvent.waitUntil(
     (async () => {
       const cache = await caches.open(AUDIO_CACHE);
-      const records: any[] = await bgEvent.registration.matchAll();
+      const records = await bgEvent.registration.matchAll();
 
       for (const record of records) {
         const resp = await record.responseReady;
@@ -127,7 +145,7 @@ self.addEventListener('backgroundfetchsuccess', (event: Event) => {
 
       // Notify the page so the downloads store can update its state
       const clients = await self.clients.matchAll({ includeUncontrolled: true });
-      const trackId = (bgEvent.registration.id as string).replace('orb-dl-', '');
+      const trackId = bgEvent.registration.id.replace('orb-dl-', '');
       for (const client of clients) {
         client.postMessage({ type: 'DOWNLOAD_COMPLETE', trackId });
       }
@@ -136,7 +154,7 @@ self.addEventListener('backgroundfetchsuccess', (event: Event) => {
 });
 
 self.addEventListener('backgroundfetchfail', (event: Event) => {
-  const bgEvent = event as any;
+  const bgEvent = event as BackgroundFetchEvent;
   bgEvent.waitUntil(bgEvent.updateUI({ title: 'Download failed' }));
 });
 

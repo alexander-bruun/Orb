@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { getApiBase } from '$lib/api/base';
 import { apiFetch } from '$lib/api/client';
 import { authStore } from '$lib/stores/auth';
+import { TIMINGS } from '$lib/constants';
 
 export interface LastScan {
 	started_at: string;
@@ -64,7 +65,7 @@ function createIngestStatusStore() {
 				if (data.type === 'complete' || data.type === 'error') {
 					disconnectSSE();
 					// Refresh full status to pick up last_scan
-					setTimeout(fetchStatus, 600);
+					setTimeout(fetchStatus, TIMINGS.INGEST_COMPLETE_FETCH_DELAY);
 				}
 			} catch {
 				// ignore parse errors
@@ -85,8 +86,7 @@ function createIngestStatusStore() {
 
 	async function fetchStatus() {
 		try {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const data = await apiFetch<any>('/admin/ingest/status');
+			const data = await apiFetch<{ running?: boolean; last_scan?: LastScan }>('/admin/ingest/status');
 			update((s) => {
 				const wasRunning = s.running;
 				const nowRunning = Boolean(data.running);
@@ -110,7 +110,7 @@ function createIngestStatusStore() {
 	function init() {
 		if (!browser) return;
 		fetchStatus();
-		pollTimer = window.setInterval(fetchStatus, 20_000);
+		pollTimer = window.setInterval(fetchStatus, TIMINGS.INGEST_POLL_INTERVAL);
 	}
 
 	function destroy() {
@@ -135,7 +135,7 @@ function createIngestStatusStore() {
 			currentFile: undefined,
 		}));
 		// Small delay so the server starts before we subscribe
-		setTimeout(connectSSE, 150);
+		setTimeout(connectSSE, TIMINGS.INGEST_SSE_CONNECT_DELAY);
 	}
 
 	return { subscribe, init, destroy, triggerScan, fetchStatus };

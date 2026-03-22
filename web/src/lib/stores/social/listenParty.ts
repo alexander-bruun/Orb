@@ -19,6 +19,7 @@ import {
 import { activePlayer } from '$lib/stores/player/engine';
 
 import { getApiBase, getWsBase } from '$lib/api/base';
+import { TIMINGS } from '$lib/constants';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -294,7 +295,7 @@ function _handlePosDrift(posMs: number) {
 	if (get(lpRole) !== 'host') return;
 	const drift = Math.abs(posMs - lastSentPositionMs);
 
-	if (drift > 3000) {
+	if (drift > TIMINGS.LISTEN_PARTY_DRIFT_THRESHOLD) {
 		if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
 		_hostSendSync();
 		return;
@@ -304,7 +305,7 @@ function _handlePosDrift(posMs: number) {
 	hostSyncTimer = setTimeout(() => {
 		hostSyncTimer = null;
 		_hostSendSync();
-	}, 2000);
+	}, TIMINGS.LISTEN_PARTY_HOST_SYNC_DEBOUNCE);
 }
 
 function _stopPlayerWatch() {
@@ -659,7 +660,7 @@ function _startPositionTick(playing: boolean) {
 		if (guestAudio && !guestAudio.paused) {
 			lpGuestPositionMs.set(guestChapterStartMs + guestAudio.currentTime * 1000);
 		}
-	}, 250);
+	}, TIMINGS.POSITION_TICK);
 }
 
 // ---------------------------------------------------------------------------

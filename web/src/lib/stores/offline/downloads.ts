@@ -4,6 +4,7 @@ import { getApiBase } from '$lib/api/base';
 import { nativePlatform } from '$lib/utils/platform';
 import type { Track, Audiobook, AudiobookChapter } from '$lib/types';
 import type { LyricLine } from '$lib/stores/player/lyrics';
+import { STORAGE_KEYS, IDB } from '$lib/constants';
 
 export type DownloadStatus = 'downloading' | 'done' | 'error';
 
@@ -21,13 +22,13 @@ export interface DownloadEntry {
   error?:        string;
 }
 
-const AUDIO_CACHE      = 'orb-offline-audio';
-const META_KEY         = 'orb-downloads-v1';
-const IDB_NAME         = 'orb-offline-audio';
-const IDB_STORE        = 'blobs';
-const IDB_LYRICS_STORE = 'lyrics';
-const IDB_WAVE_STORE   = 'waveform';
-const IDB_VERSION      = 2;
+const AUDIO_CACHE      = IDB.NAME;
+const META_KEY         = STORAGE_KEYS.DOWNLOADS_META;
+const IDB_NAME         = IDB.NAME;
+const IDB_STORE        = IDB.STORE_BLOBS;
+const IDB_LYRICS_STORE = IDB.STORE_LYRICS;
+const IDB_WAVE_STORE   = IDB.STORE_WAVEFORM;
+const IDB_VERSION      = IDB.VERSION;
 
 export const downloads = writable<Map<string, DownloadEntry>>(new Map());
 
@@ -419,13 +420,22 @@ export async function getOfflineBlob(trackId: string): Promise<Blob | null> {
 
 // ── Background Fetch download (Android Phase 2) ──────────────────────────────
 
+/** Minimal interface for the Background Fetch API (non-standard, Chromium only). */
+interface BackgroundFetchManager {
+  fetch(
+    id: string,
+    requests: string[],
+    options: { title: string; downloadTotal: number; icons: { src: string; sizes: string; type: string }[] },
+  ): Promise<unknown>;
+}
+
 export async function downloadTrackBackground(track: Track, coverUrl: string): Promise<void> {
   if (!('serviceWorker' in navigator)) return downloadTrack(track);
 
   const swReg = await navigator.serviceWorker.ready;
   if (!('backgroundFetch' in swReg)) return downloadTrack(track);
 
-  const bgFetch = (swReg as any).backgroundFetch;
+  const bgFetch = (swReg as unknown as { backgroundFetch: BackgroundFetchManager }).backgroundFetch;
   await bgFetch.fetch(
     `orb-dl-${track.id}`,
     [`${getApiBase()}/stream/${track.id}`],

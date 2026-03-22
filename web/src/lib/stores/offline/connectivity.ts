@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { getApiBase } from '$lib/api/base';
+import { TIMINGS } from '$lib/constants';
 
 /**
  * Reactive store: true when the backend API is unreachable.
@@ -29,7 +30,7 @@ export async function checkConnectivity(): Promise<boolean> {
   }
   try {
     // Use AbortController with a manual timeout for broad compatibility.
-    const timeoutMs = 3000;
+    const timeoutMs = TIMINGS.HEALTH_CHECK_TIMEOUT;
     let controller: AbortController | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     if (typeof AbortController !== 'undefined') {
@@ -77,7 +78,7 @@ export function startConnectivityMonitor(): void {
     });
   }
 
-  intervalId = setInterval(checkConnectivity, 15_000);
+  intervalId = setInterval(checkConnectivity, TIMINGS.CONNECTIVITY_CHECK_INTERVAL);
 }
 
 /**

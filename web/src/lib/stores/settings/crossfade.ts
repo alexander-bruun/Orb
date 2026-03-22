@@ -1,7 +1,8 @@
 import { writable, get } from 'svelte/store';
+import { STORAGE_KEYS } from '$lib/constants';
 
-const CF_KEY = 'orb-crossfade-secs';
-const GAPLESS_KEY = 'orb-gapless-enabled';
+const CF_KEY = STORAGE_KEYS.CROSSFADE_SECS;
+const GAPLESS_KEY = STORAGE_KEYS.GAPLESS_ENABLED;
 
 function readFloat(key: string, fallback: number): number {
 	try {
@@ -56,7 +57,7 @@ export const crossfadeSecs = persistedFloat(CF_KEY, 3, 1, 12);
  * Whether crossfade is enabled.
  * When false, gaplessEnabled is checked instead.
  */
-export const crossfadeEnabled = persistedBool('orb-crossfade-enabled', false);
+export const crossfadeEnabled = persistedBool(STORAGE_KEYS.CROSSFADE_ENABLED, false);
 
 /**
  * When true and crossfade is off, the next track starts sample-accurately
@@ -68,7 +69,7 @@ export const gaplessEnabled = persistedBool(GAPLESS_KEY, false);
 
 function isAndroidNative(): boolean {
 	if (typeof window === 'undefined') return false;
-	return (window as any).__TAURI_METADATA__?.currentPlatform === 'android';
+	return (window as unknown as { __TAURI_METADATA__?: { currentPlatform?: string } }).__TAURI_METADATA__?.currentPlatform === 'android';
 }
 
 /** Debounce handle so rapid slider drags don't flood the JNI bridge. */

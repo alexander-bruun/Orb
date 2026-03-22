@@ -1,6 +1,7 @@
 import { apiFetch } from './client';
 import { getApiBase } from './base';
 import type { Track } from '$lib/types';
+import { STORAGE_KEYS } from '$lib/constants';
 
 export interface DeviceState {
 	track_id?: string;
@@ -94,7 +95,7 @@ export const devices = {
 		// SSE cannot set custom headers; pass the JWT via query param (server supports ?token=).
 		let token: string | null = null;
 		try {
-			const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('orb_auth') : null;
+			const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.AUTH) : null;
 			if (raw) token = JSON.parse(raw).token ?? null;
 		} catch { /* ignore */ }
 		const src = new EventSource(token ? `${url}?token=${encodeURIComponent(token)}` : url);

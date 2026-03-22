@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
+import { STORAGE_KEYS } from '$lib/constants';
 
-const STORAGE_KEY = 'orb_server_url';
+const STORAGE_KEY = STORAGE_KEYS.SERVER_URL;
 
 /**
  * Returns the current API base URL.

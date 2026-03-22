@@ -12,6 +12,7 @@ import { authStore } from '$lib/stores/auth';
 import { positionMs, durationMs, bufferedPct, next as playerNext } from '$lib/stores/player';
 import type { EQBand } from '$lib/types';
 import { getOfflineBlob, getOfflineBlobUrl } from '$lib/stores/offline/downloads';
+import { TIMINGS } from '$lib/constants';
 
 import { getApiBase } from '$lib/api/base';
 
@@ -1022,7 +1023,7 @@ class AudioEngine {
 				const clampDur = this.wasmFullBuffer?.duration;
 				positionMs.set((clampDur != null ? Math.min(elapsed, clampDur) : elapsed) * 1000);
 			}
-		}, 250);
+		}, TIMINGS.POSITION_TICK);
 	}
 
 	private stopPositionTracking() {

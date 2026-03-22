@@ -16,6 +16,7 @@ import { audioEngine } from '$lib/audio/engine';
 import { getApiBase } from '$lib/api/base';
 import { authStore } from '$lib/stores/auth';
 import type { DeviceState } from '$lib/api/devices';
+import { TIMINGS } from '$lib/constants';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,14 @@ export interface ContentMetadata {
 	durationMs: number;
 }
 
+/** Payload for remote control commands routed through the engine. */
+export interface ControlPayload {
+	position_ms?: number;
+	volume?: number;
+	speed?: number;
+	[key: string]: unknown;
+}
+
 /**
  * Content providers implement this interface and register with the engine.
  * The engine calls these callbacks to delegate content-specific decisions.
@@ -44,6 +53,26 @@ export interface ContentProvider {
 	onModeActivated(): void;
 	/** Called when the engine switches away from this provider's mode. */
 	onModeDeactivated(): void;
+	/** Handle a remote control command. */
+	onControlCommand?(action: string, payload: ControlPayload): void;
+	/** Mirror state from a remote device. */
+	onRemoteSync?(state: RemoteState): void;
+}
+
+/** Extended provider for music mode — includes music-specific native callbacks. */
+export interface MusicContentProvider extends ContentProvider {
+	onPrevious?(): void;
+	onShuffleToggle?(): void;
+	onFavoriteToggle?(): void;
+	onPlayCommand?(trackId: string, posMs: number, queue?: unknown[]): void;
+}
+
+/** Extended provider for audiobook mode — includes audiobook-specific native callbacks. */
+export interface AudiobookContentProvider extends ContentProvider {
+	onSkipForward?(secs: number): void;
+	onSkipBackward?(secs: number): void;
+	onSpeedCycle?(): void;
+	onJumpToChapterStart?(): void;
 }
 
 // ── Engine-owned stores (read-only for consumers) ────────────────────────────
@@ -83,10 +112,22 @@ export const _writableBufferedPct = _bufferedPct;
 
 // ── Content provider registry ────────────────────────────────────────────────
 
-const providers = new Map<PlaybackMode, ContentProvider>();
+type AnyContentProvider = ContentProvider | MusicContentProvider | AudiobookContentProvider;
+const providers = new Map<PlaybackMode, AnyContentProvider>();
 
-export function registerProvider(forMode: PlaybackMode, provider: ContentProvider) {
+export function registerProvider(forMode: 'music', provider: MusicContentProvider): void;
+export function registerProvider(forMode: 'audiobook', provider: AudiobookContentProvider): void;
+export function registerProvider(forMode: PlaybackMode, provider: AnyContentProvider): void;
+export function registerProvider(forMode: PlaybackMode, provider: AnyContentProvider) {
 	providers.set(forMode, provider);
+}
+
+function getMusicProvider(): MusicContentProvider | undefined {
+	return providers.get('music') as MusicContentProvider | undefined;
+}
+
+function getAudiobookProvider(): AudiobookContentProvider | undefined {
+	return providers.get('audiobook') as AudiobookContentProvider | undefined;
 }
 
 function activeProvider(): ContentProvider | undefined {
@@ -103,13 +144,13 @@ let nativeListenersInit = false;
 
 // Seek guard: prevent position polling from overwriting a recent seek.
 let lastSeekTime = 0;
-const SEEK_GUARD_MS = 500;
+const SEEK_GUARD_MS = TIMINGS.SEEK_GUARD;
 
 // ── Shadow tick (idle-device mirroring) ──────────────────────────────────────
 // When this device mirrors a remote active device, the shadow tick advances
 // positionMs between server heartbeats (30s gap) for smooth progress bars.
 
-const SHADOW_TICK_MS = 250;
+const SHADOW_TICK_MS = TIMINGS.POSITION_TICK;
 let shadowTickTimer: ReturnType<typeof setInterval> | null = null;
 let shadowEpochMs = 0;
 let shadowSpeed = 1.0;
@@ -141,7 +182,7 @@ function startNativePositionPolling() {
 			// Notify the active content provider.
 			activeProvider()?.onPositionUpdate(pos);
 		} catch { /* ignore */ }
-	}, 250);
+	}, TIMINGS.POSITION_TICK);
 }
 
 function stopNativePositionPolling() {
@@ -214,34 +255,27 @@ async function initNativeListeners() {
 	});
 	listen<void>('native-previous', () => {
 		// Handled by music provider via registered callback
-		const provider = providers.get('music') as any;
-		provider?.onPrevious?.();
+		getMusicProvider()?.onPrevious?.();
 	});
 	listen<void>('native-shuffle-toggle', () => {
-		const provider = providers.get('music') as any;
-		provider?.onShuffleToggle?.();
+		getMusicProvider()?.onShuffleToggle?.();
 	});
 	listen<void>('native-favorite-toggle', () => {
-		const provider = providers.get('music') as any;
-		provider?.onFavoriteToggle?.();
+		getMusicProvider()?.onFavoriteToggle?.();
 	});
 
 	// Audiobook-mode notification actions
 	listen<void>('native-ab-skip-back-15', () => {
-		const provider = providers.get('audiobook') as any;
-		provider?.onSkipBackward?.(15);
+		getAudiobookProvider()?.onSkipBackward?.(15);
 	});
 	listen<void>('native-ab-skip-forward-15', () => {
-		const provider = providers.get('audiobook') as any;
-		provider?.onSkipForward?.(15);
+		getAudiobookProvider()?.onSkipForward?.(15);
 	});
 	listen<void>('native-ab-speed-cycle', () => {
-		const provider = providers.get('audiobook') as any;
-		provider?.onSpeedCycle?.();
+		getAudiobookProvider()?.onSpeedCycle?.();
 	});
 	listen<void>('native-ab-chapter-start', () => {
-		const provider = providers.get('audiobook') as any;
-		provider?.onJumpToChapterStart?.();
+		getAudiobookProvider()?.onJumpToChapterStart?.();
 	});
 
 	// Volume changes from hardware buttons
@@ -494,16 +528,16 @@ export function syncRemoteState(state: RemoteState): void {
 
 	// Let the content provider handle content-specific mirroring (load metadata, etc.).
 	const provider = providers.get(targetMode);
-	(provider as any)?.onRemoteSync?.(state);
+	provider?.onRemoteSync?.(state);
 }
 
 /**
  * Receive a control command from a remote device (via SSE).
  * Routes to the appropriate transport action or content provider.
  */
-export function receiveControlCommand(action: string, payload: any): void {
+export function receiveControlCommand(action: string, payload: ControlPayload): void {
 	const currentMode = get(_mode);
-	const provider = providers.get(currentMode) as any;
+	const provider = providers.get(currentMode);
 
 	// Delegate all control commands to the active provider. The provider
 	// handles transport-level actions (toggle, seek, volume) as well as
@@ -582,13 +616,12 @@ export function stopAll(): void {
  * Route a play_command from SSE to the music content provider.
  * The provider loads the queue and starts playback.
  */
-export function handlePlayCommand(trackId: string, posMs: number, queue?: any[]): void {
+export function handlePlayCommand(trackId: string, posMs: number, queue?: unknown[]): void {
 	// Play commands are always music — switch mode if needed.
 	if (get(_mode) !== 'music') {
 		switchMode('music');
 	}
-	const provider = providers.get('music') as any;
-	provider?.onPlayCommand?.(trackId, posMs, queue);
+	getMusicProvider()?.onPlayCommand?.(trackId, posMs, queue);
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────

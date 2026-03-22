@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
+import { STORAGE_KEYS } from '$lib/constants';
 
-const STORAGE_KEY = 'orb:cover-expanded';
+const STORAGE_KEY = STORAGE_KEYS.COVER_EXPANDED;
 
 function createExpandedStore() {
   const initial = typeof localStorage !== 'undefined'

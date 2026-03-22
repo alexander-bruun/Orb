@@ -19,11 +19,12 @@ import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
 import { authStore } from '$lib/stores/auth';
 import type { Audiobook, AudiobookChapter, AudiobookBookmark } from '$lib/types';
 import { isNative } from '$lib/utils/platform';
+import { TIMINGS } from '$lib/constants';
 import { exclusiveMode, deviceId, activeDeviceId, sendHeartbeat } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
 import { isCurrentlyOffline } from '$lib/stores/offline/connectivity';
 import * as engine from './engine';
-import type { ContentProvider } from './engine';
+import type { AudiobookContentProvider, ControlPayload, RemoteState } from './engine';
 
 // ── Playback state ────────────────────────────────────────────────────────────
 
@@ -140,7 +141,7 @@ function _startABShadowTick(posMs: number, speed: number) {
 		const elapsed = Date.now() - _abShadowStartTime;
 		const pos = Math.round(_abShadowBasePos + elapsed * _abShadowTickSpeed);
 		abPositionMs.set(pos);
-	}, 250);
+	}, TIMINGS.POSITION_TICK);
 }
 
 function _stopABShadowTick() {
@@ -296,7 +297,7 @@ function _startNativePositionPolling() {
 		} catch (e) {
 			// Ignore errors during polling
 		}
-	}, 250);
+	}, TIMINGS.POSITION_TICK);
 }
 
 function _stopNativePositionPolling() {
@@ -411,7 +412,7 @@ function _persistProgress(completed = false) {
 
 function _startSaveInterval() {
 	_stopSaveInterval();
-	_saveInterval = setInterval(_persistProgress, 10_000);
+	_saveInterval = setInterval(_persistProgress, TIMINGS.AUDIOBOOK_SAVE_INTERVAL);
 }
 
 function _stopSaveInterval() {
@@ -978,14 +979,7 @@ export const SLEEP_PRESETS = [5, 10, 15, 20, 30, 45, 60];
 
 // ─── Register audiobook content provider with the unified engine ─────────────
 
-const abContentProvider: ContentProvider & {
-	onSkipForward?(secs: number): void;
-	onSkipBackward?(secs: number): void;
-	onSpeedCycle?(): void;
-	onJumpToChapterStart?(): void;
-	onControlCommand?(action: string, payload: any): void;
-	onRemoteSync?(state: any): void;
-} = {
+const abContentProvider: AudiobookContentProvider = {
 	onTrackEnd() {
 		// End of chapter / book — handled by HTMLAudioElement 'ended' event
 		// and native position polling chapter detection for now.
@@ -1005,7 +999,7 @@ const abContentProvider: ContentProvider & {
 	onSkipBackward(secs: number) { skipBackward(secs); },
 	onSpeedCycle() { _cycleSpeed(); },
 	onJumpToChapterStart() { _jumpToChapterStart(); },
-	onControlCommand(action: string, payload: any) {
+	onControlCommand(action: string, payload: ControlPayload) {
 		switch (action) {
 			case 'toggle': toggleABPlayPause(); break;
 			case 'seek':
@@ -1021,7 +1015,7 @@ const abContentProvider: ContentProvider & {
 			case 'previous': case 'skip_backward': skipBackward(10); break;
 		}
 	},
-	onRemoteSync(state: any) {
+	onRemoteSync(state: RemoteState) {
 		// Mirror audiobook metadata when receiving remote state.
 		if (state.audiobook_id) {
 			syncABVisibleState(

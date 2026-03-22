@@ -16,15 +16,16 @@ import { ApiError } from '$lib/api/client';
 import { authStore } from '$lib/stores/auth';
 import { isTauri, nativePlatform } from '$lib/utils/platform';
 import { isOffline } from '$lib/stores/offline/connectivity';
+import { TIMINGS, STORAGE_KEYS } from '$lib/constants';
 import * as engine from './engine';
 
 // ── Local device identity ────────────────────────────────────────────────────
 
-const DEVICE_KEY = 'orb_device_id';
+const DEVICE_KEY = STORAGE_KEYS.DEVICE_ID;
 // Stable native device ID cached in localStorage so it's available synchronously
 // on subsequent cold starts (populated from ANDROID_ID on first run).
-const NATIVE_DEVICE_KEY = 'orb_native_device_id';
-const DEVICE_NAME_KEY = 'orb_device_name';
+const NATIVE_DEVICE_KEY = STORAGE_KEYS.NATIVE_DEVICE_ID;
+const DEVICE_NAME_KEY = STORAGE_KEYS.DEVICE_NAME;
 
 function generateId(): string {
 	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -186,7 +187,7 @@ export async function startSession() {
 
 		// Start heartbeat (every 30 s).
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
-		heartbeatTimer = setInterval(sendHeartbeat, 30_000);
+		heartbeatTimer = setInterval(sendHeartbeat, TIMINGS.HEARTBEAT_INTERVAL);
 
 		// Open SSE channel.
 		openSSE();
@@ -280,7 +281,7 @@ function openSSE() {
 				openSSE();
 				refreshDevices();
 			}
-		}, 5_000);
+		}, TIMINGS.SSE_RECONNECT_DELAY);
 	});
 }
 

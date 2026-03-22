@@ -20,6 +20,7 @@
 
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { TIMINGS, STORAGE_KEYS } from '$lib/constants';
 
 // ── Remote Playback API (mobile casting) ──────────────────────────────────────
 
@@ -48,7 +49,7 @@ export async function promptRemotePlayback(): Promise<void> {
 
 // ── Audio Output Devices ──────────────────────────────────────────────────────
 
-const AUDIO_OUTPUT_STORAGE_KEY = 'orb_audio_output_id';
+const AUDIO_OUTPUT_STORAGE_KEY = STORAGE_KEYS.AUDIO_OUTPUT_ID;
 
 export interface AudioOutputDevice {
 	deviceId: string;
@@ -158,9 +159,44 @@ export const castState = writable<CastState>('unavailable');
 /** Friendly name of the currently connected Cast receiver. */
 export const castDeviceName = writable<string>('');
 
+/** Minimal interface for a chrome.cast session — covers only the methods we use. */
+interface CastSession {
+	receiver: { friendlyName: string };
+	stop(onSuccess: () => void, onError: () => void): void;
+	loadMedia(
+		request: unknown,
+		onSuccess: () => void,
+		onError: (err: unknown) => void,
+	): void;
+}
+
+/** Minimal interface for the chrome.cast namespace — covers only the APIs we call. */
+interface CastNamespace {
+	SessionRequest: new (appId: string) => unknown;
+	ApiConfig: new (
+		sessionRequest: unknown,
+		sessionListener: (session: CastSession) => void,
+		receiverListener: (availability: string) => void,
+	) => unknown;
+	ReceiverAvailability?: { AVAILABLE: string };
+	initialize(
+		apiConfig: unknown,
+		onSuccess: () => void,
+		onError: (err: unknown) => void,
+	): void;
+	requestSession(
+		onSuccess: (session: CastSession) => void,
+		onError: (err: unknown) => void,
+	): void;
+	media: {
+		MediaInfo: new (url: string, contentType: string) => { streamType: unknown };
+		StreamType: { BUFFERED: unknown };
+		LoadRequest: new (mediaInfo: unknown) => { currentTime: number; autoplay: boolean };
+	};
+}
+
 // Internal: Cast API session handle.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _castSession: any = null;
+let _castSession: CastSession | null = null;
 let _castReady = false;
 
 // Minimal ambient declarations so we don't need the full Cast type package.
@@ -173,17 +209,14 @@ declare global {
 	}
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CastAPI = any;
-
 /**
  * Return the legacy chrome.cast API namespace.
  * SessionRequest, ApiConfig, initialize, requestSession, and the media
  * helpers all live under chrome.cast — NOT under the window.cast (CAF)
  * namespace that `?loadCastFramework=1` also exposes.
  */
-function getCast(): CastAPI {
-	return (window as unknown as { chrome: { cast: CastAPI } }).chrome?.cast;
+function getCast(): CastNamespace {
+	return (window as unknown as { chrome: { cast: CastNamespace } }).chrome?.cast;
 }
 
 /**
@@ -218,7 +251,7 @@ function _onCastAvailable(isAvailable: boolean): void {
 	const sessionRequest = new cast.SessionRequest(CAST_APP_ID);
 	const apiConfig = new cast.ApiConfig(
 		sessionRequest,
-		(session: CastAPI) => {
+		(session: CastSession) => {
 			// Session was resumed from a previous navigation.
 			_castSession = session;
 			castDeviceName.set(session.receiver.friendlyName);
@@ -246,14 +279,14 @@ export async function startCast(): Promise<void> {
 	if (!_castReady) {
 		initCastSdk();
 		// Give the SDK a moment to initialise, then retry once.
-		await new Promise((r) => setTimeout(r, 2000));
+		await new Promise((r) => setTimeout(r, TIMINGS.CAST_RETRY_DELAY));
 		if (!_castReady) throw new Error('Cast SDK not ready');
 	}
 	castState.set('connecting');
 	return new Promise((resolve, reject) => {
 		const cast = getCast();
 		cast.requestSession(
-			(session: CastAPI) => {
+			(session: CastSession) => {
 				_castSession = session;
 				castDeviceName.set(session.receiver.friendlyName);
 				castState.set('connected');

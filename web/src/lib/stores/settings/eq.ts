@@ -14,7 +14,7 @@ import { audioEngine } from '$lib/audio/engine';
 
 function isAndroidNative(): boolean {
 	if (typeof window === 'undefined') return false;
-	return (window as any).__TAURI_METADATA__?.currentPlatform === 'android';
+	return (window as unknown as { __TAURI_METADATA__?: { currentPlatform?: string } }).__TAURI_METADATA__?.currentPlatform === 'android';
 }
 
 async function nativeSyncEQ(enabled: boolean, bands: EQBand[]): Promise<void> {

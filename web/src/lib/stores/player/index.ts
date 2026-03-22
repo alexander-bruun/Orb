@@ -43,6 +43,7 @@ import { isTauri, nativePlatform } from '$lib/utils/platform';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { favorites } from '$lib/stores/library/favorites';
+import { TIMINGS, STORAGE_KEYS } from '$lib/constants';
 import { refreshDevices as refreshDevicesFromSession } from './deviceSession';
 import { activePlayer } from './engine';
 import {
@@ -64,8 +65,8 @@ import {
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'orb-player-state-v1';
-const POSITION_SAVE_INTERVAL_MS = 1000;
+const STORAGE_KEY = STORAGE_KEYS.PLAYER_STATE;
+const POSITION_SAVE_INTERVAL_MS = TIMINGS.POSITION_SAVE_INTERVAL;
 let lastWriteTime = 0;
 let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 let saveEnabled = false;
@@ -118,7 +119,7 @@ function scheduleStateSave() {
 		writeState();
 		lastWriteTime = Date.now();
 		saveTimeout = null;
-	}, 200);
+	}, TIMINGS.STATE_SAVE_DEBOUNCE);
 }
 
 positionMs.subscribe(() => schedulePositionSave());
@@ -338,7 +339,7 @@ function schedulePositionStateSync() {
 	_posStateTimer = setTimeout(() => {
 		_posStateTimer = null;
 		syncPositionState(get(positionMs), get(durationMs));
-	}, 500);
+	}, TIMINGS.POSITION_STATE_SYNC);
 }
 positionMs.subscribe(schedulePositionStateSync);
 durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));

@@ -5,6 +5,7 @@
  */
 import { writable } from 'svelte/store';
 import { browser } from '$app/environment';
+import { STORAGE_KEYS } from '$lib/constants';
 
 export type VisualizerType = 'spectrum' | 'waveform' | 'track-waveform' | 'spectrogram';
 
@@ -35,7 +36,7 @@ export interface VisualizerState {
 	dragOffset: { x: number; y: number };
 }
 
-const STORAGE_KEY = 'orb-visualizer-prefs';
+const STORAGE_KEY = STORAGE_KEYS.VISUALIZER_PREFS;
 
 function loadPrefs(): Partial<Omit<VisualizerState, 'dragOffset'>> {
 	if (!browser) return {};

@@ -19,7 +19,7 @@ import { library as libraryApi } from '$lib/api/library';
 import { recommend } from '$lib/api/recommend';
 import { addToast } from '$lib/stores/ui/toast';
 import { isTauri, nativePlatform } from '$lib/utils/platform';
-import { invoke } from '@tauri-apps/api/core';
+import { buildNativeStreamUrl } from '$lib/utils/nativeStream';
 import { authStore } from '$lib/stores/auth';
 import { exclusiveMode, deviceId, activeDeviceId, activeDevices, sendHeartbeat } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
@@ -27,7 +27,7 @@ import { isCurrentlyOffline } from '$lib/stores/offline/connectivity';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
 import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
 import * as engine from './engine';
-import type { ContentProvider } from './engine';
+import type { MusicContentProvider, ControlPayload, RemoteState } from './engine';
 
 // ── Playback state ────────────────────────────────────────────────────────────
 
@@ -147,17 +147,6 @@ function actualIndex(logicalPos: number): number {
 // ── Native Android playback helpers ──────────────────────────────────────────
 
 export const isAndroidNative = typeof window !== 'undefined' && nativePlatform() === 'android';
-
-/** Build a stream URL for native ExoPlayer — uses a local file:// path when the track is downloaded. */
-async function buildNativeStreamUrl(trackId: string): Promise<string> {
-	const base = getApiBase();
-	const token = get(authStore).token ?? '';
-	try {
-		const path = await invoke<string | null>('get_offline_file_path', { trackId });
-		if (path) return `file://${path}`;
-	} catch { /* fall through to streaming */ }
-	return `${base}/stream/${trackId}?token=${encodeURIComponent(token)}`;
-}
 
 // ── Derived stores ───────────────────────────────────────────────────────────
 
@@ -726,14 +715,7 @@ export function stopRadio() {
 
 // ── Register music content provider with the unified engine ──────────────────
 
-const musicContentProvider: ContentProvider & {
-	onRemoteSync?(state: any): void;
-	onPlayCommand?(trackId: string, posMs: number, queue?: Track[]): void;
-	onPrevious?(): void;
-	onShuffleToggle?(): void;
-	onFavoriteToggle?(): void;
-	onControlCommand?(action: string, payload: any): void;
-} = {
+const musicContentProvider: MusicContentProvider = {
 	onTrackEnd() {
 		next();
 	},
@@ -747,7 +729,7 @@ const musicContentProvider: ContentProvider & {
 		pauseLocal();
 	},
 
-	onRemoteSync(state: any) {
+	onRemoteSync(state: RemoteState) {
 		if (state.track_id) {
 			syncVisibleState(
 				state.track_id,
@@ -758,8 +740,8 @@ const musicContentProvider: ContentProvider & {
 			);
 		}
 	},
-	onPlayCommand(trackId: string, posMs: number, queue?: Track[]) {
-		receivePlayCommand(trackId, posMs, queue);
+	onPlayCommand(trackId: string, posMs: number, queue?: unknown[]) {
+		receivePlayCommand(trackId, posMs, queue as Track[] | undefined);
 	},
 	onPrevious() {
 		previous();
@@ -767,7 +749,7 @@ const musicContentProvider: ContentProvider & {
 	onShuffleToggle() {
 		shuffle.update((v: boolean) => !v);
 	},
-	onControlCommand(action: string, payload: any) {
+	onControlCommand(action: string, payload: ControlPayload) {
 		switch (action) {
 			case 'toggle': togglePlayPause(); break;
 			case 'seek':

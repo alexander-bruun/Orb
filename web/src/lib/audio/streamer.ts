@@ -7,14 +7,26 @@ export interface Chunk {
 	offset: number;
 }
 
+/** Minimal interface for the Network Information API (non-standard, Chromium only). */
+interface NetworkInformation {
+	type?: string;
+}
+
+/** Navigator with optional vendor-prefixed Network Information properties. */
+interface NavigatorWithConnection extends Navigator {
+	connection?: NetworkInformation;
+	mozConnection?: NetworkInformation;
+	webkitConnection?: NetworkInformation;
+}
+
 /**
  * Returns the current network type as accepted by the stream API's `?net=` param.
  * Uses the Network Information API (available in Chromium-based browsers).
  * Returns "" when the connection type is unknown or the API is unsupported.
  */
 function getNetworkType(): string {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const conn = (navigator as any).connection ?? (navigator as any).mozConnection ?? (navigator as any).webkitConnection;
+	const nav = navigator as NavigatorWithConnection;
+	const conn = nav.connection ?? nav.mozConnection ?? nav.webkitConnection;
 	if (!conn) return '';
 	const t: string = conn.type ?? '';
 	if (t === 'cellular') return 'mobile';

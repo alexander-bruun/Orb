@@ -1,5 +1,6 @@
 import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
+import { STORAGE_KEYS } from '$lib/constants';
 
 export const ACCENTS = [
 	{ name: 'Purple', value: '#c084fc', rgb: '192,132,252' },
@@ -19,8 +20,8 @@ interface ThemeState {
 	accent: string;
 }
 
-const STORAGE_KEY = 'orb_theme';
-const AVATAR_KEY  = 'orb_avatar';
+const STORAGE_KEY = STORAGE_KEYS.THEME;
+const AVATAR_KEY  = STORAGE_KEYS.AVATAR;
 
 function loadTheme(): ThemeState {
 	if (!browser) return { mode: 'dark', accent: '#c084fc' };
@@ -103,7 +104,7 @@ export const avatarStore = createAvatarStore();
 
 // ── Waveform seek bar preference ──────────────────────────────────────────────
 
-const WAVEFORM_KEY = 'orb_waveform_enabled';
+const WAVEFORM_KEY = STORAGE_KEYS.WAVEFORM_ENABLED;
 
 function createWaveformStore() {
 	const initial = browser

@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { User } from '$lib/types';
 import { apiFetch } from '$lib/api/client';
 import { nativePlatform } from '$lib/utils/platform';
+import { STORAGE_KEYS } from '$lib/constants';
 
 interface AuthState {
 	token: string | null;
@@ -9,7 +10,7 @@ interface AuthState {
 	user: User | null;
 }
 
-const STORAGE_KEY = 'orb_auth';
+const STORAGE_KEY = STORAGE_KEYS.AUTH;
 import { getApiBase } from '$lib/api/base';
 
 /** Push server URL + JWT to the Android MediaService for Android Auto browsing. */
