@@ -43,12 +43,14 @@
     return hz >= 1000 ? `${hz / 1000}k` : `${hz}`;
   }
 
+  const AXIS_PAD = 8; // px kept clear at top/bottom so edge labels are visible
+
   function freqToY(hz: number, h: number): number {
     const logMin  = Math.log10(MIN_FREQ);
     const logMax  = Math.log10(MAX_FREQ);
     const logFreq = Math.log10(Math.max(hz, MIN_FREQ));
     const t = (logFreq - logMin) / (logMax - logMin); // 0=low, 1=high
-    return (1 - t) * h; // y=0 at top (high freq)
+    return AXIS_PAD + (1 - t) * (h - 2 * AXIS_PAD);
   }
 
   /** Visible kHz tick labels, filtered to avoid crowding at edges. */

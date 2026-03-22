@@ -73,10 +73,8 @@
     const dataArray = new Uint8Array(binCount);
     analyser.getByteFrequencyData(dataArray);
 
-    // Map BAR_COUNT logarithmic-ish bins across [0, binCount/2] so low-freq
-    // detail is not crushed. Limiting to binCount/2 skips the very high
-    // frequencies that are rarely interesting for music.
-    const maxBin = Math.floor(binCount * 0.5);
+    // Map BAR_COUNT logarithmic-ish bins across the full Nyquist range (0 → sampleRate/2).
+    const maxBin = binCount;
     const barW = (width - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT;
 
     for (let i = 0; i < BAR_COUNT; i++) {

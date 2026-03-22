@@ -42,6 +42,19 @@
   function chapterPct(ch: AudiobookChapter): number {
     return $abDurationMs > 0 ? (ch.start_ms / $abDurationMs) * 100 : 0;
   }
+
+  // Seek to a specific chapter
+  function seekToChapter(ch: AudiobookChapter) {
+    seekAudiobook(ch.start_ms / 1000);
+  }
+
+  // Handle keyboard navigation on chapter ticks
+  function onChapterKeydown(e: KeyboardEvent, ch: AudiobookChapter) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      seekToChapter(ch);
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -183,7 +196,15 @@
           <!-- Chapter tick marks -->
           {#if $currentAudiobook?.chapters?.length}
             {#each $currentAudiobook.chapters.slice(1) as ch (ch.id)}
-              <div class="chapter-tick" style="left: {chapterPct(ch)}%">
+              <div
+                class="chapter-tick"
+                style="left: {chapterPct(ch)}%"
+                on:click={() => seekToChapter(ch)}
+                on:keydown={(e) => onChapterKeydown(e, ch)}
+                role="button"
+                tabindex="0"
+                aria-label="Seek to {ch.title}"
+              >
                 <span class="chapter-tick-label">{ch.title}</span>
               </div>
             {/each}
@@ -467,7 +488,7 @@
     width: 14px;
     height: 20px;
     pointer-events: auto;
-    cursor: default;
+    cursor: pointer;
     z-index: 3;
     display: flex;
     align-items: center;
