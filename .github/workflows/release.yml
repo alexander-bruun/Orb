@@ -209,49 +209,10 @@ jobs:
 
   build-tauri-ios:
     needs: create-release
-    runs-on: macos-latest
-    env:
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
-
-      - name: Install frontend dependencies
-        run: make web-install
-
-      - name: Require Apple Team ID
-        run: |
-          if [ -z "${{ secrets.APPLE_TEAM_ID }}" ]; then
-            echo "ERROR: APPLE_TEAM_ID secret is not set. Set the secret in repository settings to enable iOS builds." >&2
-            exit 1
-          fi
-
-      - name: Initialize Tauri iOS
-        run: make ios-init-ci
-
-      - name: Build Tauri iOS
-        run: make ios-build-ci
-
-      - name: Standardize iOS artifact names
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          mkdir -p release-artifacts
-          find web/src-tauri/gen/ios -name "*.ipa" -exec cp {} "release-artifacts/orb-${TAG}-ios.ipa" \; 2>/dev/null || true
-
-      - name: Upload iOS artifacts
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: |
-            release-artifacts/*
+      - name: Skip iOS build
+        run: echo "iOS build not yet implemented — skipping."
 
   publish-image:
     name: Build and Publish Docker Image (multi-arch)
