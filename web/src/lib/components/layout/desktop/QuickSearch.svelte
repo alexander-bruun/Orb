@@ -80,12 +80,15 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="search-wrap" on:click|stopPropagation>
   <div class="search-box" class:focused={searchFocused}>
     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="11" cy="11" r="8"/>
       <path d="m21 21-4.35-4.35"/>
     </svg>
+    <!-- svelte-ignore a11y_role_supports_aria_props_implicit -->
     <input
       bind:this={searchEl}
       type="search"
@@ -114,7 +117,7 @@
             <button class="qd-row" on:click={() => goArtist(artist)} role="option" aria-selected="false">
               <div class="qd-thumb qd-thumb--artist">
                 {#if artist.image_key}
-                  <img src="{getApiBase()}/objects/{artist.image_key}" alt={artist.name} />
+                  <img src="{getApiBase()}/covers/artist/{artist.id}" alt={artist.name} />
                 {:else}
                   <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
                 {/if}
