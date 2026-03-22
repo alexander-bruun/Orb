@@ -160,6 +160,17 @@ jobs:
       - name: Initialize Tauri Android
         run: make android-init-ci
 
+      - name: Generate CI signing keystore
+        run: |
+          keytool -genkeypair -v -storetype JKS \
+            -keystore "$GITHUB_WORKSPACE/ci-keystore.jks" \
+            -storepass android -keypass android \
+            -alias dev \
+            -dname "CN=Orb CI, OU=CI, O=Orb, L=Earth, S=Earth, C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000
+          printf 'keyAlias=dev\npassword=android\nstoreFile=%s/ci-keystore.jks\n' "$GITHUB_WORKSPACE" \
+            > web/src-tauri/gen/android/keystore.properties
+
       - name: Build Tauri Android
         run: make android-build-ci
 
