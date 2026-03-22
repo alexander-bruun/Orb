@@ -2,7 +2,7 @@ use discord_rich_presence::{activity, activity::ActivityType, DiscordIpc, Discor
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
 use std::{
-    sync::{mpsc, Mutex},
+    sync::{Mutex},
     time::{Duration, Instant},
 };
 use tauri::{
@@ -213,7 +213,6 @@ fn open_devtools(window: tauri::WebviewWindow) {
 pub fn setup(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
         .manage(DiscordState(Mutex::new(None)))
-        .manage(NativeMediaSender(Mutex::new(None)))
         .setup(|app| {
             setup_tray(&app.handle())?;
             Ok(())
@@ -225,9 +224,6 @@ pub fn setup(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> 
             discord_clear,
             discord_disconnect,
             set_tray_playback_state,
-            native_media_update,
-            native_media_playback,
-            native_media_clear,
             open_devtools,
         ])
 }
