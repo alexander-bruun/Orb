@@ -268,6 +268,12 @@ CREATE TABLE IF NOT EXISTS eq_profiles (
 
 CREATE INDEX IF NOT EXISTS eq_profiles_user_idx ON eq_profiles(user_id);
 
+-- Per-user default EQ profile (one default per user).
+CREATE TABLE IF NOT EXISTS user_eq_default (
+    user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE
+);
+
 -- Per-genre EQ profile mapping: when a track's album/artist genre matches,
 -- activate the corresponding profile automatically.
 CREATE TABLE IF NOT EXISTS user_genre_eq (
