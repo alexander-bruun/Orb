@@ -4,7 +4,7 @@
   import { themeStore, avatarStore, ACCENTS } from '$lib/stores/settings/theme';
   import { apiFetch } from '$lib/api/client';
   import { isTauri, isNative } from '$lib/utils/platform';
-  import { getServerUrl, setServerUrl } from '$lib/api/base';
+  import { getApiBase, getServerUrl, setServerUrl } from '$lib/api/base';
   import QRCode from 'qrcode';
   import EQEditor from '$lib/components/ui/EQEditor.svelte';
   import { library } from '$lib/api/library';
@@ -636,7 +636,8 @@
 
   async function fetchServerVersion() {
     try {
-      const res = await apiFetch('/version');
+      const res = await fetch(`${getApiBase()}/version`);
+      if (!res.ok) throw new Error('Failed to fetch server version');
       const data = await res.json();
       serverVersion = data.version || '';
       serverSha = data.sha || '';

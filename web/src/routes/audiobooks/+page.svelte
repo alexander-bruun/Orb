@@ -180,6 +180,13 @@
     }
   }
 
+  function handleBookCardKeydown(event: KeyboardEvent, book: Audiobook) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      goto(`/audiobooks/${book.id}`);
+    }
+  }
+
   onMount(async () => {
     scrollEl = document.querySelector('main.content');
     if (scrollEl) scrollEl.addEventListener('scroll', updateActive, { passive: true });
@@ -259,9 +266,16 @@
         <h2 class="group-label">{key}</h2>
         <div class="grid">
           {#each grouped.get(key) ?? [] as book (book.id)}
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <div class="book-card" on:click={() => goto(`/audiobooks/${book.id}`)}>
+            
+            
+            <div
+              class="book-card"
+              role="button"
+              tabindex="0"
+              aria-label={`Open ${book.title}`}
+              on:click={() => goto(`/audiobooks/${book.id}`)}
+              on:keydown={(event) => handleBookCardKeydown(event, book)}
+            >
               <div class="cover-wrap">
                 {#if book.cover_art_key}
                   <img
@@ -295,14 +309,17 @@
                 {/if}
                 <div class="meta-row">
                   {#if book.series}
-                    <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <!-- svelte-ignore a11y-no-static-element-interactions -->
-                    <span
+                    
+                    
+                    <button
+                      type="button"
                       class="series"
                       title="View series: {book.series}"
-                      on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}>
+                      aria-label={`View series ${book.series}`}
+                      on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}
+                    >
                       {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
-                    </span>
+                    </button>
                   {/if}
                   {#if book.duration_ms}
                     <span class="duration">{fmtDuration(book.duration_ms)}</span>

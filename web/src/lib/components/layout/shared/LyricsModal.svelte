@@ -178,15 +178,15 @@
 </script>
 
 {#if $lyricsOpen}
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  
   <div
     class="lyrics-modal"
     class:dragging
     bind:this={container}
     style="left: {posX}px; top: {posY}px;"
   >
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="modal-header" on:mousedown={startDrag}>
+    
+    <div class="modal-header" role="presentation" on:mousedown={startDrag}>
       <span class="modal-title">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M9 18V5l12-2v13"/>
@@ -205,7 +205,7 @@
       </button>
     </div>
 
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    
     <div class="modal-body" bind:this={listEl} on:wheel={onWheel}>
       {#if $lyricsLoading}
         <div class="state-msg">Loading…</div>
@@ -213,9 +213,10 @@
         <div class="state-msg">No lyrics available</div>
       {:else}
         {#each $lyricsLines as line, i (line.time_ms + '-' + i)}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-static-element-interactions -->
-          <div
+          
+          
+          <button
+            type="button"
             class="lyric-line"
             class:active={i === $activeLyricIndex}
             class:past={i < $activeLyricIndex}
@@ -225,7 +226,7 @@
             on:click={() => seekToLine(line.time_ms)}
           >
             {line.text}
-          </div>
+          </button>
         {/each}
       {/if}
     </div>
@@ -341,6 +342,11 @@
     transition: color 0.3s ease, background 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
     cursor: pointer;
     opacity: 0.55;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+    font: inherit;
   }
 
   .lyric-line:hover {

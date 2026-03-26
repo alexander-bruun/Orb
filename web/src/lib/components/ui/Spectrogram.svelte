@@ -158,7 +158,7 @@
 
   // ---- Draw loop ------------------------------------------------------------
 
-  let freqBuf: Uint8Array | null = null;
+  let freqBuf: Uint8Array<ArrayBuffer> | null = null;
   let colImgData: ImageData | null = null;
 
   function draw() {
@@ -203,7 +203,7 @@
     }
 
     if (!freqBuf || freqBuf.length !== binCount) {
-      freqBuf = new Uint8Array(binCount);
+      freqBuf = new Uint8Array(binCount) as Uint8Array<ArrayBuffer>;
     }
     analyser.getByteFrequencyData(freqBuf);
 
@@ -236,7 +236,7 @@
   aria-label="Spek-style scrolling spectrogram — frequency over time"
   style="width:{width}px;height:{height}px;margin:0;"
 >
-  <canvas bind:this={canvas} style="width:{width}px;height:{height}px;" />
+  <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"></canvas>
 
   <!-- kHz frequency axis (left) -->
   <div class="spk-axis spk-axis--left" aria-hidden="true">

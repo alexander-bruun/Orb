@@ -45,7 +45,7 @@
   </button>
 
   {#if menuOpen}
-    <div class="menu" on:click|stopPropagation role="menu">
+    <div class="menu" role="menu" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
       <div class="menu-user">
         <div class="menu-avatar">
           {#if $avatarStore}

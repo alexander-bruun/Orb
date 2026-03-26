@@ -18,7 +18,7 @@
   import { activePlayer } from '$lib/stores/player/engine';
   import { library } from '$lib/api/library';
   import { favorites } from '$lib/stores/library/favorites';
-  import { writable } from 'svelte/store';
+  import { get, writable } from 'svelte/store';
   import { getApiBase } from '$lib/api/base';
   import { lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/player/lyrics';
   import { goto } from '$app/navigation';
@@ -153,6 +153,13 @@
     openPlayer();
   }
 
+  function onMiniKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onMiniClick();
+    }
+  }
+
   $: {
     if ($currentTrack?.album_id) {
       library.album($currentTrack.album_id)
@@ -224,20 +231,27 @@
     }
   }
 
+  function handleFullscreenKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closePlayer();
+    }
+  }
+
   function seekToLyric(timeMs: number) {
     seek(timeMs / 1000);
   }
 
-  function goToAlbum(e: MouseEvent) {
-    e.stopPropagation();
+  function goToAlbum(e?: MouseEvent) {
+    e?.stopPropagation();
     if ($currentAlbum) {
       closePlayer(true);
       goto(`/library/albums/${$currentAlbum.id}`);
     }
   }
 
-  function goToArtist(e: MouseEvent) {
-    e.stopPropagation();
+  function goToArtist(e?: MouseEvent) {
+    e?.stopPropagation();
     if ($currentTrack?.artist_id) {
       closePlayer(true);
       goto(`/artists/${$currentTrack.artist_id}`);
@@ -275,7 +289,7 @@
       initCastSdk();
       // Give it a moment then check again.
       await new Promise(r => setTimeout(r, 1500));
-      if ($castState === 'idle') {
+      if (get(castState) === 'idle') {
         try { await startCast(); } catch { /* user cancelled */ }
       }
     }
@@ -289,19 +303,22 @@
 
 <!-- ── Mini player (shown above bottom nav) ──────────────────────────────── -->
 {#if $currentTrack}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-  <div
-    class="mini-player"
-    role="complementary"
-    aria-label="Now playing"
-    on:click={onMiniClick}
-    on:touchstart={onMiniTouchStart}
-    on:touchmove|nonpassive={onMiniTouchMove}
-    on:touchend={onMiniTouchEnd}
-    style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
-           transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
-  >
+  
+  
+  <section class="mini-player-wrap" role="complementary" aria-label="Now playing">
+    <div
+      class="mini-player"
+      role="button"
+      tabindex="0"
+      aria-label="Open full player"
+      on:click={onMiniClick}
+      on:keydown={onMiniKeyDown}
+      on:touchstart={onMiniTouchStart}
+      on:touchmove|nonpassive={onMiniTouchMove}
+      on:touchend={onMiniTouchEnd}
+      style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
+             transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
+    >
     <!-- Thin progress line at top -->
     <div class="mini-progress-track">
       <div class="mini-progress-fill" style="width: {progress}%"></div>
@@ -370,26 +387,31 @@
       </div>
     </div>
   </div>
+  </section>
 {/if}
 
 <!-- ── Full-screen player ─────────────────────────────────────────────────── -->
 {#if playerOpen && $currentTrack}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div
-    class="fullscreen-player"
-    style="
-      transform: translateY({swipeDelta}px) scale({1 - swipeDelta * 0.00032});
-      opacity: {Math.max(0.12, 1 - swipeDelta / 310)};
-      border-radius: {Math.min(swipeDelta * 0.22, 20)}px;
-      transition: {swiping ? 'none' : dismissing
-        ? 'transform 0.4s cubic-bezier(0.4, 0, 1, 1), opacity 0.4s cubic-bezier(0.4, 0, 1, 1), border-radius 0.4s cubic-bezier(0.4, 0, 1, 1)'
-        : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
-    "
-    on:touchstart={onTouchStart}
-    on:touchmove={onTouchMove}
-    on:touchend={onTouchEnd}
-  >
+  
+  
+    <div
+      class="fullscreen-player"
+      role="dialog"
+      aria-label="Full-screen player"
+      tabindex="-1"
+      style="
+        transform: translateY({swipeDelta}px) scale({1 - swipeDelta * 0.00032});
+        opacity: {Math.max(0.12, 1 - swipeDelta / 310)};
+        border-radius: {Math.min(swipeDelta * 0.22, 20)}px;
+        transition: {swiping ? 'none' : dismissing
+          ? 'transform 0.4s cubic-bezier(0.4, 0, 1, 1), opacity 0.4s cubic-bezier(0.4, 0, 1, 1), border-radius 0.4s cubic-bezier(0.4, 0, 1, 1)'
+          : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
+      "
+      on:touchstart={onTouchStart}
+      on:touchmove={onTouchMove}
+      on:touchend={onTouchEnd}
+      on:keydown={handleFullscreenKeyDown}
+    >
     <!-- Blurred album art background (parallax: moves slower than content) -->
     {#if $currentTrack.album_id}
       <div
@@ -408,7 +430,7 @@
       <!-- Top bar: swipe handle + close button -->
       <div class="fs-topbar">
         {#if $lyricsLines.length > 0}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          
           <button
             class="fs-lyrics-toggle"
             class:active={showLyrics}
@@ -420,7 +442,7 @@
           <div class="fs-topbar-spacer"></div>
         {/if}
         <div class="swipe-handle"></div>
-        <button class="fs-close-btn" on:click={closePlayer} aria-label="Close player">
+        <button class="fs-close-btn" on:click={() => closePlayer()} aria-label="Close player">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
@@ -429,7 +451,7 @@
 
       {#if showLyrics}
         <!-- ── Lyrics panel ───────────────────────────────────────── -->
-        <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+        
         <div
           class="fs-lyrics"
           bind:this={lyricsContainer}
@@ -445,15 +467,16 @@
           {:else}
             <div class="lyric-spacer-top"></div>
             {#each $lyricsLines as line, i}
-              <!-- svelte-ignore a11y-click-events-have-key-events -->
-              <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-              <p
+              
+              
+              <button
+                type="button"
                 class="lyric-line"
                 class:lyric-active={i === $activeLyricIndex}
                 class:lyric-past={i < $activeLyricIndex}
                 data-lyric-idx={i}
                 on:click|stopPropagation={() => seekToLyric(line.time_ms)}
-              >{line.text || '♩'}</p>
+              >{line.text || '♩'}</button>
             {/each}
             <div class="lyric-spacer-bottom"></div>
           {/if}
@@ -483,11 +506,13 @@
         </div>
 
         <!-- Active lyric preview (shown when lyrics panel is closed) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div
+        
+        
+        <button
+          type="button"
           class="fs-lyric-slot"
           class:fs-lyric-slot--active={$lyricsLines.length > 0 && $activeLyricIndex >= 0}
+          aria-label="Show lyrics"
           on:click|stopPropagation={() => { if ($lyricsLines.length > 0 && $activeLyricIndex >= 0) showLyrics = true; }}
         >
           {#if $lyricsLines.length > 0 && $activeLyricIndex >= 0}
@@ -495,7 +520,7 @@
               {$lyricsLines[$activeLyricIndex]?.text ?? ''}
             </span>
           {/if}
-        </div>
+        </button>
 
         <!-- Track info -->
         <div class="fs-info">
@@ -503,14 +528,36 @@
             <div class="fs-title">{$currentTrack.title}</div>
             <div class="fs-sub">
               {#if $currentTrack.artist_name}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <span class="fs-artist" on:click={goToArtist} role="link" tabindex="0">{$currentTrack.artist_name}</span>
+                
+              <span
+                class="fs-artist"
+                on:click={goToArtist}
+                on:keydown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    goToArtist();
+                  }
+                }}
+                role="link"
+                tabindex="0"
+              >{$currentTrack.artist_name}</span>
               {/if}
               {#if $currentAlbum}
                 <span class="fs-sep">·</span>
-                <!-- svelte-ignore a11y-missing-attribute -->
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <span class="fs-album" on:click={goToAlbum} role="link" tabindex="0">
+                
+                
+            <span
+              class="fs-album"
+              on:click={goToAlbum}
+              on:keydown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  goToAlbum();
+                }
+              }}
+              role="link"
+              tabindex="0"
+            >
                   {$currentAlbum.title}
                 </span>
               {/if}
@@ -625,6 +672,9 @@
 
 <style>
   /* ── Mini player ─────────────────────────────────────────────────────────── */
+  .mini-player-wrap {
+    display: contents;
+  }
   .mini-player {
     display: none; /* desktop: hidden */
   }
@@ -891,16 +941,24 @@
       align-items: center;
       justify-content: center;
       padding: 0 20px;
+      border: none;
+      background: none;
     }
 
     .fs-lyric-slot--active {
       cursor: pointer;
     }
 
+    .fs-lyric-slot:focus-visible {
+      outline: 1px solid var(--accent);
+      border-radius: 6px;
+    }
+
     /* Active lyric preview — centered inside the slot */
     .fs-lyric-preview {
       display: -webkit-box;
       -webkit-line-clamp: 2;
+      line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
       text-align: center;

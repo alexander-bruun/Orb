@@ -101,7 +101,7 @@
 
   {#if showSmartForm}
     <form class="create-form" on:submit={createSmartPlaylist}>
-      <input type="text" placeholder="New smart playlist name…" bind:value={smartName} class="create-input" autofocus />
+      <input type="text" placeholder="New smart playlist name…" bind:value={smartName} class="create-input" />
       <button type="submit" class="btn-create" disabled={creating || !smartName.trim()}>Create</button>
     </form>
   {:else}

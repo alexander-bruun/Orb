@@ -182,7 +182,7 @@
 </script>
 
 {#if state.visible}
-  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+  
   <div
     class="viz-widget"
     style="left:{left}px;top:{top}px;"

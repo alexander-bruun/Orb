@@ -314,8 +314,8 @@
       <div class="ab-slider">
         {#each inProgressBooks as book (book.id)}
           {@const pct = book.duration_ms > 0 ? Math.min(100, (book.position_ms / book.duration_ms) * 100) : 0}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-static-element-interactions -->
+          
+          
           <a class="ab-card" href="/audiobooks/{book.id}">
             <div class="ab-cover-wrap">
               {#if book.cover_art_key}
@@ -340,11 +340,22 @@
               <span class="ab-title" title={book.title}>{book.title}</span>
               {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
               {#if book.series}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <span class="ab-series" on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}>
+                
+                
+                <button
+                  type="button"
+                  class="ab-series"
+                  aria-label={`View series: ${book.series}`}
+                  on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}
+                  on:keydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`);
+                    }
+                  }}
+                >
                   {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
-                </span>
+                </button>
               {/if}
             </div>
           </a>

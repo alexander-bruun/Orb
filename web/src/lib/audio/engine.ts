@@ -33,7 +33,7 @@ class AudioEngine {
 	private nativeGain: GainNode | null = null;
 	/** Dedicated gain node for ReplayGain offset on the native path. */
 	private nativeReplayGainNode: GainNode | null = null;
-	private nativeMediaSource: MediaElementSourceNode | null = null;
+	private nativeMediaSource: MediaElementAudioSourceNode | null = null;
 	private nativePlayer: NativePlayer | null = null;
 	/** BiquadFilterNode chain for the WASM/Web Audio path. */
 	private eqNodes: BiquadFilterNode[] = [];

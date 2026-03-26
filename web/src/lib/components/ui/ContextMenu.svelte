@@ -153,9 +153,9 @@
 <svelte:window on:pointerdown={onWindowPointerDown} on:keydown={onKeydown} />
 
 {#if $contextMenu.visible && $contextMenu.track}
-  <!-- svelte-ignore a11y-interactive-supports-focus -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="ctx-menu" style={style} role="menu" on:click|stopPropagation={() => {}} on:touchstart={onTouchStart} on:touchmove={onTouchMove} on:touchend={onTouchEnd}>
+  
+  
+  <div class="ctx-menu" style={style} role="menu" tabindex="-1" on:click|stopPropagation={() => {}} on:keydown|stopPropagation={() => {}} on:touchstart={onTouchStart} on:touchmove={onTouchMove} on:touchend={onTouchEnd}>
     {#if !showPlaylists}
       <button class="item" on:click={handlePlay} role="menuitem">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

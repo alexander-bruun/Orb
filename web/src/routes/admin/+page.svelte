@@ -854,8 +854,15 @@
 </main>
 
 {#if showWebhookModal}
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
-<div class="modal-backdrop" on:click|self={() => showWebhookModal = false} role="dialog" aria-modal="true" tabindex="-1">
+
+<div
+  class="modal-backdrop"
+  on:click|self={() => showWebhookModal = false}
+  on:keydown|self={(event) => event.key === "Escape" && (showWebhookModal = false)}
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+>
   <div class="modal webhook-modal">
     <h2>{editingWebhook ? 'Edit Webhook' : 'Add Webhook'}</h2>
     <form on:submit|preventDefault={saveWebhook}>
@@ -890,8 +897,15 @@
 {/if}
 
 {#if showForceScanModal}
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
-<div class="modal-backdrop" on:click|self={() => showForceScanModal = false} role="dialog" aria-modal="true" tabindex="-1">
+
+<div
+  class="modal-backdrop"
+  on:click|self={() => showForceScanModal = false}
+  on:keydown|self={(event) => event.key === "Escape" && (showForceScanModal = false)}
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+>
   <div class="modal force-scan-modal">
     <div class="force-scan-icon">⚠️</div>
     <h2>Force Rescan Library?</h2>
@@ -911,8 +925,15 @@
 {/if}
 
 {#if showForceAudiobookModal}
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
-<div class="modal-backdrop" on:click|self={() => showForceAudiobookModal = false} role="dialog" aria-modal="true" tabindex="-1">
+
+<div
+  class="modal-backdrop"
+  on:click|self={() => showForceAudiobookModal = false}
+  on:keydown|self={(event) => event.key === "Escape" && (showForceAudiobookModal = false)}
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+>
   <div class="modal force-scan-modal">
     <div class="force-scan-icon">⚠️</div>
     <h2>Re-ingest All Audiobooks?</h2>
@@ -932,8 +953,15 @@
 {/if}
 
 {#if showInviteModal}
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
-<div class="modal-backdrop" on:click|self={() => showInviteModal = false} role="dialog" aria-modal="true" tabindex="-1">
+
+<div
+  class="modal-backdrop"
+  on:click|self={() => showInviteModal = false}
+  on:keydown|self={(event) => event.key === "Escape" && (showInviteModal = false)}
+  role="dialog"
+  aria-modal="true"
+  tabindex="-1"
+>
   <div class="modal">
     <h2>Invite User</h2>
     {#if inviteResult}
@@ -947,9 +975,9 @@
       <button class="btn-accent" style="margin-top:1rem;width:100%" on:click={() => { showInviteModal = false; inviteResult = null; }}>Done</button>
     {:else}
       <form on:submit|preventDefault={sendInvite}>
-        <!-- svelte-ignore a11y_autofocus -->
+        
         <label class="form-label" for="invite-email">Email address</label>
-        <input id="invite-email" type="email" bind:value={inviteEmail} placeholder="user@example.com" autofocus required />
+        <input id="invite-email" type="email" bind:value={inviteEmail} placeholder="user@example.com" required />
         {#if inviteError}<p class="error" style="margin-top:0.5rem">{inviteError}</p>{/if}
         <div class="modal-actions">
           <button type="button" class="btn-xs" on:click={() => showInviteModal = false}>Cancel</button>

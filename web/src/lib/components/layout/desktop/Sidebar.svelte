@@ -19,7 +19,7 @@
 </script>
 
 {#if $sidebarOpen}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  
   <div class="sidebar-backdrop" role="presentation" on:click={() => sidebarOpen.set(false)}></div>
 {/if}
 
@@ -85,8 +85,6 @@
   }
   .nav a:hover { color: var(--text); background: var(--bg-hover); }
   .nav a.active { color: var(--text); background: var(--bg-hover); }
-  .nav a.admin-link { color: var(--accent, #a78bfa); }
-  .nav a.admin-link:hover, .nav a.admin-link.active { color: var(--accent, #a78bfa); background: var(--bg-hover); }
   .spacer { flex: 1; }
   .sidebar-bottom {
     padding: 12px;

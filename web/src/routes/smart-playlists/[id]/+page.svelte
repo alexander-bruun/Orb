@@ -154,10 +154,15 @@
   let limitCount: number | '' = '';
 
   onMount(async () => {
-    const id = $page.params.id;
+    const playlistId = $page.params.id;
     loadSuggestions(); // fire-and-forget
+    if (!playlistId) {
+      error = 'Playlist not found.';
+      loading = false;
+      return;
+    }
     try {
-      pl = await smartPlaylists.get(id);
+      pl = await smartPlaylists.get(playlistId);
       if (pl) {
         name        = pl.name;
         description = pl.description ?? '';
@@ -167,7 +172,7 @@
         sortDir     = pl.sort_dir;
         limitCount  = pl.limit_count ?? '';
       }
-      await refreshTracks(id);
+      await refreshTracks(playlistId);
     } catch {
       error = 'Failed to load smart playlist.';
     } finally {
@@ -303,11 +308,15 @@
                 {#if focusedRule === i && suggestionList.length > 0}
                   <ul class="suggest-list">
                     {#each suggestionList as s, si}
-                      <li
-                        class="suggest-item"
-                        class:highlighted={si === highlightedIdx}
+                    <li
+                      class="suggest-item"
+                      class:highlighted={si === highlightedIdx}
+                    >
+                      <button
+                        type="button"
                         on:mousedown|preventDefault={() => pickSuggestion(i, s)}
-                      >{s}</li>
+                      >{s}</button>
+                    </li>
                     {/each}
                   </ul>
                 {/if}
@@ -531,6 +540,16 @@
   .suggest-item:hover, .suggest-item.highlighted {
     background: var(--bg-hover, rgba(255,255,255,0.06));
     color: var(--accent);
+  }
+  .suggest-item button {
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
   }
 
   .options-row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; }

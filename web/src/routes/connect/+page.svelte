@@ -122,14 +122,13 @@
       <form onsubmit={connect}>
         <label>
           Server URL
-          <!-- svelte-ignore a11y_autofocus -->
+          
           <input
             type="url"
             bind:value={url}
             placeholder="https://orb.example.com/api"
             required
             autocomplete="url"
-            autofocus
           />
         </label>
         <button type="submit" class="btn-primary">Connect</button>

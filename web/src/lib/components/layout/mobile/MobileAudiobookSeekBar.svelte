@@ -33,7 +33,7 @@
     <!-- Chapter info header -->
     <div class="chapter-nav-info">
       {#if $abPreviousChapter}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        
         <button class="chapter-nav prev-nav" on:click|stopPropagation={() => jumpToChapter($abPreviousChapter)} title={$abPreviousChapter.title} aria-label="Previous chapter: {$abPreviousChapter.title}">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="15 18 9 12 15 6"></polyline>
@@ -45,7 +45,7 @@
       {/if}
       <div class="current-chapter">{$abCurrentChapter.title}</div>
       {#if $abNextChapter}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        
         <button class="chapter-nav next-nav" on:click|stopPropagation={() => jumpToChapter($abNextChapter)} title={$abNextChapter.title} aria-label="Next chapter: {$abNextChapter.title}">
           <span>{$abNextChapter.title}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

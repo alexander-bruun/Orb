@@ -98,6 +98,26 @@
     audio.currentTime = pct * (durMs / 1000);
   }
 
+  function handleScrubberKeydown(e: KeyboardEvent) {
+    if (!audio || durMs === 0) return;
+    const durationSecs = durMs / 1000;
+    const clamp = (value: number) => Math.max(0, Math.min(durationSecs, value));
+    const step = 5;
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      audio.currentTime = clamp(audio.currentTime + step);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      audio.currentTime = clamp(audio.currentTime - step);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      audio.currentTime = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      audio.currentTime = durationSecs;
+    }
+  }
+
   function onTimeUpdate() {
     if (!audio) return;
     posMs = audio.currentTime * 1000;
@@ -232,9 +252,20 @@
         <!-- Scrubber -->
         <div class="scrubber-row">
           <span class="time-label">{fmt(posMs)}</span>
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <!-- svelte-ignore a11y-no-static-element-interactions -->
-          <div class="scrubber" on:click={seek}>
+          
+          
+          <div
+            class="scrubber"
+            on:click={seek}
+            role="slider"
+            tabindex="0"
+            aria-label="Seek"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={progressPct}
+            aria-valuetext={fmt(posMs)}
+            on:keydown={handleScrubberKeydown}
+          >
             <div class="scrubber-bg"></div>
             <div class="scrubber-fill" style="width:{progressPct}%"></div>
             <div class="scrubber-thumb" style="left:{progressPct}%"></div>

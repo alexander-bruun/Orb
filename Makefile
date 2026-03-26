@@ -2,6 +2,9 @@
 web-install:
 	cd web && bun install
 
+svelte-check:
+	cd web && bunx npm run check
+
 # Tauri desktop build (installs frontend deps first, native target)
 tauri-build: web-install
 	cd web && bunx tauri build

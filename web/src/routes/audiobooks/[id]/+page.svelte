@@ -200,7 +200,9 @@
     scanMsg = "";
     try {
       const prevCount = chapters.length;
-      await abApi.triggerRescan($page.params.id);
+      const audiobookId = $page.params.id;
+      if (!audiobookId) return;
+      await abApi.triggerRescan(audiobookId);
       scanMsg = "Reingest started";
       const updated = await pollForChapters(prevCount);
       if (updated) scanMsg = "Reingest completed";
@@ -290,12 +292,33 @@
     }
   }
 
+  function handleChapterKeydown(e: KeyboardEvent, ch: AudiobookChapter) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleChapterPlay(ch);
+    }
+  }
+
+  function activateBookmark(bm: AudiobookBookmark) {
+    if (isActive) {
+      seekAudiobookMs(bm.position_ms);
+    }
+  }
+
+  function handleBookmarkKeydown(e: KeyboardEvent, bm: AudiobookBookmark) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      activateBookmark(bm);
+    }
+  }
+
   async function loadBook(bookId: string) {
     if (isRestoring && loadedId === bookId) {
       loading = false;
       isRestoring = false;
       return;
     }
+
     loading = true;
     error = "";
     book = null;
@@ -323,6 +346,13 @@
     } finally {
       loading = false;
       isRestoring = false;
+    }
+  }
+
+  function handleSeriesBookKeydown(e: KeyboardEvent, book: Audiobook) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      goto(`/audiobooks/${book.id}`);
     }
   }
 
@@ -357,55 +387,98 @@
 
       <div class="meta-col">
         <!-- Series (editable) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <p class="series-label" class:editable={isAdmin}
-          on:click={() => isAdmin ? startEdit("series") : book?.series && goto(`/audiobooks/series/${encodeURIComponent(book.series)}`)}>
+        
+        
+        <p class="series-label">
           {#if editingField === "series"}
-            <!-- svelte-ignore a11y-autofocus -->
+            
             <input class="inline-input series-input" bind:value={editValue}
               on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
               placeholder="Series name" use:focusOnMount />
           {:else if book.series}
-            {book.series}{book.series_index != null ? ` · Book ${book.series_index}` : ""}
-            {#if isAdmin}<span class="edit-hint">✎</span>{/if}
+            {@const seriesName = book.series}
+            <button
+              type="button"
+              class="series series-trigger"
+              class:editable={isAdmin}
+              title={`View series: ${seriesName}`}
+              aria-label={`View series ${seriesName}`}
+              on:click={() => isAdmin ? startEdit("series") : goto(`/audiobooks/series/${encodeURIComponent(seriesName)}`)}
+            >
+              {seriesName}{book.series_index != null ? ` · Book ${book.series_index}` : ""}
+              {#if isAdmin}<span class="edit-hint">✎</span>{/if}
+            </button>
           {:else if isAdmin}
-            <span class="add-field">+ Add series</span>
+            <button
+              type="button"
+              class="series series-trigger editable"
+              aria-label="Add series"
+              on:click={() => startEdit("series")}
+            >
+              <span class="add-field">+ Add series</span>
+            </button>
           {/if}
         </p>
 
         <!-- Title (editable) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <h1 class="title" class:editable={isAdmin} on:click={() => startEdit("title")}>
+        
+        
+        <h1 class="title">
           {#if editingField === "title"}
-            <!-- svelte-ignore a11y-autofocus -->
+            
             <input class="inline-input title-input" bind:value={editValue}
               on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
           {:else}
-            <span class="title-row">
-              <span class="title-text">{book.title}</span>
-              {#if book.edition}
-                <span class="edition-badge">{book.edition}</span>
-              {/if}
-            </span>
-            {#if isAdmin}<span class="edit-hint">✎</span>{/if}
+            {#if isAdmin}
+              <button
+                type="button"
+                class="title-trigger editable"
+                aria-label={`Edit title ${book.title}`}
+                on:click={() => startEdit("title")}
+              >
+                <span class="title-row">
+                  <span class="title-text">{book.title}</span>
+                  {#if book.edition}
+                    <span class="edition-badge">{book.edition}</span>
+                  {/if}
+                </span>
+                <span class="edit-hint">✎</span>
+              </button>
+            {:else}
+              <span class="title-row">
+                <span class="title-text">{book.title}</span>
+                {#if book.edition}
+                  <span class="edition-badge">{book.edition}</span>
+                {/if}
+              </span>
+            {/if}
           {/if}
         </h1>
 
         <!-- Author (editable) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-        <p class="author" class:editable={isAdmin} on:click={() => startEdit("author")}>
+        
+        
+        <p class="author">
           {#if editingField === "author"}
-            <!-- svelte-ignore a11y-autofocus -->
+            
             <input class="inline-input" bind:value={editValue}
               on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
               placeholder="Author name" use:focusOnMount />
-          {:else if book.author_name}
-            {book.author_name}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
           {:else if isAdmin}
-            <span class="add-field">+ Add author</span>
+            <button
+              type="button"
+              class="author-trigger editable"
+              aria-label={book.author_name ? `Edit author ${book.author_name}` : "Add author"}
+              on:click={() => startEdit("author")}
+            >
+              {#if book.author_name}
+                {book.author_name}<span class="edit-hint">✎</span>
+              {:else}
+                <span class="add-field">+ Add author</span>
+              {/if}
+            </button>
+          {:else if book.author_name}
+            <span class="author-text" title={book.author_name}>{book.author_name}</span>
           {/if}
         </p>
 
@@ -418,34 +491,51 @@
             <span class="attr">{fmtDuration(book.duration_ms)}</span>
           {/if}
           <!-- Published year (editable) -->
-          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-          <span class="attr" class:editable={isAdmin} on:click={() => startEdit("published_year")}>
-            {#if editingField === "published_year"}
-              <!-- svelte-ignore a11y-autofocus -->
-              <input class="inline-input year-input" type="number" bind:value={editValue}
-                on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
-                placeholder="Year" use:focusOnMount />
-            {:else if book.published_year}
-              {book.published_year}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
-            {:else if isAdmin}
-              <span class="muted-placeholder">+ Year</span>
-            {/if}
-          </span>
+          
+          {#if editingField === "published_year"}
+            
+            <input class="inline-input year-input" type="number" bind:value={editValue}
+              on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
+              placeholder="Year" use:focusOnMount />
+          {:else if isAdmin}
+            <button
+              type="button"
+              class="attr attr-trigger editable"
+              aria-label="Edit published year"
+              on:click={() => startEdit("published_year")}
+            >
+              {#if book.published_year}
+                {book.published_year}<span class="edit-hint">✎</span>
+              {:else}
+                <span class="muted-placeholder">+ Year</span>
+              {/if}
+            </button>
+          {:else if book.published_year}
+            <span class="attr">{book.published_year}</span>
+          {/if}
           <!-- Series index (editable) -->
           {#if book.series || isAdmin}
-            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-            <span class="attr" class:editable={isAdmin} on:click={() => startEdit("series_index")}>
-              {#if editingField === "series_index"}
-                <!-- svelte-ignore a11y-autofocus -->
+            {#if editingField === "series_index"}
+              
                 <input class="inline-input year-input" type="number" step="0.1" bind:value={editValue}
                   on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
                   placeholder="Book #" use:focusOnMount />
-              {:else if book.series_index != null}
-                Book {book.series_index}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
-              {:else if isAdmin}
-                <span class="muted-placeholder">+ Book #</span>
-              {/if}
-            </span>
+            {:else if isAdmin}
+              <button
+                type="button"
+                class="attr attr-trigger editable"
+                aria-label="Edit book number"
+                on:click={() => startEdit("series_index")}
+              >
+                {#if book.series_index != null}
+                  Book {book.series_index}<span class="edit-hint">✎</span>
+                {:else}
+                  <span class="muted-placeholder">+ Book #</span>
+                {/if}
+              </button>
+            {:else if book.series_index != null}
+              <span class="attr">Book {book.series_index}</span>
+            {/if}
           {/if}
           {#if chapters.length > 0}
             <span class="attr">{chapters.length} chapter{chapters.length === 1 ? "" : "s"}</span>
@@ -521,19 +611,29 @@
         {/if}
 
         <!-- Description (editable) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div class="description-wrap" class:editable={isAdmin && editingField !== "description"}
-          on:click={() => isAdmin && editingField !== "description" && startEdit("description")}>
+        
+        <div class="description-wrap">
           {#if editingField === "description"}
-            <!-- svelte-ignore a11y-autofocus -->
+            
             <textarea class="inline-input desc-input" bind:value={editValue} rows="4"
               on:keydown={(e) => e.key === "Escape" && cancelEdit()}
               on:blur={commitEdit} disabled={saving}
               placeholder="Add a description…" use:focusOnMount></textarea>
-          {:else if book.description}
-            <p class="description">{book.description}{#if isAdmin}<span class="edit-hint">✎</span>{/if}</p>
           {:else if isAdmin}
-            <p class="description add-field">+ Add description</p>
+            <button
+              type="button"
+              class="description-trigger"
+              on:click={() => startEdit("description")}
+              aria-label="Edit description"
+            >
+              {#if book.description}
+                <p class="description">{book.description}<span class="edit-hint">✎</span></p>
+              {:else}
+                <p class="description add-field">+ Add description</p>
+              {/if}
+            </button>
+          {:else if book.description}
+            <p class="description">{book.description}</p>
           {/if}
         </div>
       </div>
@@ -548,9 +648,17 @@
             {@const pct = progressPct(ch, $abPositionMs)}
             {@const isCurrent = isActive && $currentAudiobook?.id === id &&
               $abPositionMs >= ch.start_ms && $abPositionMs < ch.end_ms}
-            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            
             {@const chDownloaded = $downloads.get(ch.id)?.status === 'done'}
-            <div class="chapter-row" class:is-current={isCurrent} on:click={() => handleChapterPlay(ch)}>
+            <div
+              class="chapter-row"
+              class:is-current={isCurrent}
+              role="button"
+              tabindex="0"
+              aria-label={`Play chapter ${ch.chapter_num}: ${ch.title}`}
+              on:click={() => handleChapterPlay(ch)}
+              on:keydown={(e) => handleChapterKeydown(e, ch)}
+            >
               <span class="ch-num">{ch.chapter_num}</span>
               <div class="ch-body">
                 <span class="ch-title">{ch.title}</span>
@@ -559,7 +667,12 @@
                 {/if}
               </div>
               {#if chDownloaded}
-                <svg class="ch-offline-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" title="Downloaded"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
+                <svg class="ch-offline-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <title>Downloaded</title>
+                  <polyline points="8 17 12 21 16 17"/>
+                  <line x1="12" y1="12" x2="12" y2="21"/>
+                  <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/>
+                </svg>
               {/if}
               <span class="ch-time">{fmtMs(ch.start_ms)}</span>
               <button class="ch-play" aria-label="Play chapter {ch.chapter_num}"
@@ -582,8 +695,15 @@
         <h2 class="section-title">Bookmarks</h2>
         <div class="bookmarks">
           {#each bookmarks as bm (bm.id)}
-            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-            <div class="bm-row" on:click={() => isActive && seekAudiobookMs(bm.position_ms)}>
+            
+            <div
+              class="bm-row"
+              role="button"
+              tabindex="0"
+              aria-label={`Jump to bookmark at ${fmtMs(bm.position_ms)}`}
+              on:click={() => activateBookmark(bm)}
+              on:keydown={(e) => handleBookmarkKeydown(e, bm)}
+            >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="bm-icon" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
               <span class="bm-time">{fmtMs(bm.position_ms)}</span>
               {#if bm.note}<span class="bm-note">{bm.note}</span>{/if}
@@ -598,13 +718,25 @@
       <section class="section">
         <div class="series-header">
           <h2 class="section-title">More in {book.series}</h2>
-          <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-          <span class="series-view-all" on:click={() => goto(`/audiobooks/series/${encodeURIComponent(book!.series!)}`)}>View all</span>
+          
+          <button
+            type="button"
+            class="series-view-all"
+            on:click={() => goto(`/audiobooks/series/${encodeURIComponent(book!.series!)}`)}
+            aria-label={`View all books in ${book!.series}`}
+          >View all</button>
         </div>
         <div class="carousel">
           {#each seriesBooks as sb (sb.id)}
-            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-            <div class="carousel-card" on:click={() => goto(`/audiobooks/${sb.id}`)}>
+            
+            <div
+              class="carousel-card"
+              role="button"
+              tabindex="0"
+              aria-label={`Open ${sb.title}`}
+              on:click={() => goto(`/audiobooks/${sb.id}`)}
+              on:keydown={(e) => handleSeriesBookKeydown(e, sb)}
+            >
               <div class="carousel-cover-wrap">
                 {#if sb.cover_art_key}
                   <img src="{getApiBase()}/covers/audiobook/{sb.id}" alt={sb.title} class="carousel-cover" loading="lazy" />
@@ -667,7 +799,24 @@
   .year-input { width: 90px; }
   .desc-input { resize: vertical; line-height: 1.6; font-size: 0.875rem; }
 
-  .description-wrap.editable { cursor: pointer; }
+  .series-trigger,
+  .title-trigger,
+  .author-trigger,
+  .attr-trigger,
+  .description-trigger {
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .description-trigger { width: 100%; justify-content: flex-start; }
 
   /* ── Messages ── */
   .action-msg { font-size: 0.8rem; color: var(--accent); margin: 0; }
@@ -686,8 +835,8 @@
   .spin-sm { display: inline-block; vertical-align: middle; animation: spin-anim 0.8s linear infinite; }
 
   /* ── Meta fields ── */
-  .series-label { font-size: 0.78rem; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; cursor: pointer; }
-  .series-label:not(.editable):hover { text-decoration: underline; }
+  .series-label { font-size: 0.78rem; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+  .series-trigger:not(.editable):hover { text-decoration: underline; }
   .title { font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1.2; cursor: default; }
   .title-row { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .title-text { min-width: 0; }
@@ -704,9 +853,7 @@
     line-height: 1;
     white-space: nowrap;
   }
-  .title.editable { cursor: pointer; }
-  .author { font-size: 1rem; color: var(--text-muted); margin: 0; font-weight: 500; cursor: default; }
-  .author.editable { cursor: pointer; }
+  .author { font-size: 1rem; color: var(--text-muted); margin: 0; font-weight: 500; }
   .narrator { font-size: 0.85rem; color: var(--text-muted); margin: 0; font-style: italic; }
 
   .attrs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
@@ -734,7 +881,16 @@
   .btn-downloaded:hover { background: rgba(0, 255, 0, 0.1); }
   .btn-downloading { color: var(--text-muted); cursor: not-allowed; opacity: 0.6; }
 
-  .description { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; margin: 8px 0 0; max-width: 600px; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+  .description { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; margin: 8px 0 0; max-width: 600px; display: -webkit-box; -webkit-line-clamp: 5; line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+  .description-trigger {
+    width: 100%;
+    border: none;
+    background: none;
+    padding: 0;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
 
   /* ── Sections ── */
   .section { display: flex; flex-direction: column; gap: 12px; }

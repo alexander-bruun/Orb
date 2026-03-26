@@ -28,9 +28,10 @@
 
 <div class="fs-seek">
   {#if $waveformEnabled}
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    
     <div
       class="waveform-wrap"
+      role="presentation"
       bind:clientWidth={waveformWidth}
       on:touchstart|stopPropagation={() => {}}
       on:touchmove|stopPropagation={() => {}}

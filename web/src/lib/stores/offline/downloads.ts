@@ -262,14 +262,14 @@ export async function downloadTrack(track: Track): Promise<void> {
         const contentLength = Number(res.headers.get('Content-Length') ?? 0);
         const contentType   = res.headers.get('Content-Type') ?? 'audio/flac';
         const reader        = res.body.getReader();
-        const chunks: Uint8Array[] = [];
+        const chunks: BlobPart[] = [];
         let received = 0;
         let lastReportedProgress = -1;
 
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          chunks.push(value);
+          chunks.push(new Uint8Array(value));
           received += value.byteLength;
           const progress = contentLength ? Math.round((received / contentLength) * 100) : 0;
           if (progress !== lastReportedProgress) {
@@ -669,13 +669,13 @@ export async function downloadAudiobookChapter(
       if (!response.body) throw new Error('No response body');
 
       const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
+      const chunks: BlobPart[] = [];
       let downloadedBytes = 0;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        chunks.push(value);
+        chunks.push(new Uint8Array(value));
         downloadedBytes += value.length;
 
         const progress = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;

@@ -105,6 +105,13 @@
     openPlayer();
   }
 
+  function onMiniKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onMiniClick();
+    }
+  }
+
   function openPlayer() {
     playerOpen = true;
     history.pushState({ orbPlayer: true }, '');
@@ -162,6 +169,13 @@
     }
   }
 
+  function handleFullscreenKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closePlayer();
+    }
+  }
+
   let showChapters = false;
   let showSpeed    = false;
   let showSleep    = false;
@@ -192,19 +206,22 @@
 
 {#if $currentAudiobook}
   <!-- ── Mini player (shown above bottom nav) ──────────────────────────────── -->
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-  <div
-    class="mini-player"
-    role="complementary"
-    aria-label="Now playing"
-    on:click={onMiniClick}
-    on:touchstart={onMiniTouchStart}
-    on:touchmove|nonpassive={onMiniTouchMove}
-    on:touchend={onMiniTouchEnd}
-    style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
-           transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
-  >
+  
+  
+  <section class="mini-player-wrap" role="complementary" aria-label="Now playing">
+    <div
+      class="mini-player"
+      role="button"
+      tabindex="0"
+      aria-label="Open full player"
+      on:click={onMiniClick}
+      on:keydown={onMiniKeyDown}
+      on:touchstart={onMiniTouchStart}
+      on:touchmove|nonpassive={onMiniTouchMove}
+      on:touchend={onMiniTouchEnd}
+      style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
+             transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
+    >
     <!-- Thin progress line at top -->
     <div class="mini-progress-track">
       <div class="mini-progress-fill" style="width: {$abProgress}%"></div>
@@ -272,13 +289,17 @@
       </div>
     </div>
   </div>
+  </section>
 
   <!-- ── Full-screen player ─────────────────────────────────────────────────── -->
   {#if playerOpen}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    
+    
     <div
       class="fullscreen-player"
+      role="dialog"
+      aria-label="Full screen player"
+      tabindex="-1"
       style="
         transform: translateY({swipeDelta}px) scale({1 - swipeDelta * 0.00032});
         opacity: {Math.max(0.12, 1 - swipeDelta / 310)};
@@ -291,6 +312,7 @@
       on:touchmove={onTouchMove}
       on:touchend={onTouchEnd}
       on:click={closeSheets}
+      on:keydown={handleFullscreenKeyDown}
     >
       <!-- Blurred background -->
       {#if $currentAudiobook.id}
@@ -311,7 +333,7 @@
         <div class="fs-topbar">
           <div class="fs-topbar-spacer"></div>
           <div class="swipe-handle"></div>
-          <button class="fs-close-btn" on:click={closePlayer} aria-label="Close player">
+          <button class="fs-close-btn" on:click={() => closePlayer()} aria-label="Close player">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
               <polyline points="6 9 12 15 18 9"/>
             </svg>
@@ -351,8 +373,19 @@
             <div class="fs-title">{$currentAudiobook.title}</div>
             <div class="fs-sub">
               {#if $currentAudiobook.author_name}
-                <!-- svelte-ignore a11y-click-events-have-key-events -->
-                <span class="fs-artist" on:click={goToAudiobook} role="link" tabindex="0">{$currentAudiobook.author_name}</span>
+                
+                <span
+                  class="fs-artist"
+                  on:click={goToAudiobook}
+                  on:keydown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      goToAudiobook();
+                    }
+                  }}
+                  role="link"
+                  tabindex="0"
+                >{$currentAudiobook.author_name}</span>
               {/if}
             </div>
           </div>
@@ -501,19 +534,25 @@
               </button>
 
               {#if devicePickerOpen}
-                <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-                <div
+                
+                <button
+                  type="button"
                   class="sheet-overlay"
+                  tabindex="-1"
+                  aria-label="Close device selector"
                   on:click|stopPropagation={() => (devicePickerOpen = false)}
                   on:touchstart|stopPropagation={() => {}}
                   on:touchmove|stopPropagation={() => {}}
-                ></div>
-                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                ></button>
+                
                 <div
                   class="bottom-sheet"
+                  role="dialog"
+                  tabindex="-1"
                   on:click|stopPropagation
                   on:touchstart|stopPropagation={() => {}}
                   on:touchmove|stopPropagation={() => {}}
+                  on:keydown|stopPropagation
                 >
                   <div class="sheet-handle"></div>
                   <p class="sheet-title">Sessions</p>
@@ -562,6 +601,9 @@
 
 <style>
   /* ── Mini player (shared with MobilePlayer) ─────────────────────────── */
+  .mini-player-wrap {
+    display: contents;
+  }
   .mini-player {
     display: none;
   }
@@ -796,6 +838,7 @@
     .fs-lyric-preview {
       display: -webkit-box;
       -webkit-line-clamp: 2;
+      line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
       text-align: center;
@@ -1018,7 +1061,18 @@
     }
 
     /* ── Sheets ────────────────────────────────────────────────────────── */
-    .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 700; }
+    .sheet-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 700;
+      border: none;
+      padding: 0;
+      margin: 0;
+      cursor: default;
+      outline: none;
+      display: block;
+    }
     .bottom-sheet {
       position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-elevated);
       border-radius: 20px 20px 0 0; padding: 12px 24px calc(24px + env(safe-area-inset-bottom, 0px));

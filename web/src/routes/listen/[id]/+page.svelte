@@ -295,7 +295,7 @@
       {/if}
       <div class="nickname-field">
         <label for="nickname-input" class="field-label">Your nickname</label>
-        <!-- svelte-ignore a11y_autofocus -->
+        
         <input
           id="nickname-input"
           type="text"
@@ -306,7 +306,6 @@
           maxlength="32"
           onkeydown={(e) => e.key === 'Enter' && join()}
           disabled={joining}
-          autofocus
         />
         {#if nicknameError}
           <p class="field-error">{nicknameError}</p>
@@ -473,7 +472,7 @@
             <span class="chevron" class:open={lyricsOpen}>{@html '&#9662;'}</span>
           </button>
           {#if lyricsOpen}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            
             <div class="lyrics-list" bind:this={lyricsListEl} onwheel={onLyricsWheel}>
               {#each lyricsLines as line, i (line.time_ms + '-' + i)}
                 <div

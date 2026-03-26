@@ -80,15 +80,15 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="search-wrap" on:click|stopPropagation>
+
+
+<div class="search-wrap" role="presentation" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
   <div class="search-box" class:focused={searchFocused}>
     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="11" cy="11" r="8"/>
       <path d="m21 21-4.35-4.35"/>
     </svg>
-    <!-- svelte-ignore a11y_role_supports_aria_props_implicit -->
+    
     <input
       bind:this={searchEl}
       type="search"
@@ -99,7 +99,6 @@
       on:keydown={handleSearchKeydown}
       aria-label="Quick search"
       aria-autocomplete="list"
-      aria-expanded={dropdownVisible}
     />
     {#if query && !searchLoading}
       <button class="clear-x" on:click|stopPropagation={() => { query = ''; quickResults = null; searchEl?.focus(); }} aria-label="Clear search">×</button>

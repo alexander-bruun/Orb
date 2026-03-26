@@ -348,9 +348,6 @@
 <div
   class="wf-root"
   style="width:{width}px;height:{height}px;"
-  on:pointerdown={onPointerDown}
-  on:pointermove={onPointerMove}
-  on:pointerup={onPointerUp}
 >
   <figure
     class="wf-figure"
@@ -373,6 +370,9 @@
     step="0.01"
     value={progress}
     on:input={onSeekInput}
+    on:pointerdown={onPointerDown}
+    on:pointermove={onPointerMove}
+    on:pointerup={onPointerUp}
     aria-label="Seek"
     title="Click or drag to seek"
   />
@@ -413,7 +413,8 @@
     height: 100%;
     margin: 0;
     opacity: 0;
-    pointer-events: none;
+    pointer-events: auto;
+    cursor: pointer;
     -webkit-appearance: none;
     appearance: none;
   }

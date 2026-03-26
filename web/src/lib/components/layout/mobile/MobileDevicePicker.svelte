@@ -38,18 +38,24 @@
     </button>
 
     {#if open}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div
+      
+      <button
+        type="button"
         class="fs-device-overlay"
+        tabindex="-1"
+        aria-label="Close device picker"
         on:click|stopPropagation={() => (open = false)}
         on:touchstart|stopPropagation={() => {}}
         on:touchmove|stopPropagation={() => {}}
-      ></div>
-      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      ></button>
+      
       <div
         class="fs-device-popup"
+        role="dialog"
+        tabindex="-1"
         on:touchstart|stopPropagation={() => {}}
         on:touchmove|stopPropagation={() => {}}
+        on:keydown|stopPropagation
       >
         <!-- Chromecast section -->
         {#if $castState !== 'unavailable'}
@@ -158,7 +164,17 @@
   .queue-count { font-weight: 700; }
 
   .fs-device-wrap { position: relative; }
-  .fs-device-overlay { position: fixed; inset: 0; z-index: 10; }
+  .fs-device-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    cursor: default;
+    outline: none;
+  }
   .fs-device-popup {
     position: absolute;
     bottom: calc(100% + 8px);

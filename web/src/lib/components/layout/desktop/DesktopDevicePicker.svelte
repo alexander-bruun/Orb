@@ -55,8 +55,14 @@
   </button>
 
   {#if castPickerOpen}
-    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <div class="device-picker-overlay" on:click={() => castPickerOpen = false}></div>
+    
+    <button
+      type="button"
+      class="device-picker-overlay"
+      tabindex="-1"
+      aria-label="Close cast picker"
+      on:click={() => castPickerOpen = false}
+    ></button>
     <div class="device-picker-popup">
 
       <!-- ── Chromecast section — always shown ─────────────── -->
@@ -147,8 +153,14 @@
     </button>
 
     {#if devicePickerOpen}
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <div class="device-picker-overlay" on:click={() => devicePickerOpen = false}></div>
+      
+      <button
+        type="button"
+        class="device-picker-overlay"
+        tabindex="-1"
+        aria-label="Close session picker"
+        on:click={() => devicePickerOpen = false}
+      ></button>
       <div class="device-picker-popup">
         <div class="device-picker-header">Sessions</div>
         {#each $activeDevices as device (device.id)}
@@ -253,6 +265,11 @@
     position: fixed;
     inset: 0;
     z-index: 999;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: default;
   }
   .device-picker-popup {
     position: absolute;

@@ -66,8 +66,8 @@
   }
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-<div class="ab-right" on:click|stopPropagation>
+
+<div class="ab-right" role="presentation" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
   <!-- Speed picker -->
   <div class="picker-wrap">
     <button
@@ -241,8 +241,14 @@
         <span class="device-count">{$activeDevices.length}</span>
       </button>
       {#if devicePickerOpen}
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <div class="device-picker-overlay" on:click={() => devicePickerOpen = false}></div>
+        
+        <button
+          type="button"
+          class="device-picker-overlay"
+          aria-label="Close session picker"
+          tabindex="-1"
+          on:click={() => devicePickerOpen = false}
+        ></button>
         <div class="picker-popup device-picker-popup">
           <div class="picker-header">Sessions</div>
           {#each $activeDevices as device (device.id)}
@@ -742,6 +748,11 @@
     position: fixed;
     inset: 0;
     z-index: 999;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: default;
   }
   .device-picker-popup {
     min-width: 210px;

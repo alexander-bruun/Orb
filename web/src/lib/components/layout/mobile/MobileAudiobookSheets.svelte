@@ -33,10 +33,28 @@
 </script>
 
 {#if showSpeed}
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="bottom-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
+  
+  <button
+    type="button"
+    class="sheet-overlay"
+    tabindex="-1"
+    aria-label="Close sheets"
+    on:click={closeSheets}
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+  ></button>
+  
+  <div
+    class="bottom-sheet"
+    role="dialog"
+    tabindex="-1"
+    on:click|stopPropagation
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+    on:keydown|stopPropagation
+  >
     <div class="sheet-handle"></div>
     <p class="sheet-title">Playback Speed</p>
     <div class="speed-grid">
@@ -49,10 +67,28 @@
 {/if}
 
 {#if showSleep}
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="bottom-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
+  
+  <button
+    type="button"
+    class="sheet-overlay"
+    tabindex="-1"
+    aria-label="Close sheets"
+    on:click={closeSheets}
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+  ></button>
+  
+  <div
+    class="bottom-sheet"
+    role="dialog"
+    tabindex="-1"
+    on:click|stopPropagation
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+    on:keydown|stopPropagation
+  >
     <div class="sheet-handle"></div>
     <p class="sheet-title">Sleep Timer</p>
     <div class="speed-grid">
@@ -67,10 +103,28 @@
 {/if}
 
 {#if showChapters && $currentAudiobook?.chapters?.length}
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="bottom-sheet chapter-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
+  
+  <button
+    type="button"
+    class="sheet-overlay"
+    tabindex="-1"
+    aria-label="Close sheets"
+    on:click={closeSheets}
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+  ></button>
+  
+  <div
+    class="bottom-sheet chapter-sheet"
+    role="dialog"
+    tabindex="-1"
+    on:click|stopPropagation
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+    on:keydown|stopPropagation
+  >
     <div class="sheet-handle"></div>
     <p class="sheet-title">Chapters</p>
     <div class="chapter-scroll">
@@ -89,10 +143,28 @@
 {/if}
 
 {#if showBookmarks}
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="sheet-overlay" on:click={closeSheets} on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation></div>
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="bottom-sheet" on:click|stopPropagation on:touchstart|stopPropagation on:touchmove|stopPropagation on:touchend|stopPropagation>
+  
+  <button
+    type="button"
+    class="sheet-overlay"
+    tabindex="-1"
+    aria-label="Close sheets"
+    on:click={closeSheets}
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+  ></button>
+  
+  <div
+    class="bottom-sheet"
+    role="dialog"
+    tabindex="-1"
+    on:click|stopPropagation
+    on:touchstart|stopPropagation
+    on:touchmove|stopPropagation
+    on:touchend|stopPropagation
+    on:keydown|stopPropagation
+  >
     <div class="sheet-handle"></div>
     <p class="sheet-title">Bookmarks</p>
     <button class="bm-add-btn" on:click={() => { createBookmark(); showBookmarks = false; }}>
@@ -125,7 +197,18 @@
 
 <style>
   @media (max-width: 640px) {
-    .sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 700; }
+    .sheet-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 700;
+      border: none;
+      padding: 0;
+      margin: 0;
+      cursor: default;
+      outline: none;
+      display: block;
+    }
     .bottom-sheet {
       position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-elevated);
       border-radius: 20px 20px 0 0; padding: 12px 24px calc(24px + env(safe-area-inset-bottom, 0px));

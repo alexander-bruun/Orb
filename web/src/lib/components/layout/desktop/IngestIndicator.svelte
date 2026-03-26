@@ -47,7 +47,7 @@
 
 <svelte:window on:click={close} />
 
-<div class="ingest-wrap" on:click|stopPropagation>
+<div class="ingest-wrap" role="presentation" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
   <button
     bind:this={triggerEl}
     class="ingest-btn"
@@ -83,7 +83,7 @@
   </button>
 
   {#if open}
-    <div class="panel" on:click|stopPropagation>
+      <div class="panel" role="dialog" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
       <div class="panel-header">
         <span class="panel-title">Library Ingest</span>
         <span class="status-badge" class:badge--running={running} class:badge--error={phase === 'error'} class:badge--ok={phase === 'complete' && !running} class:badge--idle={phase === 'idle'}>

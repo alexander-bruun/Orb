@@ -43,7 +43,7 @@
     <div class="window-controls">
         <button
             class="wc-btn wc-minimize"
-            on:click={minimizeWindow}
+            onclick={minimizeWindow}
             aria-label="Minimize"
             title="Minimize"
         >
@@ -53,7 +53,7 @@
         </button>
         <button
             class="wc-btn wc-maximize"
-            on:click={maximizeWindow}
+            onclick={maximizeWindow}
             aria-label="Maximize"
             title="Maximize"
         >
@@ -69,7 +69,7 @@
         </button>
         <button
             class="wc-btn wc-close"
-            on:click={closeWindow}
+            onclick={closeWindow}
             aria-label="Close"
             title="Close"
         >

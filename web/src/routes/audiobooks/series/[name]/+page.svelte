@@ -20,6 +20,13 @@
     return `${m}m`;
   }
 
+  function handleBookCardKeydown(e: KeyboardEvent, book: Audiobook) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      goto(`/audiobooks/${book.id}`);
+    }
+  }
+
   onMount(async () => {
     try {
       const res = await abApi.listBySeries(seriesName);
@@ -36,9 +43,9 @@
 
 <div class="page">
   <div class="page-header">
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <span class="back" on:click={() => goto("/audiobooks")}>← Audiobooks</span>
+    
+    
+    <button type="button" class="back" on:click={() => goto("/audiobooks")} aria-label="Back to audiobooks">← Audiobooks</button>
     <h1 class="page-title">{seriesName}</h1>
     {#if !loading}
       <span class="count">{books.length} book{books.length === 1 ? "" : "s"}</span>
@@ -62,9 +69,16 @@
   {:else}
     <div class="grid">
       {#each books as book (book.id)}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="book-card" on:click={() => goto(`/audiobooks/${book.id}`)}>
+        
+        
+        <div
+          class="book-card"
+          role="button"
+          tabindex="0"
+          aria-label={`Open ${book.title}`}
+          on:click={() => goto(`/audiobooks/${book.id}`)}
+          on:keydown={(e) => handleBookCardKeydown(e, book)}
+        >
           <div class="cover-wrap">
             {#if book.cover_art_key}
               <img
@@ -123,7 +137,11 @@
   .back {
     font-size: 0.8rem;
     color: var(--text-muted);
+    border: none;
+    background: none;
+    padding: 0;
     cursor: pointer;
+    font: inherit;
   }
   .back:hover { color: var(--text); }
 

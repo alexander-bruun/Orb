@@ -102,6 +102,13 @@
     }
   }
 
+  function handleEditTriggerKey(e: KeyboardEvent, field: EditField) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      startEdit(field);
+    }
+  }
+
   function cancelEdit() { editingField = null; editValue = ""; saveError = ""; }
 
   async function commitEdit() {
@@ -205,15 +212,19 @@
       <p class="type">{album.album_type ?? 'Album'}</p>
 
       <!-- Title (editable) -->
-      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <h1 class="title" class:editable={isAdmin} on:click={() => startEdit("title")}>
+      
+      
+      <h1 class="title" class:editable={isAdmin}>
         {#if editingField === "title"}
-          <!-- svelte-ignore a11y-autofocus -->
+          
           <input class="inline-input title-input" bind:value={editValue}
             on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
+        {:else if isAdmin}
+          <button type="button" class="editable-trigger title-trigger" on:click={() => startEdit("title")} aria-label="Edit album title">
+            {album.title}<span class="edit-hint">✎</span>
+          </button>
         {:else}
-          {album.title}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
+          {album.title}
         {/if}
       </h1>
 
@@ -227,38 +238,63 @@
 
       <div class="meta-row">
         <!-- Year (editable) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <span class="year" class:editable={isAdmin} on:click={() => startEdit("release_year")}>
-          {#if editingField === "release_year"}
-            <!-- svelte-ignore a11y-autofocus -->
+        
+        {#if editingField === "release_year"}
+          <span class="year inline-field">
             <input class="inline-input year-input" type="number" bind:value={editValue}
               on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
               placeholder="Year" use:focusOnMount />
-          {:else if album.release_year}
-            {album.release_year}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
-          {:else if isAdmin}
-            <span class="muted-placeholder">+ Year</span>
-          {/if}
-        </span>
+          </span>
+        {:else if isAdmin}
+          <button
+            type="button"
+            class="year editable-trigger"
+            on:click={() => startEdit("release_year")}
+            aria-label="Edit release year"
+          >
+            {#if album.release_year != null}
+              {album.release_year}<span class="edit-hint">✎</span>
+            {:else}
+              <span class="muted-placeholder">+ Year</span><span class="edit-hint">✎</span>
+            {/if}
+          </button>
+        {:else}
+          <span class="year">
+            {album.release_year != null ? album.release_year : '—'}
+          </span>
+        {/if}
 
         {#if discCount > 1}
           <span class="disc-count">{discCount} discs</span>
         {/if}
 
         <!-- Label (editable) -->
-        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <span class="label-info" class:editable={isAdmin} on:click={() => startEdit("label")}>
-          {#if editingField === "label"}
-            <!-- svelte-ignore a11y-autofocus -->
+        
+        {#if editingField === "label"}
+          <span class="label-info inline-field">
             <input class="inline-input label-input" bind:value={editValue}
               on:keydown={onKeydown} on:blur={commitEdit} disabled={saving}
               placeholder="Label" use:focusOnMount />
-          {:else if (album as any).label}
-            {(album as any).label}{#if isAdmin}<span class="edit-hint">✎</span>{/if}
-          {:else if isAdmin}
-            <span class="muted-placeholder">+ Label</span>
-          {/if}
-        </span>
+          </span>
+        {:else if isAdmin}
+          <button
+            type="button"
+            class="label-info editable-trigger"
+            on:click={() => startEdit("label")}
+            aria-label="Edit label"
+          >
+            {#if (album as any).label}
+              {(album as any).label}
+            {:else}
+              <span class="muted-placeholder">+ Label</span>
+            {/if}
+            <span class="edit-hint">✎</span>
+          </button>
+        {:else}
+          <span class="label-info">
+            {(album as any).label ?? '—'}
+          </span>
+        {/if}
       </div>
 
       {#if saveError}
@@ -390,12 +426,10 @@
   a.artist:hover { text-decoration: underline; color: var(--text); }
   .meta-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .year { color: var(--text-muted); font-size: 0.875rem; cursor: default; }
-  .year.editable { cursor: pointer; }
   .disc-count { color: var(--text-muted); font-size: 0.875rem; }
   .disc-count::before { content: '·'; margin-right: 10px; }
   .label-info { color: var(--text-muted); font-size: 0.875rem; cursor: default; }
   .label-info::before { content: '·'; margin-right: 10px; }
-  .label-info.editable { cursor: pointer; }
   .genre-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
   .genre-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); color: var(--text-muted); font-size: 0.7rem; font-weight: 500; text-decoration: none; transition: color 0.15s, border-color 0.15s; }
   .genre-pill:hover { color: var(--text); border-color: var(--accent); }
