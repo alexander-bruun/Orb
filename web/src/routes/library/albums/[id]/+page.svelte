@@ -105,7 +105,8 @@
   function cancelEdit() { editingField = null; editValue = ""; saveError = ""; }
 
   async function commitEdit() {
-    if (!album || !editingField || saving) return;
+    const albumId = $page.params.id;
+    if (!album || !editingField || saving || !albumId) return;
     saving = true;
     saveError = "";
     try {
@@ -115,14 +116,16 @@
           if (!editValue.trim()) { saveError = "Title cannot be empty"; saving = false; return; }
           body.title = editValue.trim();
           break;
-        case "release_year":
-          body.release_year = editValue.trim() ? parseInt(editValue.trim(), 10) : null;
+        case "release_year": {
+          const trimmedYear = String(editValue ?? '').trim();
+          body.release_year = trimmedYear ? parseInt(trimmedYear, 10) : null;
           break;
+        }
         case "label":
           body.label = editValue.trim() || null;
           break;
       }
-      await adminApi.updateAlbumMeta($page.params.id, body);
+      await adminApi.updateAlbumMeta(albumId, body);
       if (editingField === "title")        album = { ...album, title: body.title };
       else if (editingField === "release_year") album = { ...album, release_year: body.release_year ?? undefined };
       else if (editingField === "label")        album = { ...album, ...(body.label != null ? { label: body.label } : {}) };
@@ -151,14 +154,15 @@
   let refreshMsg = "";
 
   async function handleRefetchCover() {
-    if (refreshing || !album) return;
+    const albumId = $page.params.id;
+    if (refreshing || !album || !albumId) return;
     refreshing = true;
     refreshMsg = "";
     try {
-      await adminApi.refetchAlbumCover($page.params.id);
+      await adminApi.refetchAlbumCover(albumId);
       refreshMsg = "Cover refreshed";
       // reload album to show new cover
-      const res = await libApi.album($page.params.id);
+      const res = await libApi.album(albumId);
       album = res.album;
     } catch (e) {
       refreshMsg = e instanceof Error ? e.message : "Cover fetch failed";
@@ -172,11 +176,12 @@
   let scanMsg = "";
 
   async function handleRescan() {
-    if (scanning) return;
+    const albumId = $page.params.id;
+    if (scanning || !albumId) return;
     scanning = true;
     scanMsg = "";
     try {
-      await adminApi.reingestAlbum($page.params.id);
+      await adminApi.reingestAlbum(albumId);
       scanMsg = "Reingest started";
     } catch (e) {
       scanMsg = e instanceof Error ? e.message : "Scan failed";
@@ -201,6 +206,7 @@
 
       <!-- Title (editable) -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <h1 class="title" class:editable={isAdmin} on:click={() => startEdit("title")}>
         {#if editingField === "title"}
           <!-- svelte-ignore a11y-autofocus -->
