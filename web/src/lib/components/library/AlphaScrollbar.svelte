@@ -41,7 +41,7 @@
     right: 0;
     top: var(--top-h);
     bottom: var(--bottom-h);
-  
+
     width: 36px;
     display: flex;
     flex-direction: column;
@@ -52,6 +52,10 @@
     background: var(--bg);
     border-left: 1px solid var(--border);
     user-select: none;
+  }
+
+  :global(.tauri-body) .alpha-bar {
+    top: calc(var(--top-h) + var(--titlebar-h));
   }
 
   .key-item {
