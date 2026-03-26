@@ -2,7 +2,7 @@ use discord_rich_presence::{activity, activity::ActivityType, DiscordIpc, Discor
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use serde::Serialize;
 use std::{
-    sync::{Mutex},
+    sync::Mutex,
     time::{Duration, Instant},
 };
 use tauri::{
@@ -88,7 +88,6 @@ fn discord_connect(state: State<'_, DiscordState>) -> Result<(), String> {
 fn discord_update(
     title: String,
     artist: String,
-    album: String,
     playing: bool,
     cover_url: Option<String>,
     state: State<'_, DiscordState>,
@@ -98,7 +97,7 @@ fn discord_update(
     if guard.is_none() {
         let app_id = option_env!("DISCORD_APP_ID").unwrap_or("1485330037191213260");
         let mut client = DiscordIpcClient::new(app_id);
-        if let Ok(_) = client.connect() {
+        if client.connect().is_ok() {
             *guard = Some(client);
         }
     }
@@ -167,7 +166,18 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Orb", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&previous, &play_pause, &next, &separator, &devtools, &sep2, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &previous,
+            &play_pause,
+            &next,
+            &separator,
+            &devtools,
+            &sep2,
+            &quit,
+        ],
+    )?;
 
     // Store a reference to the play/pause item so we can update its label.
     app.manage(PlayPauseItem(Mutex::new(play_pause)));
@@ -214,7 +224,7 @@ pub fn setup(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> 
     builder
         .manage(DiscordState(Mutex::new(None)))
         .setup(|app| {
-            setup_tray(&app.handle())?;
+            setup_tray(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

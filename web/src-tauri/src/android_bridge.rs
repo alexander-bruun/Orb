@@ -1,6 +1,12 @@
 #[cfg(target_os = "android")]
 use jni::objects::{Global, JClass, JObject, JValue};
 #[cfg(target_os = "android")]
+use jni::sys;
+#[cfg(target_os = "android")]
+use jni::sys::jint;
+#[cfg(target_os = "android")]
+use jni::sys::jlong;
+#[cfg(target_os = "android")]
 use jni::Env;
 #[cfg(target_os = "android")]
 use jni::EnvUnowned;
@@ -8,12 +14,6 @@ use jni::EnvUnowned;
 use jni::JavaVM;
 #[cfg(target_os = "android")]
 use jni::{jni_sig, jni_str};
-#[cfg(target_os = "android")]
-use jni::sys;
-#[cfg(target_os = "android")]
-use jni::sys::jint;
-#[cfg(target_os = "android")]
-use jni::sys::jlong;
 #[cfg(target_os = "android")]
 use once_cell::sync::OnceCell;
 #[cfg(target_os = "android")]
@@ -42,19 +42,22 @@ pub extern "system" fn JNI_OnLoad(vm: *mut sys::JavaVM, _reserved: *mut c_void) 
 
 #[cfg(target_os = "android")]
 fn get_jvm() -> &'static JavaVM {
-    JVM.get().expect("JavaVM not initialized: JNI_OnLoad not called")
+    JVM.get()
+        .expect("JavaVM not initialized: JNI_OnLoad not called")
 }
 
 #[cfg(target_os = "android")]
 fn get_companion_class<'a>(env: &mut Env<'a>) -> Result<JClass<'a>, jni::errors::Error> {
     if let Some(loader) = MEDIA_CLASSLOADER.get() {
         let name = env.new_string("com/orb/app/MediaService")?;
-        let cls_obj = env.call_method(
-            loader.as_obj(),
-            jni_str!("loadClass"),
-            jni_sig!("(Ljava/lang/String;)Ljava/lang/Class;"),
-            &[JValue::Object(&name)],
-        )?.l()?;
+        let cls_obj = env
+            .call_method(
+                loader.as_obj(),
+                jni_str!("loadClass"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/Class;"),
+                &[JValue::Object(&name)],
+            )?
+            .l()?;
         Ok(unsafe { JClass::from_raw(env, cls_obj.as_raw()) })
     } else {
         env.find_class(jni_str!("com/orb/app/MediaService"))
@@ -161,7 +164,10 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnDownloadProgress(
     use tauri::Emitter;
     if let Some(handle) = APP_HANDLE.get() {
         let id_str = track_id.to_string();
-        let _ = handle.emit("download-progress", (id_str, progress as i32, total_bytes as i64));
+        let _ = handle.emit(
+            "download-progress",
+            (id_str, progress as i32, total_bytes as i64),
+        );
     }
 }
 
@@ -204,7 +210,12 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABChapterStart(
 // ── Playback commands: called from Rust Tauri commands ───────────────────────
 
 #[cfg(target_os = "android")]
-pub fn play(url: String, title: Option<String>, artist: Option<String>, cover_url: Option<String>) -> Result<(), String> {
+pub fn play(
+    url: String,
+    title: Option<String>,
+    artist: Option<String>,
+    cover_url: Option<String>,
+) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
         let url_jstring = env.new_string(&url)?;
@@ -235,9 +246,15 @@ pub fn play(url: String, title: Option<String>, artist: Option<String>, cover_ur
         };
 
         env.call_static_method(
-            cls, jni_str!("playTrack"),
+            cls,
+            jni_str!("playTrack"),
             jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"),
-            &[JValue::Object(&url_jstring), title_val, artist_val, cover_val],
+            &[
+                JValue::Object(&url_jstring),
+                title_val,
+                artist_val,
+                cover_val,
+            ],
         )?;
         Ok(())
     })
@@ -265,7 +282,12 @@ pub fn resume() -> Result<(), String> {
 pub fn seek(position_ms: i64) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("seekTo"), jni_sig!("(J)V"), &[JValue::Long(position_ms)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("seekTo"),
+            jni_sig!("(J)V"),
+            &[JValue::Long(position_ms)],
+        )?;
         Ok(())
     })
 }
@@ -274,7 +296,9 @@ pub fn seek(position_ms: i64) -> Result<(), String> {
 pub fn get_position() -> Result<i64, String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        Ok(env.call_static_method(cls, jni_str!("getPosition"), jni_sig!("()J"), &[])?.j()? as i64)
+        Ok(env
+            .call_static_method(cls, jni_str!("getPosition"), jni_sig!("()J"), &[])?
+            .j()? as i64)
     })
 }
 
@@ -282,7 +306,9 @@ pub fn get_position() -> Result<i64, String> {
 pub fn get_duration() -> Result<i64, String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        Ok(env.call_static_method(cls, jni_str!("getDuration"), jni_sig!("()J"), &[])?.j()? as i64)
+        Ok(env
+            .call_static_method(cls, jni_str!("getDuration"), jni_sig!("()J"), &[])?
+            .j()? as i64)
     })
 }
 
@@ -290,7 +316,9 @@ pub fn get_duration() -> Result<i64, String> {
 pub fn get_is_playing() -> Result<bool, String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        Ok(env.call_static_method(cls, jni_str!("getIsPlaying"), jni_sig!("()Z"), &[])?.z()?)
+        Ok(env
+            .call_static_method(cls, jni_str!("getIsPlaying"), jni_sig!("()Z"), &[])?
+            .z()?)
     })
 }
 
@@ -298,7 +326,12 @@ pub fn get_is_playing() -> Result<bool, String> {
 pub fn set_shuffle_state(shuffled: bool) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("setShuffleState"), jni_sig!("(Z)V"), &[JValue::Bool(shuffled)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("setShuffleState"),
+            jni_sig!("(Z)V"),
+            &[JValue::Bool(shuffled)],
+        )?;
         Ok(())
     })
 }
@@ -307,7 +340,12 @@ pub fn set_shuffle_state(shuffled: bool) -> Result<(), String> {
 pub fn set_favorite_state(favorited: bool) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("setFavoriteState"), jni_sig!("(Z)V"), &[JValue::Bool(favorited)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("setFavoriteState"),
+            jni_sig!("(Z)V"),
+            &[JValue::Bool(favorited)],
+        )?;
         Ok(())
     })
 }
@@ -316,7 +354,12 @@ pub fn set_favorite_state(favorited: bool) -> Result<(), String> {
 pub fn set_audiobook_mode(is_audiobook: bool) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("setAudiobookMode"), jni_sig!("(Z)V"), &[JValue::Bool(is_audiobook)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("setAudiobookMode"),
+            jni_sig!("(Z)V"),
+            &[JValue::Bool(is_audiobook)],
+        )?;
         Ok(())
     })
 }
@@ -325,7 +368,12 @@ pub fn set_audiobook_mode(is_audiobook: bool) -> Result<(), String> {
 pub fn set_playback_speed(speed: f32) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("setPlaybackSpeed"), jni_sig!("(F)V"), &[JValue::Float(speed)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("setPlaybackSpeed"),
+            jni_sig!("(F)V"),
+            &[JValue::Float(speed)],
+        )?;
         Ok(())
     })
 }
@@ -337,9 +385,13 @@ pub fn set_api_credentials(base_url: String, token: String) -> Result<(), String
         let base_url_jstring = env.new_string(&base_url)?;
         let token_jstring = env.new_string(&token)?;
         env.call_static_method(
-            cls, jni_str!("setApiCredentials"),
+            cls,
+            jni_str!("setApiCredentials"),
             jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
-            &[JValue::Object(&base_url_jstring), JValue::Object(&token_jstring)],
+            &[
+                JValue::Object(&base_url_jstring),
+                JValue::Object(&token_jstring),
+            ],
         )?;
         Ok(())
     })
@@ -351,7 +403,8 @@ pub fn sync_downloads(metadata_json: String) -> Result<(), String> {
         let cls = get_companion_class(env)?;
         let json_jstring = env.new_string(&metadata_json)?;
         env.call_static_method(
-            cls, jni_str!("syncDownloads"),
+            cls,
+            jni_str!("syncDownloads"),
             jni_sig!("(Ljava/lang/String;)V"),
             &[JValue::Object(&json_jstring)],
         )?;
@@ -365,11 +418,14 @@ pub fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, Stri
         let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
         let byte_array = env.byte_array_from_slice(&data)?;
-        let result = env.call_static_method(
-            cls, jni_str!("saveOfflineFile"),
-            jni_sig!("(Ljava/lang/String;[B)Ljava/lang/String;"),
-            &[JValue::Object(&id_jstring), JValue::Object(&byte_array)],
-        )?.l()?;
+        let result = env
+            .call_static_method(
+                cls,
+                jni_str!("saveOfflineFile"),
+                jni_sig!("(Ljava/lang/String;[B)Ljava/lang/String;"),
+                &[JValue::Object(&id_jstring), JValue::Object(&byte_array)],
+            )?
+            .l()?;
         let jstr = unsafe { jni::objects::JString::from_raw(env, result.as_raw()) };
         Ok(jstr.to_string())
     })
@@ -393,11 +449,20 @@ pub fn download_track_native(
         } else {
             null_token
         };
-        let result = env.call_static_method(
-            cls, jni_str!("downloadTrackNative"),
-            jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"),
-            &[JValue::Object(&id_jstring), JValue::Object(&url_jstring), JValue::Object(&token_obj)],
-        )?.l()?;
+        let result = env
+            .call_static_method(
+                cls,
+                jni_str!("downloadTrackNative"),
+                jni_sig!(
+                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;"
+                ),
+                &[
+                    JValue::Object(&id_jstring),
+                    JValue::Object(&url_jstring),
+                    JValue::Object(&token_obj),
+                ],
+            )?
+            .l()?;
         let jstr = unsafe { jni::objects::JString::from_raw(env, result.as_raw()) };
         Ok(jstr.to_string())
     })
@@ -410,7 +475,8 @@ pub fn save_cover_art(album_id: String, data: Vec<u8>) -> Result<(), String> {
         let id_jstring = env.new_string(&album_id)?;
         let byte_array = env.byte_array_from_slice(&data)?;
         env.call_static_method(
-            cls, jni_str!("saveCoverArt"),
+            cls,
+            jni_str!("saveCoverArt"),
             jni_sig!("(Ljava/lang/String;[B)V"),
             &[JValue::Object(&id_jstring), JValue::Object(&byte_array)],
         )?;
@@ -424,7 +490,8 @@ pub fn delete_cover_art(album_id: String) -> Result<(), String> {
         let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&album_id)?;
         env.call_static_method(
-            cls, jni_str!("deleteCoverArt"),
+            cls,
+            jni_str!("deleteCoverArt"),
             jni_sig!("(Ljava/lang/String;)V"),
             &[JValue::Object(&id_jstring)],
         )?;
@@ -437,11 +504,14 @@ pub fn get_offline_file_path(track_id: String) -> Result<Option<String>, String>
     with_jni(|env| {
         let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
-        let result = env.call_static_method(
-            cls, jni_str!("getOfflineFilePath"),
-            jni_sig!("(Ljava/lang/String;)Ljava/lang/String;"),
-            &[JValue::Object(&id_jstring)],
-        )?.l()?;
+        let result = env
+            .call_static_method(
+                cls,
+                jni_str!("getOfflineFilePath"),
+                jni_sig!("(Ljava/lang/String;)Ljava/lang/String;"),
+                &[JValue::Object(&id_jstring)],
+            )?
+            .l()?;
         if result.is_null() {
             Ok(None)
         } else {
@@ -457,7 +527,8 @@ pub fn delete_offline_file(track_id: String) -> Result<(), String> {
         let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
         env.call_static_method(
-            cls, jni_str!("deleteOfflineFile"),
+            cls,
+            jni_str!("deleteOfflineFile"),
             jni_sig!("(Ljava/lang/String;)V"),
             &[JValue::Object(&id_jstring)],
         )?;
@@ -469,7 +540,12 @@ pub fn delete_offline_file(track_id: String) -> Result<(), String> {
 pub fn set_volume(volume: f32) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("setVolume"), jni_sig!("(F)V"), &[JValue::Float(volume)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("setVolume"),
+            jni_sig!("(F)V"),
+            &[JValue::Float(volume)],
+        )?;
         Ok(())
     })
 }
@@ -478,7 +554,9 @@ pub fn set_volume(volume: f32) -> Result<(), String> {
 pub fn get_volume() -> Result<f32, String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        Ok(env.call_static_method(cls, jni_str!("getVolume"), jni_sig!("()F"), &[])?.f()?)
+        Ok(env
+            .call_static_method(cls, jni_str!("getVolume"), jni_sig!("()F"), &[])?
+            .f()?)
     })
 }
 
@@ -491,7 +569,8 @@ pub fn set_eq_bands(enabled: bool, bands_json: String) -> Result<(), String> {
         let cls = get_companion_class(env)?;
         let json_jstring = env.new_string(&bands_json)?;
         env.call_static_method(
-            cls, jni_str!("setEQBands"),
+            cls,
+            jni_str!("setEQBands"),
             jni_sig!("(ZLjava/lang/String;)V"),
             &[JValue::Bool(enabled), JValue::Object(&json_jstring)],
         )?;
@@ -506,7 +585,8 @@ pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
         env.call_static_method(
-            cls, jni_str!("setCrossfadeSettings"),
+            cls,
+            jni_str!("setCrossfadeSettings"),
             jni_sig!("(ZF)V"),
             &[JValue::Bool(enabled), JValue::Float(secs)],
         )?;
@@ -519,7 +599,12 @@ pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
 pub fn set_gapless_enabled(enabled: bool) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("setGaplessEnabled"), jni_sig!("(Z)V"), &[JValue::Bool(enabled)])?;
+        env.call_static_method(
+            cls,
+            jni_str!("setGaplessEnabled"),
+            jni_sig!("(Z)V"),
+            &[JValue::Bool(enabled)],
+        )?;
         Ok(())
     })
 }
