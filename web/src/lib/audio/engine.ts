@@ -31,6 +31,7 @@ class AudioEngine {
 	private nativeCtx: AudioContext | null = null;
 	private nativeAnalyser: AnalyserNode | null = null;
 	private nativeGain: GainNode | null = null;
+	private nativePiPDestination: MediaStreamAudioDestinationNode | null = null;
 	/** Dedicated gain node for ReplayGain offset on the native path. */
 	private nativeReplayGainNode: GainNode | null = null;
 	private nativeMediaSource: MediaElementAudioSourceNode | null = null;
@@ -46,6 +47,7 @@ class AudioEngine {
 	/** One-shot callback for crossfade scheduling; fires (and clears) when full buffer is ready. */
 	private onFullBufferCrossfadeCb: ((buf: AudioBuffer) => void) | null = null;
 	private wasmActive = false;
+	private wasmPiPDestination: MediaStreamAudioDestinationNode | null = null;
 	private loaded = false;
 	/**
 	 * Silent looping <audio> element used as an iOS AudioSession wake-lock.
@@ -213,6 +215,7 @@ class AudioEngine {
 			this.gainNode = null;
 			this.replayGainNode = null;
 			this.analyserNode = null; // released with the context
+			this.wasmPiPDestination = null;
 		}
 		if (!this.ctx) {
 			this.ctx = new AudioContext({ sampleRate });
@@ -894,6 +897,27 @@ class AudioEngine {
 			this.nativePlayer = new NativePlayer();
 		}
 		return this.nativePlayer.getElement();
+	}
+
+	/**
+	 * Return a MediaStream containing the currently active audio path, suitable
+	 * for attaching to a hidden <video> element for native Chrome PiP.
+	 */
+	getPiPAudioStream(): MediaStream | null {
+		if (this.wasmActive) {
+			if (!this.ctx || !this.analyserNode) return null;
+			if (!this.wasmPiPDestination) {
+				this.wasmPiPDestination = this.ctx.createMediaStreamDestination();
+				this.analyserNode.connect(this.wasmPiPDestination);
+			}
+			return this.wasmPiPDestination.stream;
+		}
+		if (!this.loaded || !this.nativeCtx || !this.nativeAnalyser) return null;
+		if (!this.nativePiPDestination) {
+			this.nativePiPDestination = this.nativeCtx.createMediaStreamDestination();
+			this.nativeAnalyser.connect(this.nativePiPDestination);
+		}
+		return this.nativePiPDestination.stream;
 	}
 
 	/**

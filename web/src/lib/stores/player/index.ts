@@ -54,6 +54,12 @@ import {
 } from './audiobookPlayer';
 import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
 import * as engine from './engine';
+import {
+	openNativePictureInPicture,
+	closeNativePictureInPicture,
+	syncNativePictureInPictureBridge,
+	teardownNativePictureInPictureBridge,
+} from './nativePictureInPicture';
 
 import {
 	currentTrack, playbackState, positionMs, durationMs, volume,
@@ -232,6 +238,36 @@ if (mediaSessionSupported()) {
 		if (get(activePlayer) === 'audiobook') skipForward(details.seekOffset ?? 30);
 		else seek(Math.min(get(durationMs) / 1000, get(positionMs) / 1000 + (details.seekOffset ?? 10)));
 	});
+	try {
+		(
+			navigator.mediaSession.setActionHandler as unknown as
+			(action: string, handler: MediaSessionActionHandler | null) => void
+		)('enterpictureinpicture', () => {
+			openNativePictureInPicture().catch((err) => {
+				console.warn('[PiP] Failed to open native Picture-in-Picture:', err);
+			});
+		});
+		(
+			navigator.mediaSession.setActionHandler as unknown as
+			(action: string, handler: MediaSessionActionHandler | null) => void
+		)('leavepictureinpicture', () => {
+			closeNativePictureInPicture().catch((err) => {
+				console.warn('[PiP] Failed to close native Picture-in-Picture:', err);
+			});
+		});
+	} catch {
+		// Browser/media session impl does not support PiP actions.
+	}
+}
+
+function syncNativePiPBridgeFromState() {
+	const mode = get(activePlayer);
+	const st = mode === 'audiobook' ? get(abPlaybackState) : get(playbackState);
+	if (st === 'idle') {
+		teardownNativePictureInPictureBridge().catch(() => {});
+		return;
+	}
+	syncNativePictureInPictureBridge(st === 'playing').catch(() => {});
 }
 
 currentTrack.subscribe((track) => {
@@ -239,14 +275,17 @@ currentTrack.subscribe((track) => {
 });
 playbackState.subscribe((state) => {
 	if (get(activePlayer) === 'music') syncMediaSessionPlaybackState(state);
+	syncNativePiPBridgeFromState();
 });
 currentAudiobook.subscribe(() => {
 	if (get(activePlayer) === 'audiobook') syncAudiobookMediaMetadata();
+	syncNativePiPBridgeFromState();
 });
 abPlaybackState.subscribe((state) => {
 	if (get(activePlayer) === 'audiobook') {
 		syncMediaSessionPlaybackState(state === 'playing' ? 'playing' : state === 'paused' ? 'paused' : 'idle');
 	}
+	syncNativePiPBridgeFromState();
 });
 activePlayer.subscribe((mode) => {
 	if (!mediaSessionSupported()) return;
@@ -258,6 +297,10 @@ activePlayer.subscribe((mode) => {
 		syncMediaMetadata(get(currentTrack));
 		syncMediaSessionPlaybackState(get(playbackState));
 	}
+	syncNativePiPBridgeFromState();
+});
+currentTrack.subscribe(() => {
+	syncNativePiPBridgeFromState();
 });
 
 // ── Visibility change handler ────────────────────────────────────────────────
