@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -111,6 +113,9 @@ func registerRoutes(
 	obj *objstore.LocalFS,
 	jwtSecret string,
 	port string,
+	dbURL string,
+	storeRoot string,
+	logPath string,
 	ingestSvc *ingest.Service,
 	audiobookIngestSvc *ingest.AudiobookIngestService,
 ) chi.Router {
@@ -177,7 +182,15 @@ func registerRoutes(
 			deviceSvc.Routes(r)
 		})
 
-		adminSvc := admin.New(db, obj, musicbrainz.New(), kv)
+		adminSvc := admin.New(
+			db,
+			obj,
+			musicbrainz.New(),
+			kv,
+			dbURL,
+			storeRoot,
+			logPath,
+		)
 		adminSvc.SetDispatcher(webhookDispatcher)
 		r.Group(func(r chi.Router) {
 			r.Use(adminSvc.AdminMiddleware)
@@ -208,9 +221,6 @@ func registerRoutes(
 }
 
 func run(ctx context.Context) error {
-	// Log build information
-	slog.Info("orb server starting", "version", buildTag, "sha", buildSHA)
-
 	// --- Config from env ---
 	dbURL := config.DSN()
 	kvMode := config.Env("KV_MODE", "standalone") // standalone | sentinel
@@ -218,11 +228,22 @@ func run(ctx context.Context) error {
 	kvAddrs := strings.Split(config.Env("KV_SENTINEL_ADDRS", "localhost:26379"), ",")
 	kvMaster := config.Env("KV_SENTINEL_MASTER", "mymaster")
 	storeRoot := config.Env("STORE_ROOT", "./data/audio")
+	logPath := config.Env("LOG_FILE", "./data/orb.log")
 	jwtSecret := config.Env("JWT_SECRET", "dev-secret-change-in-prod")
 	if jwtSecret == "dev-secret-change-in-prod" {
 		slog.Warn("using default JWT secret — set JWT_SECRET in production")
 	}
 	port := config.Env("HTTP_PORT", "8080")
+
+	// --- Logging ---
+	logClose, err := setupLogger(logPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = logClose() }()
+
+	// Log build information
+	slog.Info("orb server starting", "version", buildTag, "sha", buildSHA)
 
 	// --- Postgres ---
 	db, err := initPostgres(ctx, dbURL)
@@ -251,7 +272,7 @@ func run(ctx context.Context) error {
 	audiobookIngestSvc := buildAudiobookIngestService(ctx, db, obj)
 
 	// --- Router ---
-	r := registerRoutes(db, kv, obj, jwtSecret, port, ingestSvc, audiobookIngestSvc)
+	r := registerRoutes(db, kv, obj, jwtSecret, port, dbURL, storeRoot, logPath, ingestSvc, audiobookIngestSvc)
 
 	// --- Background ingest watcher (leader-elected, no-op if Watch=false) ---
 	if ingestSvc != nil {
@@ -351,6 +372,25 @@ func parseDuration(s string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+func setupLogger(logPath string) (func() error, error) {
+	if strings.TrimSpace(logPath) == "" {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		slog.SetDefault(logger)
+		return func() error { return nil }, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create log directory: %w", err)
+	}
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open log file %q: %w", logPath, err)
+	}
+	mw := io.MultiWriter(os.Stdout, f)
+	logger := slog.New(slog.NewTextHandler(mw, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+	return f.Close, nil
 }
 
 // healthz is the liveness endpoint — always 200.

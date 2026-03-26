@@ -10,6 +10,9 @@ Orb is configured via environment variables. Important options:
 - `KV_SENTINEL_ADDRS` — comma-separated sentinel addresses (default: `localhost:26379`; used when `KV_MODE=sentinel`)
 - `KV_SENTINEL_MASTER` — sentinel master name (default: `mymaster`)
 - `STORE_ROOT` — local object-store root (default: `./data/audio`)
+- `LOG_FILE` — path to server log file used by the admin log viewer (default: `./data/orb.log`; Orb writes logs to both stdout and this file)
+- `PG_DUMP_BIN` — optional path/name for `pg_dump` used by Admin backup (default: `pg_dump`)
+- `PG_RESTORE_BIN` — optional path/name for `pg_restore` used by Admin restore (default: `pg_restore`)
 - `JWT_SECRET` — secret for signing JWTs (change in production)
 - `HTTP_PORT` — port API listens on (default: `8080`)
 

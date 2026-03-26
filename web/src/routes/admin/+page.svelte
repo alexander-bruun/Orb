@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { authStore } from '$lib/stores/auth';
   import { admin as adminApi } from '$lib/api/admin';
@@ -19,11 +19,11 @@
   import type {
     AdminSummary, UserPlayStat, TrackPlayCount, ArtistPlayCount,
     DailyPlayCount, StorageStats, InviteToken, AuditLog, Album,
-    SiteSettings, IngestProgressEvent, Webhook, WebhookDelivery
+    SiteSettings, IngestProgressEvent, Webhook, WebhookDelivery, ServerLogTail
   } from '$lib/api/admin';
   import type { Audiobook } from '$lib/types';
 
-  type Tab = 'dashboard' | 'users' | 'library' | 'settings' | 'audit' | 'integrations';
+  type Tab = 'dashboard' | 'users' | 'library' | 'settings' | 'audit' | 'integrations' | 'system';
   let activeTab: Tab = 'dashboard';
 
   // Dashboard
@@ -95,6 +95,22 @@
   let showDeliveries = false;
   let webhookTesting: Record<string, boolean> = {};
 
+  // System backup + logs
+  let backupBusy = false;
+  let backupMsg = '';
+  let backupErr = '';
+  let restoreBusy = false;
+  let restoreMsg = '';
+  let restoreErr = '';
+  let logLoading = false;
+  let logErr = '';
+  let logTail: ServerLogTail | null = null;
+  let logLines = 300;
+  let logAutoRefresh = true;
+  let logAutoTimer: ReturnType<typeof setInterval> | null = null;
+  let logAutoScroll = true;
+  let serverLogEl: HTMLDivElement | null = null;
+
   // Shared
   let loading = true;
   let error = '';
@@ -116,7 +132,13 @@
     }
   });
 
-  onDestroy(() => { ingestES?.close(); });
+  onDestroy(() => {
+    ingestES?.close();
+    if (logAutoTimer) {
+      clearInterval(logAutoTimer);
+      logAutoTimer = null;
+    }
+  });
 
   async function switchTab(tab: Tab) {
     activeTab = tab;
@@ -148,6 +170,10 @@
         adminApi.listWebhookEvents().catch(() => [])
       ]);
     }
+    if (tab === 'system' && !logTail) {
+      await loadServerLogs();
+    }
+    syncLogAutoRefresh();
   }
 
   function maxPlays(data: DailyPlayCount[]) { return Math.max(1, ...data.map(d => d.plays)); }
@@ -403,6 +429,82 @@
     showDeliveries = true;
     webhookDeliveries = await adminApi.listWebhookDeliveries(h.id).catch(() => []);
   }
+
+  async function downloadBackup() {
+    backupBusy = true; backupErr = ''; backupMsg = '';
+    try {
+      const url = adminApi.backupDownloadURL();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      backupMsg = 'Backup download started.';
+    } catch (e: unknown) {
+      backupErr = (e as Error).message ?? 'Failed to create backup';
+    } finally {
+      backupBusy = false;
+    }
+  }
+
+  async function restoreBackup(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!confirm('Restore this backup? This will overwrite the current database and static files.')) {
+      input.value = '';
+      return;
+    }
+    restoreBusy = true; restoreErr = ''; restoreMsg = '';
+    try {
+      await adminApi.restoreBackup(file);
+      restoreMsg = 'Backup restored successfully.';
+      await loadServerLogs();
+    } catch (e: unknown) {
+      restoreErr = (e as Error).message ?? 'Restore failed';
+    } finally {
+      restoreBusy = false;
+      input.value = '';
+    }
+  }
+
+  async function loadServerLogs() {
+    logLoading = true; logErr = '';
+    try {
+      logTail = await adminApi.logs(logLines);
+      if (logAutoScroll) {
+        await tick();
+        if (serverLogEl) {
+          serverLogEl.scrollTop = serverLogEl.scrollHeight;
+        }
+      }
+    } catch (e: unknown) {
+      logErr = (e as Error).message ?? 'Failed to load logs';
+    } finally {
+      logLoading = false;
+    }
+  }
+
+  function syncLogAutoRefresh() {
+    if (logAutoTimer) {
+      clearInterval(logAutoTimer);
+      logAutoTimer = null;
+    }
+    if (!logAutoRefresh || activeTab !== 'system') return;
+    logAutoTimer = setInterval(() => {
+      if (!logLoading) void loadServerLogs();
+    }, 5000);
+  }
+
+  function toggleLogAutoRefresh() {
+    logAutoRefresh = !logAutoRefresh;
+    syncLogAutoRefresh();
+    if (logAutoRefresh && activeTab === 'system') {
+      void loadServerLogs();
+    }
+  }
 </script>
 
 <svelte:head><title>Admin — Orb</title></svelte:head>
@@ -412,11 +514,11 @@
     <h1>Admin</h1>
     <div class="tabs-scroll">
       <nav class="tabs">
-        {#each (['dashboard','users','library','settings','audit','integrations'] as const) as tab}
+        {#each (['dashboard','users','library','settings','audit','integrations','system'] as const) as tab}
           <button class="tab" class:active={activeTab === tab} on:click={() => switchTab(tab)}>
             {tab === 'dashboard' ? 'Dashboard' : tab === 'users' ? 'Users' :
              tab === 'library' ? 'Library & Jobs' : tab === 'settings' ? 'Settings' :
-             tab === 'audit' ? 'Audit Log' : 'Integrations'}
+             tab === 'audit' ? 'Audit Log' : tab === 'integrations' ? 'Integrations' : 'Backup & Logs'}
           </button>
         {/each}
       </nav>
@@ -848,6 +950,58 @@
       {/if}
     </section>
     {/if}
+
+  {:else if activeTab === 'system'}
+    <section class="panel">
+      <div class="section-header">
+        <h2>Backup & Restore</h2>
+      </div>
+      <p class="muted" style="margin-top:-0.25rem;margin-bottom:1rem;font-size:0.82rem">
+        Backups include the PostgreSQL database and non-media object-store files (covers/artwork/metadata assets).
+      </p>
+      <div class="backup-actions">
+        <button class="btn-accent" on:click={downloadBackup} disabled={backupBusy || restoreBusy}>
+          {backupBusy ? 'Preparing backup…' : 'Download Backup'}
+        </button>
+        <label class="btn-xs file-btn" for="restore-upload">{restoreBusy ? 'Restoring…' : 'Upload & Restore'}</label>
+        <input id="restore-upload" type="file" accept=".tar.gz,.tgz,application/gzip" class="file-input-hidden" on:change={restoreBackup} disabled={backupBusy || restoreBusy} />
+      </div>
+      {#if backupMsg}<p class="success" style="margin-top:0.6rem">{backupMsg}</p>{/if}
+      {#if backupErr}<p class="error" style="margin-top:0.6rem">{backupErr}</p>{/if}
+      {#if restoreMsg}<p class="success" style="margin-top:0.6rem">{restoreMsg}</p>{/if}
+      {#if restoreErr}<p class="error" style="margin-top:0.6rem">{restoreErr}</p>{/if}
+    </section>
+
+    <section class="panel">
+      <div class="section-header">
+        <h2>Server Logs</h2>
+        <div class="log-controls">
+          <label class="muted" for="log-lines" style="font-size:0.78rem">Lines</label>
+          <input id="log-lines" type="number" min="10" max="2000" bind:value={logLines} class="log-lines-input" />
+          <button class="btn-xs" on:click={() => logAutoScroll = !logAutoScroll}>{logAutoScroll ? 'Scroll: On' : 'Scroll: Off'}</button>
+          <button class="btn-xs" on:click={toggleLogAutoRefresh}>{logAutoRefresh ? 'Auto: On' : 'Auto: Off'}</button>
+          <button class="btn-xs" on:click={loadServerLogs} disabled={logLoading}>{logLoading ? 'Loading…' : 'Refresh'}</button>
+        </div>
+      </div>
+      {#if logErr}
+        <p class="error">{logErr}</p>
+      {:else if !logTail}
+        <p class="muted">No logs loaded yet.</p>
+      {:else if !logTail.exists}
+        <p class="muted">Log file not found at <code>{logTail.path}</code>.</p>
+      {:else}
+        <p class="muted" style="font-size:0.78rem;margin-top:-0.25rem;margin-bottom:0.75rem">Source: <code>{logTail.path}</code></p>
+        <div class="server-log" bind:this={serverLogEl}>
+          {#if logTail.lines.length === 0}
+            <div class="log-line muted">No log lines found.</div>
+          {:else}
+            {#each logTail.lines as line}
+              <div class="log-line">{line}</div>
+            {/each}
+          {/if}
+        </div>
+      {/if}
+    </section>
   {/if}
 
   {/if}
@@ -1057,6 +1211,13 @@
   .progress-info { font-size: 0.8rem; margin-bottom: 0.75rem; }
   .ingest-log { background: #0a0a14; border-radius: 6px; padding: 0.75rem; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; color: var(--text-secondary, #888); }
   .log-line { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .server-log { background: #0a0a14; border-radius: 6px; padding: 0.75rem; max-height: 380px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; color: var(--text-secondary, #888); }
+  .backup-actions { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
+  .file-input-hidden { display: none; }
+  .file-btn { display: inline-flex; align-items: center; height: 30px; box-sizing: border-box; }
+  .log-controls { display: flex; align-items: center; gap: 0.45rem; }
+  .log-lines-input { width: 88px; padding: 0.23rem 0.42rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 6px; color: var(--text-primary, #fff); font-size: 0.8rem; }
+  .log-lines-input:focus { outline: none; border-color: var(--accent, #a78bfa); }
 
   .settings-form { display: flex; flex-direction: column; gap: 0.7rem; max-width: 500px; }
   .form-row { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 0.75rem; }

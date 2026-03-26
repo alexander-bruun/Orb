@@ -2,11 +2,15 @@
 package admin
 
 import (
+	"archive/tar"
+	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -14,7 +18,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
@@ -37,11 +45,22 @@ type Service struct {
 	mb         *musicbrainz.Client
 	kv         *redis.Client // optional; used to invalidate sessions on deactivation
 	dispatcher *webhook.Dispatcher
+	dbURL      string
+	storeRoot  string
+	logPath    string
 }
 
 // New returns a new admin Service.
-func New(db *store.Store, obj objstore.ObjectStore, mb *musicbrainz.Client, kv *redis.Client) *Service {
-	return &Service{db: db, obj: obj, mb: mb, kv: kv}
+func New(db *store.Store, obj objstore.ObjectStore, mb *musicbrainz.Client, kv *redis.Client, dbURL, storeRoot, logPath string) *Service {
+	return &Service{
+		db:        db,
+		obj:       obj,
+		mb:        mb,
+		kv:        kv,
+		dbURL:     dbURL,
+		storeRoot: storeRoot,
+		logPath:   logPath,
+	}
 }
 
 // SetDispatcher attaches a webhook dispatcher. Must be called before serving requests.
@@ -87,10 +106,16 @@ func (s *Service) Routes(r chi.Router) {
 
 	// Audit log
 	r.Get("/audit-logs", s.auditLogs)
+	r.Get("/logs", s.logs)
 
 	// Library / job control
 	r.Post("/albums/{id}/refetch-cover", s.refetchAlbumCover)
 	r.Get("/albums/no-cover", s.albumsNoCover)
+
+	// System backup / restore
+	r.Get("/backup", s.backup)
+	r.Post("/backup", s.backup)
+	r.Post("/restore", s.restore)
 
 	// Metadata editing (admin inline-edit)
 	r.Patch("/albums/{id}", s.updateAlbumMeta)
@@ -381,6 +406,156 @@ func (s *Service) auditLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteOK(w, map[string]any{"logs": logs, "total": total})
+}
+
+// GET /admin/logs?lines=300
+func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
+	lines := httputil.QueryInt(r, "lines", 300)
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > 2000 {
+		lines = 2000
+	}
+	if s.logPath == "" {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "log file path not configured")
+		return
+	}
+	out, err := tailFile(s.logPath, lines)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			httputil.WriteOK(w, map[string]any{
+				"path":   s.logPath,
+				"exists": false,
+				"lines":  []string{},
+			})
+			return
+		}
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httputil.WriteOK(w, map[string]any{
+		"path":   s.logPath,
+		"exists": true,
+		"lines":  out,
+	})
+}
+
+// POST /admin/backup
+// Creates a tar.gz with:
+// - metadata.json
+// - database.dump (pg_dump custom format)
+// - static/* (object-store files)
+func (s *Service) backup(w http.ResponseWriter, r *http.Request) {
+	if s.dbURL == "" {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "database url not configured")
+		return
+	}
+	if s.storeRoot == "" {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "store root not configured")
+		return
+	}
+
+	actorID := auth.UserIDFromCtx(r.Context())
+	slog.Info("admin backup started", "actor_id", actorID)
+	dbDump, err := os.CreateTemp("", "orb-backup-db-*.dump")
+	if err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "create temp db dump: "+err.Error())
+		return
+	}
+	dbDumpPath := dbDump.Name()
+	_ = dbDump.Close()
+	defer func() { _ = os.Remove(dbDumpPath) }()
+
+	if err := runPgDump(r.Context(), s.dbURL, dbDumpPath); err != nil {
+		slog.Warn("admin backup pg_dump failed", "actor_id", actorID, "err", err)
+		httputil.WriteErr(w, http.StatusInternalServerError, "database backup failed: "+err.Error())
+		return
+	}
+
+	now := time.Now().UTC()
+	fileName := fmt.Sprintf("orb-backup-%s.tar.gz", now.Format("20060102-150405"))
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
+
+	gzw := gzip.NewWriter(w)
+	defer func() { _ = gzw.Close() }()
+	tw := tar.NewWriter(gzw)
+	defer func() { _ = tw.Close() }()
+
+	meta := map[string]any{
+		"created_at": now.Format(time.RFC3339),
+		"format":     "orb-backup-v1",
+		"includes":   []string{"database.dump", "static/(non-media objects)"},
+		"excludes":   []string{"static/audio/**", "static/audiobooks/**", "static/audiobook-chapters/**"},
+	}
+	metaBytes, _ := json.MarshalIndent(meta, "", "  ")
+	if err := writeTarBytes(tw, "metadata.json", metaBytes, now); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "write metadata: "+err.Error())
+		return
+	}
+
+	if err := writeTarFile(tw, "database.dump", dbDumpPath); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "write database dump: "+err.Error())
+		return
+	}
+
+	if err := writeTarDir(tw, s.storeRoot, "static", now); err != nil {
+		slog.Warn("admin backup archive failed", "actor_id", actorID, "err", err)
+		httputil.WriteErr(w, http.StatusInternalServerError, "write static files: "+err.Error())
+		return
+	}
+	slog.Info("admin backup completed", "actor_id", actorID, "filename", fileName)
+
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "backup_created", "backup", "", map[string]any{
+		"filename": fileName,
+	}); err != nil {
+		slog.Warn("audit log failed", "action", "backup_created", "err", err)
+	}
+}
+
+// POST /admin/restore
+// Accepts tar.gz backup upload in multipart field "backup".
+func (s *Service) restore(w http.ResponseWriter, r *http.Request) {
+	if s.dbURL == "" {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "database url not configured")
+		return
+	}
+	if s.storeRoot == "" {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "store root not configured")
+		return
+	}
+
+	actorID := auth.UserIDFromCtx(r.Context())
+	backupFile, err := saveIncomingBackupToTemp(r)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid backup upload: "+err.Error())
+		return
+	}
+	defer func() { _ = os.Remove(backupFile) }()
+
+	dbDumpPath, staticDir, err := extractBackup(backupFile)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid backup archive: "+err.Error())
+		return
+	}
+	defer func() { _ = os.Remove(dbDumpPath) }()
+	defer func() { _ = os.RemoveAll(staticDir) }()
+
+	if err := runPgRestore(r.Context(), s.dbURL, dbDumpPath); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "database restore failed: "+err.Error())
+		return
+	}
+
+	if err := restoreNonMediaContents(s.storeRoot, staticDir); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "static files restore failed: "+err.Error())
+		return
+	}
+
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "backup_restored", "backup", "", nil); err != nil {
+		slog.Warn("audit log failed", "action", "backup_restored", "err", err)
+	}
+	httputil.WriteOK(w, map[string]string{"status": "restored"})
 }
 
 // ── Artwork ───────────────────────────────────────────────────────────────────
@@ -901,6 +1076,391 @@ func (s *Service) testWebhook(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func tailFile(path string, maxLines int) ([]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	ring := make([]string, maxLines)
+	count := 0
+	pos := 0
+	sc := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	sc.Buffer(buf, 1024*1024)
+	for sc.Scan() {
+		ring[pos] = sc.Text()
+		pos = (pos + 1) % maxLines
+		count++
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if count <= maxLines {
+		return ring[:count], nil
+	}
+	out := make([]string, 0, maxLines)
+	out = append(out, ring[pos:]...)
+	out = append(out, ring[:pos]...)
+	return out, nil
+}
+
+func runPgDump(ctx context.Context, dbURL, outPath string) error {
+	bin := strings.TrimSpace(os.Getenv("PG_DUMP_BIN"))
+	if bin == "" {
+		bin = "pg_dump"
+	}
+	cmd := exec.CommandContext(ctx, bin,
+		"--format=custom",
+		"--no-owner",
+		"--no-privileges",
+		"--file", outPath,
+		dbURL,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func runPgRestore(ctx context.Context, dbURL, dumpPath string) error {
+	bin := strings.TrimSpace(os.Getenv("PG_RESTORE_BIN"))
+	if bin == "" {
+		bin = "pg_restore"
+	}
+	cmd := exec.CommandContext(ctx, bin,
+		"--clean",
+		"--if-exists",
+		"--no-owner",
+		"--no-privileges",
+		"--exit-on-error",
+		"--dbname", dbURL,
+		dumpPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func writeTarBytes(tw *tar.Writer, name string, data []byte, modTime time.Time) error {
+	hdr := &tar.Header{
+		Name:    name,
+		Mode:    0o644,
+		Size:    int64(len(data)),
+		ModTime: modTime,
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err := tw.Write(data)
+	return err
+}
+
+func writeTarFile(tw *tar.Writer, arcName, srcPath string) error {
+	fi, err := os.Stat(srcPath)
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("%s is a directory", srcPath)
+	}
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	hdr := &tar.Header{
+		Name:    arcName,
+		Mode:    0o644,
+		Size:    fi.Size(),
+		ModTime: fi.ModTime(),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	_, err = io.Copy(tw, f)
+	return err
+}
+
+func writeTarDir(tw *tar.Writer, root, arcPrefix string, modTime time.Time) error {
+	if _, err := os.Stat(root); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			hdr := &tar.Header{Name: arcPrefix + "/", Typeflag: tar.TypeDir, Mode: 0o755, ModTime: modTime}
+			return tw.WriteHeader(hdr)
+		}
+		return err
+	}
+
+	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			hdr := &tar.Header{Name: arcPrefix + "/", Typeflag: tar.TypeDir, Mode: 0o755, ModTime: modTime}
+			return tw.WriteHeader(hdr)
+		}
+		if isMediaObjectPath(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			// Do not include symlinks in backups.
+			return nil
+		}
+		arcName := filepath.ToSlash(filepath.Join(arcPrefix, rel))
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			hdr := &tar.Header{Name: arcName + "/", Typeflag: tar.TypeDir, Mode: 0o755, ModTime: info.ModTime()}
+			return tw.WriteHeader(hdr)
+		}
+		hdr := &tar.Header{
+			Name:    arcName,
+			Mode:    0o644,
+			Size:    info.Size(),
+			ModTime: info.ModTime(),
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, cpErr := io.Copy(tw, f)
+		closeErr := f.Close()
+		if cpErr != nil {
+			return cpErr
+		}
+		return closeErr
+	})
+}
+
+func saveIncomingBackupToTemp(r *http.Request) (string, error) {
+	tmp, err := os.CreateTemp("", "orb-restore-*.tar.gz")
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = tmp.Close() }()
+
+	ct := strings.ToLower(r.Header.Get("Content-Type"))
+	switch {
+	case strings.HasPrefix(ct, "multipart/form-data"):
+		if err := r.ParseMultipartForm(64 << 20); err != nil {
+			return "", err
+		}
+		f, _, err := r.FormFile("backup")
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = f.Close() }()
+		if _, err := io.Copy(tmp, f); err != nil {
+			return "", err
+		}
+	default:
+		if _, err := io.Copy(tmp, r.Body); err != nil {
+			return "", err
+		}
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return tmp.Name(), nil
+}
+
+func extractBackup(backupPath string) (dbDumpPath string, staticDir string, retErr error) {
+	f, err := os.Open(backupPath)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = f.Close() }()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return "", "", err
+	}
+	defer func() { _ = gzr.Close() }()
+
+	tr := tar.NewReader(gzr)
+	dbTmp, err := os.CreateTemp("", "orb-restore-db-*.dump")
+	if err != nil {
+		return "", "", err
+	}
+	dbTmpPath := dbTmp.Name()
+	_ = dbTmp.Close()
+
+	staticTmp, err := os.MkdirTemp("", "orb-restore-static-*")
+	if err != nil {
+		_ = os.Remove(dbTmpPath)
+		return "", "", err
+	}
+
+	var foundDB bool
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			_ = os.Remove(dbTmpPath)
+			_ = os.RemoveAll(staticTmp)
+			return "", "", err
+		}
+		name := filepath.ToSlash(filepath.Clean(hdr.Name))
+		if name == "." || name == "/" {
+			continue
+		}
+
+		switch {
+		case name == "database.dump":
+			out, err := os.OpenFile(dbTmpPath, os.O_WRONLY|os.O_TRUNC, 0o600)
+			if err != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", err
+			}
+			_, cpErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if cpErr != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", cpErr
+			}
+			if closeErr != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", closeErr
+			}
+			foundDB = true
+		case strings.HasPrefix(name, "static/"):
+			rel := strings.TrimPrefix(name, "static/")
+			if rel == "" {
+				continue
+			}
+			dest := filepath.Join(staticTmp, filepath.FromSlash(rel))
+			cleaned := filepath.Clean(dest)
+			staticRoot := filepath.Clean(staticTmp)
+			if !strings.HasPrefix(cleaned, staticRoot+string(os.PathSeparator)) && cleaned != staticRoot {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", fmt.Errorf("invalid static path in archive: %s", name)
+			}
+			if hdr.FileInfo().IsDir() {
+				if err := os.MkdirAll(cleaned, 0o755); err != nil {
+					_ = os.Remove(dbTmpPath)
+					_ = os.RemoveAll(staticTmp)
+					return "", "", err
+				}
+				continue
+			}
+			if err := os.MkdirAll(filepath.Dir(cleaned), 0o755); err != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", err
+			}
+			out, err := os.OpenFile(cleaned, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+			if err != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", err
+			}
+			_, cpErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if cpErr != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", cpErr
+			}
+			if closeErr != nil {
+				_ = os.Remove(dbTmpPath)
+				_ = os.RemoveAll(staticTmp)
+				return "", "", closeErr
+			}
+		}
+	}
+
+	if !foundDB {
+		_ = os.Remove(dbTmpPath)
+		_ = os.RemoveAll(staticTmp)
+		return "", "", fmt.Errorf("database.dump not found")
+	}
+	return dbTmpPath, staticTmp, nil
+}
+
+func restoreNonMediaContents(dstRoot, srcRoot string) error {
+	if err := os.MkdirAll(dstRoot, 0o755); err != nil {
+		return err
+	}
+
+	return filepath.WalkDir(srcRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(srcRoot, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if isMediaObjectPath(rel) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		dst := filepath.Join(dstRoot, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		srcF, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		dstF, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			_ = srcF.Close()
+			return err
+		}
+		_, cpErr := io.Copy(dstF, srcF)
+		srcCloseErr := srcF.Close()
+		closeErr := dstF.Close()
+		if cpErr != nil {
+			return cpErr
+		}
+		if srcCloseErr != nil {
+			return srcCloseErr
+		}
+		return closeErr
+	})
+}
+
+func isMediaObjectPath(rel string) bool {
+	p := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(rel), "./"))
+	return strings.HasPrefix(p, "audio/") ||
+		strings.HasPrefix(p, "audiobooks/") ||
+		strings.HasPrefix(p, "audiobook-chapters/")
+}
+
 // dispatch fires an event if a dispatcher is configured.
 func (s *Service) dispatch(ctx context.Context, event string, data any) {
 	if s.dispatcher != nil {
@@ -930,4 +1490,3 @@ func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, da
 	defer func() { _ = pr.Close() }()
 	return obj.Put(ctx, key, pr, -1)
 }
-

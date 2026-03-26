@@ -32,6 +32,7 @@ services:
       KV_MODE: standalone
       KV_ADDR: valkey:6379
       STORE_ROOT: /data/audio
+      LOG_FILE: /data/audio/orb.log
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
       MUSIC_DIRS: /music

@@ -148,6 +148,12 @@ export interface UpdateWebhookBody {
 	description: string;
 }
 
+export interface ServerLogTail {
+	path: string;
+	exists: boolean;
+	lines: string[];
+}
+
 // ── API ─────────────────────────────────────────────────────────────────────
 
 export const admin = {
@@ -196,6 +202,8 @@ export const admin = {
 		offset = 0
 	): Promise<{ logs: AuditLog[]; total: number }> =>
 		apiFetch(`/admin/audit-logs?limit=${limit}&offset=${offset}`),
+	logs: (lines = 300): Promise<ServerLogTail> =>
+		apiFetch(`/admin/logs?lines=${lines}`),
 
 	// Artwork
 	albumsNoCover: (
@@ -250,6 +258,33 @@ export const admin = {
 		apiFetch(`/admin/webhooks/${id}/deliveries?limit=${limit}`),
 	testWebhook: (id: string): Promise<void> =>
 		apiFetch(`/admin/webhooks/${id}/test`, { method: 'POST' }),
+
+	// System backup / restore
+	backupDownloadURL: (): string => {
+		const token = get(authStore).token ?? '';
+		return `${getApiBase()}/admin/backup?token=${encodeURIComponent(token)}`;
+	},
+	restoreBackup: async (file: File): Promise<{ status: string }> => {
+		const token = get(authStore).token ?? '';
+		const body = new FormData();
+		body.append('backup', file);
+		const res = await fetch(`${getApiBase()}/admin/restore`, {
+			method: 'POST',
+			headers: token ? { Authorization: `Bearer ${token}` } : {},
+			body
+		});
+		if (!res.ok) {
+			let msg = res.statusText;
+			try {
+				const data = await res.json();
+				msg = data.error ?? msg;
+			} catch {
+				// ignore
+			}
+			throw new Error(msg);
+		}
+		return res.json();
+	},
 
 	// SSE: real-time ingest progress
 	openIngestStream(onEvent: (e: IngestProgressEvent) => void): EventSource {
