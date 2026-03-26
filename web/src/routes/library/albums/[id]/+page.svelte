@@ -117,7 +117,11 @@
     saving = true;
     saveError = "";
     try {
-      const body: { title: string; release_year?: number | null; label?: string | null } = { title: album.title };
+      const body: { title: string; release_year: number | null; label: string | null } = {
+        title: album.title,
+        release_year: album.release_year ?? null,
+        label: ((album as any).label ?? null) as string | null,
+      };
       switch (editingField) {
         case "title":
           if (!editValue.trim()) { saveError = "Title cannot be empty"; saving = false; return; }
@@ -133,9 +137,12 @@
           break;
       }
       await adminApi.updateAlbumMeta(albumId, body);
-      if (editingField === "title")        album = { ...album, title: body.title };
-      else if (editingField === "release_year") album = { ...album, release_year: body.release_year ?? undefined };
-      else if (editingField === "label")        album = { ...album, ...(body.label != null ? { label: body.label } : {}) };
+      album = {
+        ...album,
+        title: body.title,
+        release_year: body.release_year ?? undefined,
+        label: body.label ?? undefined,
+      };
       editingField = null;
     } catch (e) {
       saveError = e instanceof Error ? e.message : "Save failed";
