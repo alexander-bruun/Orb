@@ -10,9 +10,11 @@ export class NativePlayer {
 	private onPositionCb?: (posMs: number) => void;
 	private onDurationCb?: (durMs: number) => void;
 	private onBufferedCb?: (pct: number) => void;
+	private hlsRuntimeUnsupported = false;
 
 	constructor() {
 		this.el = new Audio();
+		this.el.crossOrigin = 'anonymous';
 		this.el.addEventListener('timeupdate', () => {
 			this.onPositionCb?.(this.el.currentTime * 1000);
 			this.onBufferedCb?.(this.getBufferedPct());
@@ -41,19 +43,8 @@ export class NativePlayer {
 		return 0;
 	}
 
-	async play(url: string, token: string, startSeconds = 0): Promise<void> {
-		// Use the HLS manifest when the browser supports it natively (Safari /
-		// WebKit). This gives the player segment-aware buffering and seeking.
-		// Chrome and Firefox don't support HLS in <audio> natively so they fall
-		// back to the direct byte-range stream which already starts quickly.
-		// In Tauri (Chromium on Linux), HLS is technically supported but the
-		// internal segment requests don't carry the auth token, so playback
-		// breaks after the first buffered chunk. Force the direct stream there.
-		const canHLS =
-			!isTauri() && this.el.canPlayType('application/vnd.apple.mpegurl') !== '';
-		const src = canHLS
-			? `${url}/index.m3u8?token=${encodeURIComponent(token)}`
-			: `${url}?token=${encodeURIComponent(token)}`;
+	private async setSourceAndPlay(src: string, startSeconds = 0): Promise<void> {
+		this.el.pause();
 		this.el.src = src;
 		// Explicitly reset and load the new source. Without this, calling play()
 		// immediately after changing src can throw NotSupportedError in Chrome
@@ -62,6 +53,39 @@ export class NativePlayer {
 		await this.el.play();
 		if (startSeconds > 0) {
 			this.el.currentTime = startSeconds;
+		}
+	}
+
+	private shouldTryHlsFirst(): boolean {
+		// In Tauri (Chromium on Linux), segment requests can fail auth after the
+		// first chunk, so force direct stream there.
+		if (isTauri()) return false;
+		// Prefer segmented HLS first for faster startup/buffering. If this browser
+		// rejects HLS at runtime, we remember that and use direct stream after.
+		return !this.hlsRuntimeUnsupported;
+	}
+
+	async play(url: string, token: string, startSeconds = 0): Promise<void> {
+		const directSrc = `${url}?token=${encodeURIComponent(token)}`;
+		const hlsSrc = `${url}/index.m3u8?token=${encodeURIComponent(token)}`;
+		const preferHls = this.shouldTryHlsFirst();
+		const primary = preferHls ? hlsSrc : directSrc;
+		const fallback = preferHls ? directSrc : hlsSrc;
+		try {
+			await this.setSourceAndPlay(primary, startSeconds);
+		} catch (err) {
+			// Auto-fallback between direct stream and HLS manifest when the first
+			// source is rejected by the browser's media pipeline.
+			const msg = err instanceof Error ? err.message : String(err);
+			const name = err && typeof err === 'object' && 'name' in err
+				? String((err as { name?: unknown }).name)
+				: '';
+			const notSupported = name === 'NotSupportedError' || /supported source/i.test(msg);
+			if (!notSupported) throw err;
+			if (primary === hlsSrc) {
+				this.hlsRuntimeUnsupported = true;
+			}
+			await this.setSourceAndPlay(fallback, startSeconds);
 		}
 	}
 
@@ -117,12 +141,7 @@ export class NativePlayer {
 	 * Play from a blob: URL (offline downloads). Skips HLS and token logic.
 	 */
 	async playBlob(blobUrl: string, startSeconds = 0): Promise<void> {
-		this.el.src = blobUrl;
-		this.el.load();
-		await this.el.play();
-		if (startSeconds > 0) {
-			this.el.currentTime = startSeconds;
-		}
+		await this.setSourceAndPlay(blobUrl, startSeconds);
 	}
 
 	/** Expose the underlying HTMLAudioElement (e.g. for createMediaElementSource). */
