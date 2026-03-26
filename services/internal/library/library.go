@@ -4,6 +4,7 @@ package library
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -328,7 +329,7 @@ func fetchWikipediaBio(ctx context.Context, wikiURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 	if resp.StatusCode != http.StatusOK {
 		return "", nil
 	}
@@ -833,3 +834,8 @@ func parseDateParam(s string) *time.Time {
 	return nil
 }
 
+func closeResponseBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		slog.Warn("library: response close failed", "err", err)
+	}
+}

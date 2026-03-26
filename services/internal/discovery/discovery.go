@@ -49,7 +49,7 @@ func Start(port int, serverName string) (*Server, error) {
 // Shutdown stops the mDNS responder.
 func (s *Server) Shutdown() {
 	if s.server != nil {
-		s.server.Shutdown()
+		_ = s.server.Shutdown()
 		slog.Info("mdns stopped")
 	}
 }

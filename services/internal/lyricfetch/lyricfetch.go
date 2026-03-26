@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -194,6 +195,12 @@ func neteaseSearch(ctx context.Context, artist, title string) (*Result, error) {
 
 var client = &http.Client{Timeout: 10 * time.Second}
 
+func closeResponseBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		slog.Warn("lyricfetch: response close failed", "err", err)
+	}
+}
+
 func httpGet(ctx context.Context, rawURL string, headers map[string]string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -207,7 +214,7 @@ func httpGet(ctx context.Context, rawURL string, headers map[string]string) ([]b
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("http %d", resp.StatusCode)
 	}
@@ -227,7 +234,7 @@ func httpPost(ctx context.Context, rawURL, body string, headers map[string]strin
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("http %d", resp.StatusCode)
 	}

@@ -85,7 +85,7 @@ func (c *Client) Search(ctx context.Context, title, author string) (*BookResult,
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("open library search: HTTP %d", resp.StatusCode)
@@ -145,7 +145,7 @@ func (c *Client) FetchCoverArt(ctx context.Context, coverID int64) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("open library cover: HTTP %d", resp.StatusCode)
@@ -174,7 +174,7 @@ func (c *Client) fetchWorkDetails(ctx context.Context, workKey string) (string, 
 	if err != nil {
 		return "", nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return "", nil, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -240,4 +240,10 @@ func looseTitleMatch(a, b string) bool {
 	}
 	na, nb := normalize(a), normalize(b)
 	return strings.Contains(na, nb) || strings.Contains(nb, na)
+}
+
+func closeResponseBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		slog.Warn("openlibrary: response close failed", "err", err)
+	}
 }

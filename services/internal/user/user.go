@@ -4,7 +4,6 @@ package user
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
@@ -14,8 +13,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
-
-const prefsTTL = 10 * time.Minute
 
 // Service handles user preference routes.
 type Service struct {

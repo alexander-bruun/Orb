@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -40,9 +41,9 @@ type cachedUserPrefs struct {
 // networkPrefs holds quality limits for a single network tier.
 // A nil field means "inherit from the default (any) tier or no limit".
 type networkPrefs struct {
-	MaxBitrateKbps *int    `json:"max_bitrate_kbps,omitempty"`
-	MaxSampleRate  *int    `json:"max_sample_rate,omitempty"`
-	MaxBitDepth    *int    `json:"max_bit_depth,omitempty"`
+	MaxBitrateKbps  *int    `json:"max_bitrate_kbps,omitempty"`
+	MaxSampleRate   *int    `json:"max_sample_rate,omitempty"`
+	MaxBitDepth     *int    `json:"max_bit_depth,omitempty"`
 	TranscodeFormat *string `json:"transcode_format,omitempty"`
 }
 
@@ -178,7 +179,7 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer closeReadCloser(rc)
 
 	// Set response headers.
 	contentType := mimeForFormat(meta.Format)
@@ -279,7 +280,11 @@ func (s *Service) transcodeAndStream(w http.ResponseWriter, r *http.Request, met
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer src.Close()
+	defer func() {
+		if cerr := src.Close(); cerr != nil {
+			slog.Warn("stream: obj store reader close failed", "err", cerr)
+		}
+	}()
 
 	cmd := exec.CommandContext(r.Context(), "ffmpeg", args...)
 	cmd.Stdin = src
@@ -292,7 +297,9 @@ func (s *Service) transcodeAndStream(w http.ResponseWriter, r *http.Request, met
 
 	if err := cmd.Start(); err != nil {
 		// ffmpeg is not installed or failed to start — fall back to raw stream.
-		stdout.Close()
+		if cerr := stdout.Close(); cerr != nil {
+			slog.Warn("stream: stdout close failed", "err", cerr)
+		}
 		http.Error(w, "transcoding unavailable: ffmpeg not found", http.StatusServiceUnavailable)
 		return
 	}
@@ -377,7 +384,7 @@ func (s *Service) serveAudio(w http.ResponseWriter, r *http.Request, key string,
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer closeReadCloser(rc)
 
 	contentType := mimeForFormat(format)
 	w.Header().Set("Content-Type", contentType)
@@ -469,7 +476,7 @@ func (s *Service) serveCover(w http.ResponseWriter, r *http.Request, key string)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer closeReadCloser(rc)
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", coverMaxAge))
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
@@ -739,7 +746,7 @@ func (s *Service) AudiobookStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer closeReadCloser(rc)
 
 	contentType := mimeForFormat(book.Format)
 	w.Header().Set("Content-Type", contentType)
@@ -795,7 +802,7 @@ func (s *Service) AudiobookChapterStream(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer closeReadCloser(rc)
 
 	// Derive content-type from file extension.
 	ext := strings.ToLower(filepath.Ext(*chapter.FileKey))
@@ -836,4 +843,10 @@ func (s *Service) ServeAudiobookCover(w http.ResponseWriter, r *http.Request, au
 		return
 	}
 	s.serveCover(w, r, *book.CoverArtKey)
+}
+
+func closeReadCloser(rc io.ReadCloser) {
+	if err := rc.Close(); err != nil {
+		slog.Warn("stream: reader close failed", "err", err)
+	}
 }

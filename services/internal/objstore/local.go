@@ -26,7 +26,7 @@ func (l *LocalFS) path(key string) string {
 	return filepath.Join(l.root, filepath.FromSlash(key))
 }
 
-func (l *LocalFS) Put(_ context.Context, key string, r io.Reader, _ int64) error {
+func (l *LocalFS) Put(_ context.Context, key string, r io.Reader, _ int64) (retErr error) {
 	dest := l.path(key)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
@@ -35,7 +35,11 @@ func (l *LocalFS) Put(_ context.Context, key string, r io.Reader, _ int64) error
 	if err != nil {
 		return fmt.Errorf("create %q: %w", dest, err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("close %q: %w", dest, cerr)
+		}
+	}()
 	if _, err := io.Copy(f, r); err != nil {
 		return fmt.Errorf("write %q: %w", dest, err)
 	}
@@ -48,7 +52,9 @@ func (l *LocalFS) GetRange(_ context.Context, key string, offset, length int64) 
 		return nil, fmt.Errorf("open %q: %w", key, err)
 	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		f.Close()
+		if cerr := f.Close(); cerr != nil {
+			return nil, fmt.Errorf("seek %q: %v; close: %w", key, err, cerr)
+		}
 		return nil, fmt.Errorf("seek %q: %w", key, err)
 	}
 	return &limitedReadCloser{r: io.LimitReader(f, length), c: f}, nil

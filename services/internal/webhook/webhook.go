@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -122,7 +123,7 @@ func (d *Dispatcher) deliver(ctx context.Context, h store.Webhook, event string,
 			}
 			break
 		}
-		resp.Body.Close()
+		closeResponseBody(resp.Body)
 		code := resp.StatusCode
 		statusCode = &code
 		errMsg = nil
@@ -147,4 +148,10 @@ func sign(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func closeResponseBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		slog.Warn("webhook: response body close failed", "err", err)
+	}
 }

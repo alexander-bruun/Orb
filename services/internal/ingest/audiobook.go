@@ -771,8 +771,8 @@ var (
 	reSeriesInfixIndex  = regexp.MustCompile(`^(.+?)\s+(0\d|\d{2,3}|\d+\.\d+)\s+(.+)$`)
 	// reSeriesInfixDash matches "Series Name N - Book Title" with any digit count,
 	// where the dash separator is the key signal that N is a series index.
-	reSeriesInfixDash   = regexp.MustCompile(`^(.+?)\s+(\d+(?:\.\d+)?)\s*[-–]\s*(.+)$`)
-	reBookSuffixIndex   = regexp.MustCompile(`(?i)\b(?:book|part|vol(?:ume)?\.?)\s*([0-9]+(?:\.\d+)?)\b`)
+	reSeriesInfixDash = regexp.MustCompile(`^(.+?)\s+(\d+(?:\.\d+)?)\s*[-–]\s*(.+)$`)
+	reBookSuffixIndex = regexp.MustCompile(`(?i)\b(?:book|part|vol(?:ume)?\.?)\s*([0-9]+(?:\.\d+)?)\b`)
 
 	// Strips common edition/quality tags from the end of a book title.
 	reEditionTag = regexp.MustCompile(`(?i)\s*[\(\[](unabridged|abridged|commercial\s*audiobook|audiobook)[\)\]]\s*$`)
@@ -962,13 +962,6 @@ func parseBookDirName(name string) (title string, seriesIndex *float64, edition 
 	}
 	title, edition = cleanBookTitleWithEdition(name)
 	return title, nil, edition
-}
-
-// cleanBookTitle strips common edition/quality tags and year suffixes from a
-// book title extracted from a directory name.
-func cleanBookTitle(title string) string {
-	t, _ := cleanBookTitleWithEdition(title)
-	return t
 }
 
 func cleanBookTitleWithEdition(title string) (string, *string) {
@@ -1192,17 +1185,6 @@ func isValidDirName(name string) bool {
 
 // ── ID3 track number helper ───────────────────────────────────────────────────
 
-// parseTrackNum returns the numeric portion from a "track/total" or plain
-// numeric tag value. Returns 0 if parsing fails.
-func parseTrackNum(s string) int {
-	s = strings.TrimSpace(s)
-	if idx := strings.Index(s, "/"); idx >= 0 {
-		s = s[:idx]
-	}
-	n, _ := strconv.Atoi(strings.TrimSpace(s))
-	return n
-}
-
 // readTrackTag opens an audio file and reads its track number from ID3/iTunes
 // tags. Returns 0 on failure.
 func readTrackTag(path string) int {
@@ -1210,7 +1192,11 @@ func readTrackTag(path string) int {
 	if err != nil {
 		return 0
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("audiobook: track tag file close failed", "path", path, "err", cerr)
+		}
+	}()
 	m, err := tag.ReadFrom(f)
 	if err != nil {
 		return 0
@@ -1228,7 +1214,9 @@ func dirFingerprint(files []string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(h, "%s:%d\n", filepath.Base(p), fi.Size())
+		if _, err := fmt.Fprintf(h, "%s:%d\n", filepath.Base(p), fi.Size()); err != nil {
+			return "", err
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -1238,8 +1226,11 @@ func fileFingerprint(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("audiobook: fingerprint file close failed", "path", path, "err", cerr)
+		}
+	}()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", fmt.Errorf("hash: %w", err)
@@ -1497,7 +1488,9 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 						picData = pic.Data
 					}
 				}
-				rf.Close()
+				if cerr := rf.Close(); cerr != nil {
+					slog.Warn("audiobook: close after reading tags", "path", path, "err", cerr)
+				}
 			}
 		}
 		if len(picData) == 0 {
@@ -1523,10 +1516,14 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 			return "", fmt.Errorf("re-open for storage: %w", err2)
 		}
 		if err2 := g.obj.Put(ctx, fileKey, rf, fi.Size()); err2 != nil {
-			rf.Close()
+			if cerr := rf.Close(); cerr != nil {
+				slog.Warn("audiobook: close after failed put", "path", path, "err", cerr)
+			}
 			return "", fmt.Errorf("store audiobook: %w", err2)
 		}
-		rf.Close()
+		if cerr := rf.Close(); cerr != nil {
+			slog.Warn("audiobook: close after store", "path", path, "err", cerr)
+		}
 	}
 
 	// ── Upsert audiobook ──────────────────────────────────────────────────
@@ -1721,7 +1718,9 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 				}
 			}
 		}
-		f.Close()
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("audiobook: metadata file close failed", "path", firstFile, "err", cerr)
+		}
 	}
 
 	// ── Parse parent directory name for series/author/narrator fallbacks ──
@@ -1887,7 +1886,9 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 					picData = pic.Data
 				}
 			}
-			f.Close()
+			if cerr := f.Close(); cerr != nil {
+				slog.Warn("audiobook: cover art file close failed", "path", firstFile, "err", cerr)
+			}
 		}
 		// Fallback: folder.jpg / cover.jpg in book dir or parent dir.
 		if len(picData) == 0 {
@@ -1929,7 +1930,9 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 				if err := g.obj.Put(ctx, chapterFileKey, cf, size); err != nil {
 					slog.Warn("audiobook chapter store failed", "path", p, "err", err)
 				}
-				cf.Close()
+				if cerr := cf.Close(); cerr != nil {
+					slog.Warn("audiobook: close chapter file failed", "path", p, "err", cerr)
+				}
 			}
 		}
 
@@ -1949,7 +1952,9 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 					chapTitle = t
 				}
 			}
-			f.Close()
+			if cerr := f.Close(); cerr != nil {
+				slog.Warn("audiobook: close chapter tag file failed", "path", p, "err", cerr)
+			}
 		}
 
 		startMs := cumulativeMs
@@ -1990,19 +1995,19 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 
 	// ── Upsert audiobook (FileKey = nil for multi-file) ───────────────────
 	params := store.UpsertAudiobookParams{
-		ID:          audiobookID,
-		Title:       bookTitle,
-		Edition:     edition,
-		AuthorID:    &authorID,
-		CoverArtKey: coverArtKeyPtr,
-		FileKey:     nil, // multi-file: no single file key
-		FileSize:    totalFileSize,
-		Format:      predominantFmt,
-		DurationMs:  totalDurationMs,
-		Fingerprint: fingerprint,
-		Series:      seriesPtr,
-		SeriesIndex: seriesIndex,
-		SeriesSource: seriesSourcePtr,
+		ID:               audiobookID,
+		Title:            bookTitle,
+		Edition:          edition,
+		AuthorID:         &authorID,
+		CoverArtKey:      coverArtKeyPtr,
+		FileKey:          nil, // multi-file: no single file key
+		FileSize:         totalFileSize,
+		Format:           predominantFmt,
+		DurationMs:       totalDurationMs,
+		Fingerprint:      fingerprint,
+		Series:           seriesPtr,
+		SeriesIndex:      seriesIndex,
+		SeriesSource:     seriesSourcePtr,
 		SeriesConfidence: seriesConfidencePtr,
 	}
 	if publishedYear != nil {
@@ -2137,7 +2142,11 @@ func storeAudiobookCoverArt(ctx context.Context, obj objstore.ObjectStore, key s
 	go func() {
 		pw.CloseWithError(jpeg.Encode(pw, img, &jpeg.Options{Quality: 90}))
 	}()
-	defer pr.Close()
+	defer func() {
+		if cerr := pr.Close(); cerr != nil {
+			slog.Warn("audiobook: cover art pipe close failed", "err", cerr)
+		}
+	}()
 	return obj.Put(ctx, key, pr, -1)
 }
 

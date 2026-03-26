@@ -8,7 +8,7 @@ import (
 // handleDeviceDescription serves the UPnP device description XML.
 func (s *Server) handleDeviceDescription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+	_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
   <specVersion>
     <major>1</major>
@@ -46,7 +46,7 @@ func (s *Server) handleDeviceDescription(w http.ResponseWriter, r *http.Request)
 // handleContentDirectoryDesc serves the ContentDirectory:1 service description.
 func (s *Server) handleContentDirectoryDesc(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+	_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <scpd xmlns="urn:schemas-upnp-org:service-1-0">
   <specVersion>
     <major>1</major>
@@ -195,7 +195,7 @@ func (s *Server) handleContentDirectoryDesc(w http.ResponseWriter, r *http.Reque
 // handleConnectionManagerDesc serves the ConnectionManager:1 service description.
 func (s *Server) handleConnectionManagerDesc(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+	_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
 <scpd xmlns="urn:schemas-upnp-org:service-1-0">
   <specVersion>
     <major>1</major>

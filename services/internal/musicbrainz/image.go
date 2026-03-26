@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -65,7 +66,7 @@ func wikidataImageFilename(ctx context.Context, qid string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 	if resp.StatusCode != 200 {
 		return "", nil
 	}
@@ -108,7 +109,7 @@ func (c *Client) FetchAlbumCoverArt(ctx context.Context, releaseGroupMbid string
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 
 	if resp.StatusCode == 404 {
 		return nil, nil
@@ -139,7 +140,7 @@ func downloadCommonsImage(ctx context.Context, filename string) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(resp.Body)
 
 	if resp.StatusCode != 200 {
 		// Try without thumbnail (some file types don't support thumbnailing).
@@ -154,7 +155,7 @@ func downloadCommonsImage(ctx context.Context, filename string) ([]byte, error) 
 		if err != nil {
 			return nil, err
 		}
-		defer resp2.Body.Close()
+		defer closeResponseBody(resp2.Body)
 		if resp2.StatusCode != 200 {
 			return nil, nil
 		}
@@ -162,4 +163,10 @@ func downloadCommonsImage(ctx context.Context, filename string) ([]byte, error) 
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+func closeResponseBody(body io.ReadCloser) {
+	if err := body.Close(); err != nil {
+		slog.Warn("musicbrainz: response close failed", "err", err)
+	}
 }

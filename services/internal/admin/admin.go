@@ -927,7 +927,7 @@ func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, da
 	go func() {
 		pw.CloseWithError(jpeg.Encode(pw, img, &jpeg.Options{Quality: 90}))
 	}()
-	defer pr.Close()
+	defer func() { _ = pr.Close() }()
 	return obj.Put(ctx, key, pr, -1)
 }
 

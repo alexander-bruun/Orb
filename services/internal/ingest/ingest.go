@@ -206,7 +206,7 @@ type ingestEntry struct {
 // ProgressEvent is published to Redis during a scan so the admin SSE endpoint
 // can stream real-time ingest progress to connected browsers.
 type ProgressEvent struct {
-	Type     string `json:"type"`     // "progress" | "complete" | "error"
+	Type     string `json:"type"` // "progress" | "complete" | "error"
 	Total    int    `json:"total"`
 	Done     int    `json:"done"`
 	Skipped  int    `json:"skipped"`
@@ -535,7 +535,11 @@ func (g *Ingester) Run(ctx context.Context) error {
 			"interval", g.cfg.PollInterval, "err", watchErr)
 		return g.watchWithPolling(ctx)
 	}
-	defer watcher.Close()
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			slog.Warn("ingest: watcher close failed", "err", err)
+		}
+	}()
 
 	for _, dir := range g.cfg.Dirs {
 		dir = strings.TrimSpace(dir)
@@ -680,7 +684,11 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("ingest: file close failed", "path", path, "err", cerr)
+		}
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -727,7 +735,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 	}
 
 	trackArtistID := albumArtistID
-	if strings.ToLower(trackArtistName) != strings.ToLower(albumArtistName) {
+	if !strings.EqualFold(trackArtistName, albumArtistName) {
 		trackArtistID = deterministicID("artist:" + strings.ToLower(trackArtistName))
 		if _, err = g.db.UpsertArtist(ctx, store.UpsertArtistParams{
 			ID:       trackArtistID,
@@ -1154,7 +1162,11 @@ func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, da
 	go func() {
 		pw.CloseWithError(jpeg.Encode(pw, img, &jpeg.Options{Quality: 90}))
 	}()
-	defer pr.Close()
+	defer func() {
+		if err := pr.Close(); err != nil {
+			slog.Warn("ingest: cover art pipe close failed", "err", err)
+		}
+	}()
 	return obj.Put(ctx, key, pr, -1)
 }
 
@@ -1340,7 +1352,11 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 			"interval", g.cfg.PollInterval, "err", watchErr)
 		return g.watchWithPollingLeader(ctx, kv)
 	}
-	defer watcher.Close()
+	defer func() {
+		if err := watcher.Close(); err != nil {
+			slog.Warn("ingest: leader watcher close failed", "err", err)
+		}
+	}()
 
 	for _, dir := range g.cfg.Dirs {
 		dir = strings.TrimSpace(dir)
@@ -1566,8 +1582,8 @@ func generateWaveformPeaks(path string) []float32 {
 	var globalMax float32
 	for i := 0; i < n; i++ {
 		// Each pair is (min, max); take the larger absolute value as amplitude.
-		minAbs := float32(-result.Data[i*2])   // min is negative → negate
-		maxAbs := float32(result.Data[i*2+1])  // max is positive
+		minAbs := float32(-result.Data[i*2])  // min is negative → negate
+		maxAbs := float32(result.Data[i*2+1]) // max is positive
 		amp := minAbs
 		if maxAbs > amp {
 			amp = maxAbs

@@ -309,13 +309,22 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// Send an initial heartbeat/comment to confirm the connection.
-	fmt.Fprintf(w, ": connected\n\n")
-	flusher.Flush()
+	writeLine := func(format string, args ...any) bool {
+		if _, err := fmt.Fprintf(w, format, args...); err != nil {
+			slog.Warn("device: event stream write failed", "err", err)
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	if !writeLine(": connected\n\n") {
+		return
+	}
 
 	// Subscribe to the user's device event channel.
 	sub := s.kv.Subscribe(r.Context(), kvkeys.UserDeviceEvents(userID))
-	defer sub.Close()
-
+	defer func() { _ = sub.Close() }()
 	ch := sub.Channel()
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
@@ -326,14 +335,16 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			// Keep-alive comment.
-			fmt.Fprintf(w, ": ping\n\n")
-			flusher.Flush()
+			if !writeLine(": ping\n\n") {
+				return
+			}
 		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", msg.Payload)
-			flusher.Flush()
+			if !writeLine("data: %s\n\n", msg.Payload) {
+				return
+			}
 		}
 	}
 }
@@ -423,4 +434,3 @@ func (s *Service) publish(ctx context.Context, userID string, msg eventMsg) erro
 	}
 	return s.kv.Publish(ctx, kvkeys.UserDeviceEvents(userID), b).Err()
 }
-

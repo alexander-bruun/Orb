@@ -236,7 +236,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer kv.Close()
+	defer func() { _ = kv.Close() }()
 
 	// --- Object store ---
 	obj, err := initObjectStore(storeRoot)

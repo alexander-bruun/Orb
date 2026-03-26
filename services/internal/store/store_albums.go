@@ -361,7 +361,7 @@ func (s *Store) SetAlbumGenres(ctx context.Context, albumID string, genreIDs []s
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 	if _, err := tx.Exec(ctx, `DELETE FROM album_genres WHERE album_id = $1`, albumID); err != nil {
 		return err
 	}

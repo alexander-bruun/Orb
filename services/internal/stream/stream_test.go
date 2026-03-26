@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/stream"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -103,7 +103,9 @@ func setup(t *testing.T, audio []byte) *stream.Service {
 		`{"file_key":%q,"file_size":%d,"format":"flac","bit_depth":%d,"sample_rate":%d,"channels":2,"duration_ms":240000}`,
 		testFileKey, int64(len(audio)), testBitDepth, testRate,
 	)
-	mr.Set(kvkeys.TrackMeta(testTrackID), meta)
+	if err := mr.Set(kvkeys.TrackMeta(testTrackID), meta); err != nil {
+		t.Fatalf("failed to set track meta: %v", err)
+	}
 
 	return stream.New(nil, obj, kv)
 }
@@ -192,8 +194,8 @@ func TestStream_RangeRequest(t *testing.T) {
 // introduces no corruption, truncation, or off-by-one errors across chunk
 // boundaries.
 func TestStream_BitPerfect_ChunkedReassembly(t *testing.T) {
-	const chunkSize = 256 * 1024           // mirrors CHUNK_SIZE in streamer.ts
-	const fileSize = 4*chunkSize + 131072  // 4 full chunks + one partial tail
+	const chunkSize = 256 * 1024          // mirrors CHUNK_SIZE in streamer.ts
+	const fileSize = 4*chunkSize + 131072 // 4 full chunks + one partial tail
 
 	audio := makeAudioData(fileSize)
 	svc := setup(t, audio)
@@ -287,11 +289,11 @@ func TestStream_Headers(t *testing.T) {
 
 	res := rec.Result()
 	want := map[string]string{
-		"Content-Type":       "audio/flac",
-		"Accept-Ranges":      "bytes",
+		"Content-Type":      "audio/flac",
+		"Accept-Ranges":     "bytes",
 		"X-Orb-Bit-Depth":   fmt.Sprintf("%d", testBitDepth),
 		"X-Orb-Sample-Rate": fmt.Sprintf("%d", testRate),
-		"Content-Length":     fmt.Sprintf("%d", len(audio)),
+		"Content-Length":    fmt.Sprintf("%d", len(audio)),
 	}
 	for h, wantV := range want {
 		if got := res.Header.Get(h); got != wantV {

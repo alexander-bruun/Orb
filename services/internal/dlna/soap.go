@@ -159,5 +159,5 @@ func (s *Server) sendSOAPResponse(w http.ResponseWriter, action, body string) {
 </s:Envelope>`, action, ns, body, action)
 
 	w.Header().Set("Content-Length", strconv.Itoa(len(resp)))
-	w.Write([]byte(resp))
+	_, _ = w.Write([]byte(resp))
 }

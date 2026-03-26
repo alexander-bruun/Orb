@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"sort"
@@ -153,7 +154,8 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	token := uuid.New().String()
-	raw, _ := json.Marshal(sharePayload{Type: req.Type, ID: req.ID})
+	payload := sharePayload(req)
+	raw, _ := json.Marshal(payload)
 	if err := s.kv.Set(ctx, kvkeys.ShareToken(token), raw, shareTTL).Err(); err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "could not create share token")
 		return
@@ -281,7 +283,11 @@ func (s *Service) stream(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusInternalServerError, "storage error")
 		return
 	}
-	defer rc.Close()
+	defer func() {
+		if cerr := rc.Close(); cerr != nil {
+			slog.Warn("share: range close failed", "err", cerr)
+		}
+	}()
 
 	w.Header().Set("Content-Type", mimeForFormat(track.Format))
 	w.Header().Set("Accept-Ranges", "bytes")

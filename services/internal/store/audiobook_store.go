@@ -313,7 +313,7 @@ func (s *Store) ReplaceAudiobookChapters(ctx context.Context, audiobookID string
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 
 	if _, err := tx.Exec(ctx, `DELETE FROM audiobook_chapters WHERE audiobook_id = $1`, audiobookID); err != nil {
 		return err
@@ -346,7 +346,7 @@ func (s *Store) SetAudiobookNarrators(ctx context.Context, audiobookID string, n
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 
 	if _, err := tx.Exec(ctx, `DELETE FROM audiobook_narrator_links WHERE audiobook_id = $1`, audiobookID); err != nil {
 		return err

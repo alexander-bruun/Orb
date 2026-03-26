@@ -48,7 +48,7 @@ func (s *Server) handleMediaStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	w.Header().Set("Content-Type", mime)
 	w.Header().Set("Accept-Ranges", "bytes")
@@ -85,7 +85,7 @@ func (s *Server) handleArtStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "storage error", http.StatusInternalServerError)
 		return
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))

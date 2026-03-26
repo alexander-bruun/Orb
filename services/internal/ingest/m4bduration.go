@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -45,10 +46,13 @@ func ProbeM4BForDebug(path string) (*struct {
 		}
 	}{
 		DurationMs: info.durationMs,
-		Chapters:   make([]struct{ StartMs int64; Title string }, len(info.chapters)),
+		Chapters: make([]struct {
+			StartMs int64
+			Title   string
+		}, len(info.chapters)),
 	}
 	for i, ch := range info.chapters {
-		out.Chapters[i] = struct{
+		out.Chapters[i] = struct {
 			StartMs int64
 			Title   string
 		}{
@@ -70,7 +74,11 @@ func probeM4B(path string) (*m4bInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("ingest: m4b file close failed", "path", path, "err", cerr)
+		}
+	}()
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -147,7 +155,13 @@ func probeM4BFromObjectStore(ctx context.Context, obj objstore.ObjectStore, key 
 		return nil, err
 	}
 	head, err := io.ReadAll(headRc)
-	headRc.Close()
+	if closeErr := headRc.Close(); closeErr != nil {
+		if err == nil {
+			err = closeErr
+		} else {
+			err = fmt.Errorf("%v; close: %w", err, closeErr)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +193,13 @@ func probeM4BFromObjectStore(ctx context.Context, obj objstore.ObjectStore, key 
 		return info, nil
 	}
 	tail, err := io.ReadAll(tailRc)
-	tailRc.Close()
+	if closeErr := tailRc.Close(); closeErr != nil {
+		if err == nil {
+			err = closeErr
+		} else {
+			err = fmt.Errorf("%v; close: %w", err, closeErr)
+		}
+	}
 	if err != nil {
 		return info, nil
 	}
@@ -238,11 +258,11 @@ func boxHeader(buf []byte, pos int) (headerSize, bodySize int, boxType string, o
 	size32 := int(binary.BigEndian.Uint32(buf[pos:]))
 	boxType = string(buf[pos+4 : pos+8])
 
-	switch {
-	case size32 == 0:
+	switch size32 {
+	case 0:
 		headerSize = 8
 		bodySize = len(buf) - pos - 8
-	case size32 == 1:
+	case 1:
 		if pos+16 > len(buf) {
 			return 0, 0, "", false
 		}
@@ -414,10 +434,10 @@ func readQTTextSampleFromObjectStore(ctx context.Context, obj objstore.ObjectSto
 	}
 	var lenBuf [2]byte
 	if _, err := io.ReadFull(rc, lenBuf[:]); err != nil {
-		rc.Close()
+		closeReadCloser(rc)
 		return ""
 	}
-	rc.Close()
+	closeReadCloser(rc)
 	n := int(binary.BigEndian.Uint16(lenBuf[:]))
 	if n == 0 || n > 4096 {
 		return ""
@@ -427,11 +447,17 @@ func readQTTextSampleFromObjectStore(ctx context.Context, obj objstore.ObjectSto
 		return ""
 	}
 	title, err := io.ReadAll(rc)
-	rc.Close()
+	closeReadCloser(rc)
 	if err != nil {
 		return ""
 	}
 	return string(title)
+}
+
+func closeReadCloser(rc io.ReadCloser) {
+	if err := rc.Close(); err != nil {
+		slog.Warn("ingest: object store reader close failed", "err", err)
+	}
 }
 
 // parseQTChapters looks for QuickTime-style chapter tracks inside moovBody.
@@ -631,7 +657,11 @@ func flacDurationMs(path string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("ingest: flac file close failed", "path", path, "err", cerr)
+		}
+	}()
 
 	var magic [4]byte
 	if _, err := io.ReadFull(f, magic[:]); err != nil {

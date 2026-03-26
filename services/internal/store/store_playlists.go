@@ -290,7 +290,7 @@ func smartRuleToCond(r SmartPlaylistRule, args []any, n int) (string, []any, int
 		if op == "" {
 			return "", args, n
 		}
-		sub := fmt.Sprintf("(SELECT COUNT(*) FROM play_history ph WHERE ph.track_id = t.id AND ph.user_id = $1)")
+		sub := "(SELECT COUNT(*) FROM play_history ph WHERE ph.track_id = t.id AND ph.user_id = $1)"
 		return fmt.Sprintf("%s %s %s", sub, op, ph), args, n
 	case "rating":
 		ph, _ := placeholder(r.Value)

@@ -789,7 +789,7 @@ func (s *Store) SetTrackFeaturedArtists(ctx context.Context, trackID string, art
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 	if _, err := tx.Exec(ctx, `DELETE FROM track_featured_artists WHERE track_id = $1`, trackID); err != nil {
 		return err
 	}
@@ -858,7 +858,7 @@ func (s *Store) SetTrackGenres(ctx context.Context, trackID string, genreIDs []s
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 	if _, err := tx.Exec(ctx, `DELETE FROM track_genres WHERE track_id = $1`, trackID); err != nil {
 		return err
 	}
@@ -1171,7 +1171,7 @@ func (s *Store) BatchUpsertSimilarity(ctx context.Context, rows []TrackSimilarit
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 
 	// Clear existing data and re-insert (faster than individual ON CONFLICT for full recompute).
 	if _, err := tx.Exec(ctx, `DELETE FROM track_similarity`); err != nil {
@@ -1222,7 +1222,7 @@ func (s *Store) UpsertSimilarityIncremental(ctx context.Context, rows []TrackSim
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 
 	const batchSize = 500
 	for i := 0; i < len(rows); i += batchSize {

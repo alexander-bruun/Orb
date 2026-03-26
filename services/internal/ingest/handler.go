@@ -121,15 +121,18 @@ func (s *Service) tryBecomeLeader(ctx context.Context) bool {
 	if s.kv == nil {
 		return true // single-instance: always become "leader"
 	}
-	ok, err := s.kv.SetNX(ctx, kvkeys.IngestLeader(), s.instanceID, leaderTTL).Result()
+	res, err := s.kv.SetArgs(ctx, kvkeys.IngestLeader(), s.instanceID, redis.SetArgs{Mode: "NX", TTL: leaderTTL}).Result()
 	if err != nil {
-		slog.Warn("ingest: leader election error", "err", err)
+		if err != redis.Nil {
+			slog.Warn("ingest: leader election error", "err", err)
+		}
 		return false
 	}
-	if ok {
+	if res == "OK" {
 		slog.Info("ingest: acquired leader lock", "instance", s.instanceID)
+		return true
 	}
-	return ok
+	return false
 }
 
 // runAsLeader starts a lock-refresh goroutine (which cancels leaderCtx on lock
@@ -189,12 +192,14 @@ func (s *Service) acquireScanLock(ctx context.Context) bool {
 	if s.kv == nil {
 		return true
 	}
-	ok, err := s.kv.SetNX(ctx, kvkeys.IngestScanLock(), s.instanceID, scanLockTTL).Result()
+	res, err := s.kv.SetArgs(ctx, kvkeys.IngestScanLock(), s.instanceID, redis.SetArgs{Mode: "NX", TTL: scanLockTTL}).Result()
 	if err != nil {
-		slog.Warn("ingest: scan lock error", "err", err)
+		if err != redis.Nil {
+			slog.Warn("ingest: scan lock error", "err", err)
+		}
 		return false
 	}
-	return ok
+	return res == "OK"
 }
 
 func (s *Service) releaseScanLock() {
@@ -324,15 +329,26 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	writeEvent := func(data string) {
-		fmt.Fprintf(w, "data: %s\n\n", data)
+	writeLine := func(format string, args ...any) bool {
+		if _, err := fmt.Fprintf(w, format, args...); err != nil {
+			slog.Warn("ingest: stream write failed", "err", err)
+			return false
+		}
 		flusher.Flush()
+		return true
+	}
+	writeEvent := func(data string) bool {
+		return writeLine("data: %s\n\n", data)
 	}
 
 	// When Redis is available, subscribe to the ingest events pub/sub channel.
 	if s.kv != nil {
 		sub := s.kv.Subscribe(r.Context(), kvkeys.IngestEvents())
-		defer sub.Close()
+		defer func() {
+			if err := sub.Close(); err != nil {
+				slog.Warn("ingest: pubsub close failed", "err", err)
+			}
+		}()
 		ch := sub.Channel()
 		ticker := time.NewTicker(20 * time.Second)
 		defer ticker.Stop()
@@ -344,11 +360,14 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 				if !ok {
 					return
 				}
-				writeEvent(msg.Payload)
+				if !writeEvent(msg.Payload) {
+					return
+				}
 			case <-ticker.C:
 				// Heartbeat to keep the connection alive through proxies.
-				fmt.Fprintf(w, ": heartbeat\n\n")
-				flusher.Flush()
+				if !writeLine(": heartbeat\n\n") {
+					return
+				}
 			}
 		}
 	}
@@ -365,7 +384,7 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 			lr := s.lastResult
 			s.mu.Unlock()
 			ev := ProgressEvent{
-				Type:    "progress",
+				Type: "progress",
 			}
 			if lr != nil {
 				ev.Done = lr.Ingested
@@ -376,7 +395,9 @@ func (s *Service) streamEvents(w http.ResponseWriter, r *http.Request) {
 				ev.Type = "complete"
 			}
 			data, _ := json.Marshal(ev)
-			writeEvent(string(data))
+			if !writeEvent(string(data)) {
+				return
+			}
 			if ev.Type == "complete" {
 				return
 			}
@@ -394,8 +415,8 @@ func (s *Service) status(w http.ResponseWriter, r *http.Request) {
 	if s.kv != nil {
 		leader, _ := s.kv.Get(r.Context(), kvkeys.IngestLeader()).Result()
 		queueDepth, _ := s.kv.LLen(r.Context(), kvkeys.IngestWorkQueue()).Result()
-		resp["leader"]      = leader
-		resp["is_leader"]   = leader == s.instanceID
+		resp["leader"] = leader
+		resp["is_leader"] = leader == s.instanceID
 		resp["queue_depth"] = queueDepth
 	}
 

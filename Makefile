@@ -92,7 +92,7 @@ icon-generate:
 	cd web/src-tauri/ && cargo tauri icon icons/icon.png
 
 # Backend build targets
-.PHONY: backend-build backend-build-tagged test lint
+.PHONY: backend-build backend-build-tagged test lint lint-go lint-svelte lint-rust
 backend-build:
 	cd services && go build -o ../orb github.com/alexander-bruun/orb/services/cmd
 
@@ -106,5 +106,14 @@ test:
 	cd services && go test -v ./...
 
 # Linting
-lint:
-	golangci-lint run ./...
+lint: lint-svelte lint-rust lint-go
+
+lint-svelte:
+	cd web && bunx npm run check
+
+lint-rust:
+	cd web/src-tauri && cargo fmt --all --check
+	cd web/src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+lint-go:
+	cd services && golangci-lint run ./... 

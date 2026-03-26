@@ -10,6 +10,7 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net"
 	"net/smtp"
 	"strconv"
@@ -21,9 +22,9 @@ import (
 var templateFS embed.FS
 
 var (
-	tmplInvite  = template.Must(template.ParseFS(templateFS, "templates/invite.html"))
-	tmplTest    = template.Must(template.ParseFS(templateFS, "templates/test.html"))
-	tmplVerify  = template.Must(template.ParseFS(templateFS, "templates/verify.html"))
+	tmplInvite = template.Must(template.ParseFS(templateFS, "templates/invite.html"))
+	tmplTest   = template.Must(template.ParseFS(templateFS, "templates/test.html"))
+	tmplVerify = template.Must(template.ParseFS(templateFS, "templates/verify.html"))
 )
 
 // Config holds SMTP connection settings.
@@ -86,7 +87,11 @@ func (m *Mailer) sendTLS(addr string, auth smtp.Auth, from, to string, msg []byt
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() {
+		if cerr := c.Close(); cerr != nil {
+			slog.Warn("mailer: smtp client close failed", "err", cerr)
+		}
+	}()
 	if err = c.Auth(auth); err != nil {
 		return err
 	}

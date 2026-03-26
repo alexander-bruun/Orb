@@ -543,10 +543,6 @@ func (s *Service) totpStatus(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"enabled": user.TOTPEnabled})
 }
 
-type totpSetupReq struct {
-	// no body params needed
-}
-
 // totpSetup generates a fresh TOTP secret and returns the provisioning URI for
 // the authenticator app. The secret is persisted to the DB but 2FA is NOT yet
 // enabled — the client must call /totp/enable with a valid code to activate it.

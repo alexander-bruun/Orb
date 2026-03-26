@@ -3,6 +3,7 @@ package ingest
 import (
 	"encoding/binary"
 	"io"
+	"log/slog"
 	"os"
 )
 
@@ -15,7 +16,11 @@ func mp3DurationMs(path string) int64 {
 	if err != nil {
 		return 0
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			slog.Warn("ingest: mp3 file close failed", "path", path, "err", cerr)
+		}
+	}()
 
 	fi, err := f.Stat()
 	if err != nil {

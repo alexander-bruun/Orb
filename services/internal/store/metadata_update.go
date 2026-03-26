@@ -11,8 +11,8 @@ import (
 
 // UpdateAudiobookMetaParams holds fields the admin can update on an audiobook.
 type UpdateAudiobookMetaParams struct {
-	ID            string
-	Title         string
+	ID    string
+	Title string
 	// UpdateAuthor controls whether author_id is modified at all.
 	// When true, AuthorID is written (nil clears the author, non-nil sets it).
 	// When false, the existing author_id is left untouched.
@@ -141,7 +141,7 @@ func (s *Store) ClearAlbumEnrichment(ctx context.Context, albumID string) error 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackTx(ctx, tx)
 	if _, err := tx.Exec(ctx,
 		`UPDATE albums SET enriched_at = NULL WHERE id = $1`, albumID,
 	); err != nil {

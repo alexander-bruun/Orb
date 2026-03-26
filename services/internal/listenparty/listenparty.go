@@ -1,6 +1,3 @@
-// Package listenparty implements the "listen along" feature: a host creates a
-// session and shares an invite link; guests join, enter a nickname, and hear
-// the same music in sync via WebSocket-driven playback state broadcasts.
 package listenparty
 
 import (
@@ -207,21 +204,6 @@ func (h *hub) sendToHost(msg []byte) {
 	}
 }
 
-func (h *hub) sendToGuest(participantID string, msg []byte) bool {
-	h.mu.RLock()
-	g, ok := h.guests[participantID]
-	h.mu.RUnlock()
-	if !ok {
-		return false
-	}
-	select {
-	case g.send <- msg:
-		return true
-	default:
-		return false
-	}
-}
-
 func (h *hub) participants() []Participant {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -248,7 +230,7 @@ func (h *hub) kickGuest(participantID string) {
 	default:
 	}
 	// Give the write pump a moment to flush.
-	time.AfterFunc(500*time.Millisecond, func() { g.conn.Close() })
+	time.AfterFunc(500*time.Millisecond, func() { closeWebsocket(g.conn) })
 }
 
 func (h *hub) shutdown() {
@@ -333,9 +315,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/{id}/stream/{track_id}", s.guestStream) // guest token
 	r.Get("/{id}/stream/audiobook/{audiobook_id}", s.guestAudiobookStream)
 	r.Get("/{id}/stream/audiobook/chapter/{chapter_id}", s.guestAudiobookChapterStream)
-	r.Get("/{id}/cover/{album_id}", s.guestCover)           // guest token
+	r.Get("/{id}/cover/{album_id}", s.guestCover)                        // guest token
 	r.Get("/{id}/cover/audiobook/{audiobook_id}", s.guestAudiobookCover) // guest token
-	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics)         // guest token
+	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics)                      // guest token
 }
 
 // --- REST handlers ---
@@ -533,19 +515,19 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 
 	_, raw, err := conn.ReadMessage()
 	if err != nil {
-		conn.Close()
+		closeWebsocket(conn)
 		return
 	}
 	var msg inMsg
 	if err := json.Unmarshal(raw, &msg); err != nil || msg.Type != "join" {
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseProtocolError, "expected join"))
-		conn.Close()
+		closeWebsocket(conn)
 		return
 	}
 	nickname := strings.TrimSpace(msg.Nickname)
 	if nickname == "" || len(nickname) > 32 {
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseProtocolError, "invalid nickname"))
-		conn.Close()
+		closeWebsocket(conn)
 		return
 	}
 
@@ -562,7 +544,7 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 	if sess.CodeEnabled {
 		if sess.AccessCode == "" || strings.TrimSpace(msg.Code) != sess.AccessCode {
 			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "invalid access code"))
-			conn.Close()
+			closeWebsocket(conn)
 			return
 		}
 	}
@@ -741,13 +723,19 @@ func (c *client) readPumpGuest() {
 	}
 }
 
+func closeWebsocket(conn *websocket.Conn) {
+	if err := conn.Close(); err != nil {
+		slog.Warn("listenparty: websocket close failed", "err", err)
+	}
+}
+
 // --- Client write pump ---
 
 func (c *client) writePump() {
 	ticker := time.NewTicker(pingInterval)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		closeWebsocket(c.conn)
 	}()
 	for {
 		select {
@@ -984,12 +972,20 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 
 // --- Helpers ---
 
+func (s *Service) fetchMetadata(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+	return s.fetchMetadataWithContext(context.Background(), st)
+}
+
 func (s *Service) fetchMetadataWithTimeout(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return s.fetchMetadataWithContext(ctx, st)
+}
+
+func (s *Service) fetchMetadataWithContext(ctx context.Context, st PlaybackState) (*TrackInfo, *AudiobookInfo) {
 	if st.ItemID == "" && st.TrackID == "" {
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
 
 	if st.ItemType == "audiobook" {
 		book, err := s.db.GetAudiobook(ctx, st.ItemID)
@@ -1039,23 +1035,6 @@ func (s *Service) fetchMetadataWithTimeout(st PlaybackState) (*TrackInfo, *Audio
 		}
 	}
 	return ti, nil
-}
-
-func (s *Service) fetchMetadata(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
-	return s.fetchMetadataWithTimeout(st)
-}
-
-// fetchTrackInfoWithTimeout looks up minimal track metadata with a timeout so
-// a slow or exhausted DB pool never blocks the WebSocket read loop.
-func (s *Service) fetchTrackInfoWithTimeout(trackID string) *TrackInfo {
-	ti, _ := s.fetchMetadataWithTimeout(PlaybackState{ItemID: trackID, ItemType: "track"})
-	return ti
-}
-
-// fetchTrackInfo is the non-timeout variant used during guest join (where the
-// HTTP request context is still alive).
-func (s *Service) fetchTrackInfo(trackID string) *TrackInfo {
-	return s.fetchTrackInfoWithTimeout(trackID)
 }
 
 // requireAuth extracts and validates the JWT from the request. On failure it
@@ -1116,4 +1095,3 @@ func mustMarshal(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
 }
-

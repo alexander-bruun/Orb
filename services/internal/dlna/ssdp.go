@@ -91,7 +91,7 @@ func (s *ssdpAdvertiser) shutdown() {
 	s.sendByeBye()
 	for _, c := range s.conns {
 		if c != nil {
-			c.Close()
+			_ = c.Close()
 		}
 	}
 	slog.Info("dlna: ssdp stopped")
@@ -106,7 +106,7 @@ func (s *ssdpAdvertiser) sendAlive() {
 		slog.Warn("dlna: ssdp alive dial failed", "err", err)
 		return
 	}
-	defer sendConn.Close()
+	defer func() { _ = sendConn.Close() }()
 
 	for _, nt := range targets {
 		usn := s.usn(nt)
@@ -132,7 +132,7 @@ func (s *ssdpAdvertiser) sendByeBye() {
 	if err != nil {
 		return
 	}
-	defer sendConn.Close()
+	defer func() { _ = sendConn.Close() }()
 
 	for _, nt := range targets {
 		usn := s.usn(nt)
@@ -202,7 +202,11 @@ func (s *ssdpAdvertiser) sendSearchResponse(addr *net.UDPAddr, st string) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.Warn("dlna: search response conn close failed", "err", err)
+		}
+	}()
 	_, _ = conn.Write([]byte(msg))
 }
 
