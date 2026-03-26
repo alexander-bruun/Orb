@@ -3,16 +3,22 @@ package stream_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"testing"
+	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/stream"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -85,29 +91,89 @@ func makeAudioData(n int) []byte {
 	return b
 }
 
+// makeWAVData builds a tiny valid PCM WAV payload for ffmpeg transcode tests.
+func makeWAVData(sampleRate, durationMs int) []byte {
+	const channels = 1
+	const bitsPerSample = 16
+	blockAlign := channels * (bitsPerSample / 8)
+	byteRate := sampleRate * blockAlign
+	samples := sampleRate * durationMs / 1000
+	dataSize := samples * blockAlign
+
+	out := make([]byte, 44+dataSize)
+	copy(out[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(out[4:8], uint32(36+dataSize))
+	copy(out[8:12], "WAVE")
+	copy(out[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(out[16:20], 16) // PCM chunk size
+	binary.LittleEndian.PutUint16(out[20:22], 1)  // PCM format
+	binary.LittleEndian.PutUint16(out[22:24], channels)
+	binary.LittleEndian.PutUint32(out[24:28], uint32(sampleRate))
+	binary.LittleEndian.PutUint32(out[28:32], uint32(byteRate))
+	binary.LittleEndian.PutUint16(out[32:34], uint16(blockAlign))
+	binary.LittleEndian.PutUint16(out[34:36], bitsPerSample)
+	copy(out[36:40], "data")
+	binary.LittleEndian.PutUint32(out[40:44], uint32(dataSize))
+
+	for i := 0; i < samples; i++ {
+		// 440 Hz sine wave at ~40% amplitude.
+		v := int16(0.4 * 32767 * math.Sin(2*math.Pi*440*float64(i)/float64(sampleRate)))
+		off := 44 + i*blockAlign
+		binary.LittleEndian.PutUint16(out[off:off+2], uint16(v))
+	}
+	return out
+}
+
 // setup wires together a stream.Service backed by miniredis and a memStore.
 // The store.Store pointer is nil — resolveMeta always hits the KV cache (which
 // we pre-populate), so the Postgres fallback path is never reached.
 // resolveUserPrefs exits early when userID == "" without touching the store.
-func setup(t *testing.T, audio []byte) *stream.Service {
+func setupWithMeta(t *testing.T, audio []byte, format string, bitDepth, sampleRate int) (*stream.Service, *redis.Client) {
 	t.Helper()
 
 	mr := miniredis.RunT(t)
 	kv := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 
 	obj := newMemStore()
-	obj.data[testFileKey] = audio
+	fileKey := "music/test." + format
+	obj.data[fileKey] = audio
 
 	// Pre-populate track metadata so resolveMeta returns from cache.
 	meta := fmt.Sprintf(
-		`{"file_key":%q,"file_size":%d,"format":"flac","bit_depth":%d,"sample_rate":%d,"channels":2,"duration_ms":240000}`,
-		testFileKey, int64(len(audio)), testBitDepth, testRate,
+		`{"file_key":%q,"file_size":%d,"format":%q,"bit_depth":%d,"sample_rate":%d,"channels":2,"duration_ms":240000}`,
+		fileKey, int64(len(audio)), format, bitDepth, sampleRate,
 	)
 	if err := mr.Set(kvkeys.TrackMeta(testTrackID), meta); err != nil {
 		t.Fatalf("failed to set track meta: %v", err)
 	}
 
-	return stream.New(nil, obj, kv)
+	return stream.New(nil, obj, kv), kv
+}
+
+func setup(t *testing.T, audio []byte) *stream.Service {
+	t.Helper()
+	svc, _ := setupWithMeta(t, audio, "flac", testBitDepth, testRate)
+	return svc
+}
+
+type testClaims struct {
+	UserID string `json:"sub"`
+	jwt.RegisteredClaims
+}
+
+func issueTestJWT(t *testing.T, userID, secret string) string {
+	t.Helper()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, testClaims{
+		UserID: userID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}).SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("failed to sign test JWT: %v", err)
+	}
+	return token
 }
 
 // trackRequest builds an *http.Request with the chi route context already set
@@ -322,6 +388,77 @@ func TestStream_InvalidRange(t *testing.T) {
 
 			if rec.Code != http.StatusRequestedRangeNotSatisfiable {
 				t.Errorf("Range %q: status = %d, want 416", rangeHdr, rec.Code)
+			}
+		})
+	}
+}
+
+func TestStream_LiveTranscode_FromSettings_Targets(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed in test environment")
+	}
+
+	const (
+		userID    = "user-transcode-test"
+		jwtSecret = "test-jwt-secret"
+	)
+
+	audio := makeWAVData(48000, 1200)
+	svc, kv := setupWithMeta(t, audio, "wav", 16, 48000)
+
+	if err := kv.Set(context.Background(), kvkeys.Session(userID), "1", 30*time.Minute).Err(); err != nil {
+		t.Fatalf("failed to set test session in redis: %v", err)
+	}
+	token := issueTestJWT(t, userID, jwtSecret)
+	handler := auth.JWTMiddleware(jwtSecret, kv)(http.HandlerFunc(svc.Stream))
+
+	cases := []struct {
+		name string
+		fmt  string
+		mime string
+	}{
+		{name: "mp3", fmt: "mp3", mime: "audio/mpeg"},
+		{name: "aac", fmt: "aac", mime: "audio/aac"},
+		{name: "opus", fmt: "opus", mime: "audio/ogg"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			prefs := fmt.Sprintf(`{"any":{"transcode_format":%q},"wifi":{},"mobile":{}}`, tc.fmt)
+			if err := kv.Set(context.Background(), kvkeys.UserStreamingPrefs(userID), prefs, 10*time.Minute).Err(); err != nil {
+				t.Fatalf("failed to set streaming prefs in redis: %v", err)
+			}
+
+			req := trackRequest(http.MethodGet, "/stream/"+testTrackID+"?net=wifi")
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			res := rec.Result()
+			body, _ := io.ReadAll(res.Body)
+			if res.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%q", res.StatusCode, string(body))
+			}
+			if len(body) == 0 {
+				t.Fatalf("transcoded body is empty for format %q", tc.fmt)
+			}
+			if got := res.Header.Get("Content-Type"); got != tc.mime {
+				t.Fatalf("Content-Type = %q, want %q", got, tc.mime)
+			}
+			if got := res.Header.Get("X-Orb-Transcoded"); got != "true" {
+				t.Fatalf("X-Orb-Transcoded = %q, want %q", got, "true")
+			}
+			if got := res.Header.Get("X-Orb-Transcode-Format"); got != tc.fmt {
+				t.Fatalf("X-Orb-Transcode-Format = %q, want %q", got, tc.fmt)
+			}
+			if got := res.Header.Get("X-Orb-Network-Tier"); got != "wifi" {
+				t.Fatalf("X-Orb-Network-Tier = %q, want %q", got, "wifi")
+			}
+			if got := res.Header.Get("Accept-Ranges"); got != "" {
+				t.Fatalf("Accept-Ranges = %q, want empty for transcoded streams", got)
+			}
+			if bytes.Equal(body, audio) {
+				t.Fatalf("transcoded output unexpectedly equals source bytes")
 			}
 		})
 	}

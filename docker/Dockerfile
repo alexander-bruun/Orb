@@ -17,6 +17,7 @@ COPY web/ ./
 RUN bun run build
 
 FROM nginx:alpine
+RUN apk add --no-cache ffmpeg
 RUN mkdir -p /opt
 COPY --from=go-builder /bin/api /opt/api
 COPY --from=ui-builder /app/build /usr/share/nginx/html
