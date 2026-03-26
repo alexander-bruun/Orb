@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -34,6 +35,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/openlibrary"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
+	"github.com/dhowden/tag"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -606,6 +608,16 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				slog.Warn("admin: refetch cover via search failed", "album", albumID, "err", err)
 			}
+		}
+	}
+
+	// Final fallback: try embedded/folder art from original local ingest paths.
+	if imgData == nil {
+		paths, pathErr := s.db.GetIngestPathsForAlbum(r.Context(), albumID)
+		if pathErr != nil {
+			slog.Warn("admin: refetch cover ingest-path lookup failed", "album", albumID, "err", pathErr)
+		} else {
+			imgData = findLocalAlbumCover(paths)
 		}
 	}
 
@@ -1480,13 +1492,98 @@ func derefOr[T any](p *T, fallback T) T {
 func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, data []byte) error {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		// Not a decodable image format — store raw bytes.
-		return obj.Put(ctx, key, bytes.NewReader(data), int64(len(data)))
+		return fmt.Errorf("decode cover art: %w", err)
 	}
-	pr, pw := io.Pipe()
-	go func() {
-		pw.CloseWithError(jpeg.Encode(pw, img, &jpeg.Options{Quality: 90}))
-	}()
-	defer func() { _ = pr.Close() }()
-	return obj.Put(ctx, key, pr, -1)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		return fmt.Errorf("encode cover art: %w", err)
+	}
+	encoded := buf.Bytes()
+	if len(encoded) == 0 {
+		return errors.New("encode cover art: empty output")
+	}
+	sum := sha256.Sum256(encoded)
+	if err := obj.Put(ctx, key, bytes.NewReader(encoded), int64(len(encoded))); err != nil {
+		return err
+	}
+	if sz, err := obj.Size(ctx, key); err == nil && sz != int64(len(encoded)) {
+		return fmt.Errorf("cover art size mismatch after write: wrote=%d stored=%d sha256=%s", len(encoded), sz, hex.EncodeToString(sum[:]))
+	}
+	return nil
+}
+
+func findLocalAlbumCover(paths []string) []byte {
+	seenDirs := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if b := embeddedCoverFromAudio(p); len(b) > 0 {
+			return b
+		}
+		dir := filepath.Dir(p)
+		if _, seen := seenDirs[dir]; seen {
+			continue
+		}
+		seenDirs[dir] = struct{}{}
+		if b := bestFolderImage(dir); len(b) > 0 {
+			return b
+		}
+	}
+	return nil
+}
+
+func embeddedCoverFromAudio(path string) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	m, err := tag.ReadFrom(f)
+	if err != nil {
+		return nil
+	}
+	if pic := m.Picture(); pic != nil && len(pic.Data) > 0 {
+		return pic.Data
+	}
+	return nil
+}
+
+func bestFolderImage(dir string) []byte {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var bestData []byte
+	bestDelta := int(^uint(0) >> 1)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		if !strings.HasSuffix(name, ".jpg") && !strings.HasSuffix(name, ".jpeg") && !strings.HasSuffix(name, ".png") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil || len(b) == 0 {
+			continue
+		}
+		img, _, err := image.Decode(bytes.NewReader(b))
+		if err != nil {
+			continue
+		}
+		w, h := img.Bounds().Dx(), img.Bounds().Dy()
+		if delta := abs(w - h); delta < bestDelta {
+			bestDelta = delta
+			bestData = b
+		}
+	}
+	return bestData
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }

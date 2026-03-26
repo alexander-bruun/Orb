@@ -398,3 +398,28 @@ func (s *Store) ListAlbumsWithoutCover(ctx context.Context, limit, offset int) (
 	}
 	return results, total, rows.Err()
 }
+
+// GetIngestPathsForAlbum returns local source file paths for tracks in albumID.
+func (s *Store) GetIngestPathsForAlbum(ctx context.Context, albumID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT st.path
+		FROM ingest_state st
+		JOIN tracks t ON t.id = st.track_id
+		WHERE t.album_id = $1
+		ORDER BY st.path ASC
+	`, albumID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	paths := make([]string, 0)
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}

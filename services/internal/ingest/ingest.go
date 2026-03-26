@@ -41,7 +41,7 @@ var ErrSkipped = errors.New("skipped")
 var featuredArtistRe = regexp.MustCompile(
 	`(?i)[\[\(]?\s*(?:feat\.?|ft\.?|featuring)\s+([^\]\)]+)[\]\)]?\s*$`)
 
-var featSplitRe = regexp.MustCompile(`(?i)\s*[,;&]\s*|\s+and\s+`)
+var featSplitRe = regexp.MustCompile(`(?i)\s*[,;&]\s*|\s+and\s+|\s+(?:feat\.?|ft\.?|featuring)\s+`)
 
 var genreSplitRe = regexp.MustCompile(`\s*[;/\x00]\s*|\s*,\s*`)
 
@@ -65,6 +65,34 @@ func splitArtistList(s string) []string {
 		if name != "" {
 			out = append(out, name)
 		}
+	}
+	return out
+}
+
+func canonicalArtistKey(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func dedupeArtistNames(names []string, exclude ...string) []string {
+	seen := make(map[string]bool, len(names)+len(exclude))
+	for _, ex := range exclude {
+		if k := canonicalArtistKey(ex); k != "" {
+			seen[k] = true
+		}
+	}
+
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		k := canonicalArtistKey(trimmed)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, trimmed)
 	}
 	return out
 }
@@ -852,17 +880,9 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 
 	cleanTitle, featuredNames := extractFeaturedArtists(m, path)
 	if len(artistTagExtras) > 0 {
-		seen := make(map[string]bool, len(featuredNames))
-		for _, n := range featuredNames {
-			seen[strings.ToLower(n)] = true
-		}
-		for _, n := range artistTagExtras {
-			if n != "" && !seen[strings.ToLower(n)] {
-				featuredNames = append(featuredNames, n)
-				seen[strings.ToLower(n)] = true
-			}
-		}
+		featuredNames = append(featuredNames, artistTagExtras...)
 	}
+	featuredNames = dedupeArtistNames(featuredNames, trackArtistName, albumArtistName)
 
 	_, err = g.db.UpsertTrack(ctx, store.UpsertTrackParams{
 		ID:          trackID,
@@ -1178,18 +1198,24 @@ func bestFolderImage(dir string) []byte {
 func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, data []byte) error {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return obj.Put(ctx, key, bytes.NewReader(data), int64(len(data)))
+		return fmt.Errorf("decode cover art: %w", err)
 	}
-	pr, pw := io.Pipe()
-	go func() {
-		pw.CloseWithError(jpeg.Encode(pw, img, &jpeg.Options{Quality: 90}))
-	}()
-	defer func() {
-		if err := pr.Close(); err != nil {
-			slog.Warn("ingest: cover art pipe close failed", "err", err)
-		}
-	}()
-	return obj.Put(ctx, key, pr, -1)
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		return fmt.Errorf("encode cover art: %w", err)
+	}
+	encoded := buf.Bytes()
+	if len(encoded) == 0 {
+		return errors.New("encode cover art: empty output")
+	}
+	sum := sha256.Sum256(encoded)
+	if err := obj.Put(ctx, key, bytes.NewReader(encoded), int64(len(encoded))); err != nil {
+		return err
+	}
+	if sz, err := obj.Size(ctx, key); err == nil && sz != int64(len(encoded)) {
+		return fmt.Errorf("cover art size mismatch after write: wrote=%d stored=%d sha256=%s", len(encoded), sz, hex.EncodeToString(sum[:]))
+	}
+	return nil
 }
 
 func readFLACInfo(f *os.File, ext string) (bitDepth, sampleRate int, durationMs int64) {
