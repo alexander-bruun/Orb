@@ -302,7 +302,6 @@ if (isTauri() && !isAndroidNative) {
 		invoke('discord_update', {
 			title: track.title,
 			artist: track.artist_name ?? '',
-			album: track.album_name ?? '',
 			playing: get(playbackState) === 'playing',
 			coverUrl,
 		}).catch((err) => console.error('[Discord] update failed:', err));
