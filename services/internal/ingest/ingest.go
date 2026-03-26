@@ -201,6 +201,7 @@ type Config struct {
 type ingestEntry struct {
 	mtimeUnix int64
 	fileSize  int64
+	trackID   string
 }
 
 // ProgressEvent is published to Redis during a scan so the admin SSE endpoint
@@ -268,7 +269,11 @@ func (g *Ingester) loadState(ctx context.Context) error {
 	}
 	newState := make(map[string]ingestEntry, len(rows))
 	for _, r := range rows {
-		newState[r.Path] = ingestEntry{mtimeUnix: r.MtimeUnix, fileSize: r.FileSize}
+		newState[r.Path] = ingestEntry{
+			mtimeUnix: r.MtimeUnix,
+			fileSize:  r.FileSize,
+			trackID:   r.TrackID,
+		}
 	}
 	g.stateMu.Lock()
 	g.state = newState
@@ -303,6 +308,16 @@ func (g *Ingester) upToDate(path string, fi os.FileInfo) bool {
 	return ok && e.mtimeUnix == fi.ModTime().Unix() && e.fileSize == fi.Size()
 }
 
+func (g *Ingester) knownTrackID(path string) string {
+	g.stateMu.RLock()
+	e, ok := g.state[path]
+	g.stateMu.RUnlock()
+	if !ok {
+		return ""
+	}
+	return e.trackID
+}
+
 func (g *Ingester) markDone(ctx context.Context, path string, fi os.FileInfo, trackID string) {
 	if err := g.db.UpsertIngestState(ctx, store.IngestStateRow{
 		Path:      path,
@@ -313,7 +328,11 @@ func (g *Ingester) markDone(ctx context.Context, path string, fi os.FileInfo, tr
 		slog.Warn("persist ingest state failed", "path", path, "err", err)
 	}
 	g.stateMu.Lock()
-	g.state[path] = ingestEntry{mtimeUnix: fi.ModTime().Unix(), fileSize: fi.Size()}
+	g.state[path] = ingestEntry{
+		mtimeUnix: fi.ModTime().Unix(),
+		fileSize:  fi.Size(),
+		trackID:   trackID,
+	}
 	g.stateMu.Unlock()
 }
 
@@ -333,7 +352,7 @@ func (g *Ingester) process(ctx context.Context, path string) (trackID string, er
 		slog.Info("would ingest", "path", path)
 		return "", nil
 	}
-	trackID, err = g.ingestFile(ctx, path, fi)
+	trackID, err = g.ingestFile(ctx, path, fi, g.knownTrackID(path))
 	if err != nil {
 		return "", err
 	}
@@ -679,7 +698,7 @@ func (g *Ingester) watchWithPolling(ctx context.Context) error {
 	}
 }
 
-func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) (string, error) {
+func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, existingTrackID string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -695,7 +714,10 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo) 
 		return "", fmt.Errorf("hash: %w", err)
 	}
 	fingerprint := hex.EncodeToString(h.Sum(nil))
-	trackID := deterministicUUID(fingerprint)
+	trackID := existingTrackID
+	if trackID == "" {
+		trackID = deterministicUUID(fingerprint)
+	}
 
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return "", err
@@ -1543,7 +1565,7 @@ func (g *Ingester) workerLoop(ctx context.Context, kv *redis.Client) {
 			}
 			continue
 		}
-		trackID, err := g.ingestFile(ctx, path, fi)
+		trackID, err := g.ingestFile(ctx, path, fi, g.knownTrackID(path))
 		if err != nil {
 			slog.Error("ingest worker: failed", "path", path, "err", err)
 			continue
