@@ -9,6 +9,7 @@
   } from '$lib/stores/player';
   import { waveformEnabled } from '$lib/stores/settings/theme';
   import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
+  import { waveformFailed } from '$lib/stores/player/waveformPeaks';
 
   $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
 
@@ -27,7 +28,7 @@
 </script>
 
 <div class="fs-seek">
-  {#if $waveformEnabled}
+  {#if $waveformEnabled && !$waveformFailed}
     
     <div
       class="waveform-wrap"

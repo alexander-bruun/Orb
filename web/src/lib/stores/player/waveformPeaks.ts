@@ -23,7 +23,7 @@ import { audioEngine } from '$lib/audio/engine';
 import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
 import { library as libApi } from '$lib/api/library';
-import { getOfflinePeaks } from '$lib/stores/offline/downloads';
+import { getOfflinePeaks, getOfflineBlob } from '$lib/stores/offline/downloads';
 
 export interface WaveformPeaks {
 	trackId: string;
@@ -33,6 +33,8 @@ export interface WaveformPeaks {
 
 export const waveformPeaks = writable<WaveformPeaks | null>(null);
 export const waveformLoading = writable(false);
+/** True when all waveform-loading paths have been exhausted with no result. */
+export const waveformFailed = writable(false);
 
 const NUM_BARS = 1000;
 
@@ -90,6 +92,7 @@ let generation = 0; // incremented on each track change to discard stale work
 currentTrack.subscribe(async (track) => {
 	const gen = ++generation;
 	waveformPeaks.set(null);
+	waveformFailed.set(false);
 
 	if (!track) {
 		waveformLoading.set(false);
@@ -150,6 +153,19 @@ currentTrack.subscribe(async (track) => {
 	await new Promise<void>((r) => setTimeout(r, 800));
 	if (gen !== generation || applied) return;
 
+	/** Decode an ArrayBuffer in a temporary AudioContext and apply peaks. */
+	async function decodeAndApply(data: ArrayBuffer) {
+		const tmpCtx = new AudioContext();
+		let decoded: AudioBuffer;
+		try {
+			decoded = await tmpCtx.decodeAudioData(data);
+		} finally {
+			tmpCtx.close().catch(() => {});
+		}
+		if (gen !== generation) return;
+		await applyBuf(decoded);
+	}
+
 	try {
 		const token = get(authStore).token ?? '';
 		const res = await fetch(`${getApiBase()}/stream/${track.id}`, {
@@ -160,18 +176,24 @@ currentTrack.subscribe(async (track) => {
 		const data = await res.arrayBuffer();
 		if (gen !== generation) return;
 
-		// Decode in a temporary AudioContext (not used for playback).
-		const tmpCtx = new AudioContext();
-		let decoded: AudioBuffer;
-		try {
-			decoded = await tmpCtx.decodeAudioData(data);
-		} finally {
-			tmpCtx.close().catch(() => {});
-		}
-		if (gen !== generation) return;
-
-		await applyBuf(decoded);
+		await decodeAndApply(data);
 	} catch {
-		if (gen === generation) waveformLoading.set(false);
+		// Network fetch failed (e.g. offline) — fall back to the IDB blob directly.
+		// This covers insecure-context deployments and Tauri where the service worker
+		// cannot serve the audio, but the blob is still available in IndexedDB.
+		try {
+			const blob = await getOfflineBlob(track.id);
+			if (gen !== generation) return;
+			if (blob) {
+				const data = await blob.arrayBuffer();
+				if (gen !== generation) return;
+				await decodeAndApply(data);
+				return;
+			}
+		} catch { /* ignore */ }
+		if (gen === generation) {
+			waveformLoading.set(false);
+			waveformFailed.set(true);
+		}
 	}
 });
