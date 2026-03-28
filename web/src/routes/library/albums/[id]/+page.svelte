@@ -1,7 +1,9 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { library as libApi } from '$lib/api/library';
   import { admin as adminApi } from '$lib/api/admin';
+  import { recommend } from '$lib/api/recommend';
   import { authStore } from '$lib/stores/auth';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import type { Album, Track, Genre } from '$lib/types';
@@ -9,12 +11,15 @@
   import { downloadAlbum, downloads } from '$lib/stores/offline/downloads';
   import { getApiBase } from '$lib/api/base';
 
+  interface SimilarAlbum { id: string; title: string; cover_art_key?: string; artist_name?: string; }
+
   let album: Album | null = null;
   let tracks: Track[] = [];
   let genres: Genre[] = [];
   let variants: Album[] = [];
   let artistName: string | null = null;
   let artistId: string | null = null;
+  let similarAlbums: SimilarAlbum[] = [];
   let loading = true;
   let isRestoring = false;
 
@@ -23,7 +28,7 @@
   $: isPausedThisAlbum = isAlbumActive && $playbackState === 'paused';
 
   export const snapshot = {
-    capture: () => ({ album, tracks, genres, variants, artistName, artistId }),
+    capture: () => ({ album, tracks, genres, variants, artistName, artistId, similarAlbums }),
     restore: (value) => {
       album = value.album;
       tracks = value.tracks;
@@ -31,6 +36,7 @@
       variants = value.variants;
       artistName = value.artistName;
       artistId = value.artistId;
+      similarAlbums = value.similarAlbums ?? [];
       isRestoring = true;
       loading = false;
     }
@@ -45,7 +51,7 @@
       return;
     }
     loading = true;
-    album = null; tracks = []; genres = []; variants = []; artistName = null; artistId = null;
+    album = null; tracks = []; genres = []; variants = []; artistName = null; artistId = null; similarAlbums = [];
     try {
       const res = await libApi.album(id);
       album = res.album;
@@ -53,6 +59,21 @@
       genres = res.genres ?? [];
       variants = res.variants ?? [];
       if (res.artist) { artistName = res.artist.name; artistId = res.artist.id; }
+      // Fetch similar albums in the background using the first track as seed
+      if (res.tracks.length > 0) {
+        recommend.similar(res.tracks[0].id, 30, id)
+          .then((simTracks) => {
+            const seen = new Set<string>();
+            const result: SimilarAlbum[] = [];
+            for (const t of simTracks) {
+              if (!t.album_id || seen.has(t.album_id)) continue;
+              seen.add(t.album_id);
+              result.push({ id: t.album_id, title: t.album_name ?? 'Unknown Album', cover_art_key: t.cover_art_key, artist_name: t.artist_name });
+            }
+            similarAlbums = result.slice(0, 12);
+          })
+          .catch(() => {});
+      }
     } finally {
       loading = false;
       isRestoring = false;
@@ -390,6 +411,34 @@
   {/if}
 
   <TrackList {tracks} />
+
+  {#if similarAlbums.length > 0}
+    <section class="similar-section">
+      <h2 class="similar-title">Similar Albums</h2>
+      <div class="carousel">
+        {#each similarAlbums as sa (sa.id)}
+          <div
+            class="carousel-card"
+            role="button"
+            tabindex="0"
+            aria-label="Open {sa.title}"
+            on:click={() => goto(`/library/albums/${sa.id}`)}
+            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(`/library/albums/${sa.id}`); } }}
+          >
+            <div class="carousel-cover-wrap">
+              {#if sa.cover_art_key}
+                <img src="{getApiBase()}/covers/{sa.id}" alt={sa.title} class="carousel-cover" loading="lazy" />
+              {:else}
+                <div class="carousel-cover carousel-placeholder">♪</div>
+              {/if}
+            </div>
+            <span class="carousel-name" title={sa.title}>{sa.title}</span>
+            {#if sa.artist_name}<span class="carousel-artist">{sa.artist_name}</span>{/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 {/if}
 
 <svelte:head>
@@ -484,4 +533,16 @@
     .meta-row { justify-content: center; flex-wrap: wrap; }
     .genre-pills { justify-content: center; }
   }
+
+  /* ── Similar Albums ── */
+  .similar-section { margin-top: 40px; }
+  .similar-title { font-size: 1rem; font-weight: 700; margin: 0 0 16px; color: var(--text); }
+  .carousel { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+  .carousel-card { flex-shrink: 0; width: 120px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+  .carousel-card:hover .carousel-cover { transform: scale(1.03); }
+  .carousel-cover-wrap { width: 120px; height: 120px; border-radius: 6px; overflow: hidden; background: var(--bg-elevated); }
+  .carousel-cover { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.15s; }
+  .carousel-placeholder { display: flex; align-items: center; justify-content: center; font-size: 2.5rem; color: var(--text-muted); }
+  .carousel-name { font-size: 0.78rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .carousel-artist { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

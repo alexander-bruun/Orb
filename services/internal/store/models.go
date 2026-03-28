@@ -147,8 +147,9 @@ type Track struct {
 	ReplayGainTrack *float64 `json:"replay_gain_track,omitempty"`
 	// BPM is the track tempo in beats per minute (from track_features). Nil when unknown.
 	BPM        *float64 `json:"bpm,omitempty"`
-	ArtistName *string  `json:"artist_name,omitempty"`
-	AlbumName  *string  `json:"album_name,omitempty"`
+	ArtistName  *string `json:"artist_name,omitempty"`
+	AlbumName   *string `json:"album_name,omitempty"`
+	CoverArtKey string  `json:"cover_art_key,omitempty"`
 }
 
 // UpsertArtistParams for upserting an artist.
