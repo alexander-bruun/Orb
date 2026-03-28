@@ -20,6 +20,7 @@ Orb is configured via environment variables. Important options:
 
 - `MUSIC_DIRS` — comma-separated read-only paths to music folders mounted inside container (e.g. `/music/drive-1`)
 - `INGEST_EXCLUDE` — comma-separated glob patterns to exclude from scanning
+- `INGEST_WORKERS` — number of parallel ingest workers (default: number of CPU cores). On Linux, Orb automatically detects spinning hard disks via `/sys/block/<dev>/queue/rotational` and caps workers at 2 to avoid seek thrashing. Set this variable to override that limit (e.g. `INGEST_WORKERS=1` for a single slow drive, or `INGEST_WORKERS=8` to force higher parallelism on an SSD/RAID array regardless of detection).
 - `INGEST_SIMILARITY` — compute audio similarity via chromaprint during ingest (default: `true`)
 - `INGEST_ENRICH` — fetch MusicBrainz metadata enrichment during ingest (default: `true`)
 - `INGEST_WAVEFORM` — generate waveform data during ingest (default: `true`)

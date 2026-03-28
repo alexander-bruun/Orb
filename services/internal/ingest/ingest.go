@@ -19,10 +19,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
@@ -296,6 +298,9 @@ type Ingester struct {
 	mb              *musicbrainz.Client
 	enrichedArtists sync.Map
 	enrichedAlbums  sync.Map
+
+	pendingMu sync.Mutex
+	pending   []store.IngestStateRow
 }
 
 // New creates a new Ingester with the given dependencies and config.
@@ -382,15 +387,10 @@ func (g *Ingester) knownTrackID(path string) string {
 	return e.trackID
 }
 
+const ingestStateBatchSize = 50
+
 func (g *Ingester) markDone(ctx context.Context, path string, fi os.FileInfo, trackID string) {
-	if err := g.db.UpsertIngestState(ctx, store.IngestStateRow{
-		Path:      path,
-		MtimeUnix: fi.ModTime().Unix(),
-		FileSize:  fi.Size(),
-		TrackID:   trackID,
-	}); err != nil {
-		slog.Warn("persist ingest state failed", "path", path, "err", err)
-	}
+	// Update in-memory state immediately so concurrent workers see it.
 	g.stateMu.Lock()
 	g.state[path] = ingestEntry{
 		mtimeUnix: fi.ModTime().Unix(),
@@ -398,12 +398,52 @@ func (g *Ingester) markDone(ctx context.Context, path string, fi os.FileInfo, tr
 		trackID:   trackID,
 	}
 	g.stateMu.Unlock()
+
+	// Accumulate DB writes and flush when the batch is full.
+	g.pendingMu.Lock()
+	g.pending = append(g.pending, store.IngestStateRow{
+		Path:      path,
+		MtimeUnix: fi.ModTime().Unix(),
+		FileSize:  fi.Size(),
+		TrackID:   trackID,
+	})
+	var toFlush []store.IngestStateRow
+	if len(g.pending) >= ingestStateBatchSize {
+		toFlush = g.pending
+		g.pending = nil
+	}
+	g.pendingMu.Unlock()
+
+	if toFlush != nil {
+		if err := g.db.BatchUpsertIngestState(ctx, toFlush); err != nil {
+			slog.Warn("persist ingest state batch failed", "err", err)
+		}
+	}
 }
 
-func (g *Ingester) process(ctx context.Context, path string) (trackID string, err error) {
-	fi, err := os.Stat(path)
-	if err != nil {
-		return "", err
+// flushPendingState writes any remaining buffered ingest state rows to the DB.
+// Call this after all markDone calls for a scan are complete.
+func (g *Ingester) flushPendingState(ctx context.Context) {
+	g.pendingMu.Lock()
+	toFlush := g.pending
+	g.pending = nil
+	g.pendingMu.Unlock()
+
+	if len(toFlush) == 0 {
+		return
+	}
+	if err := g.db.BatchUpsertIngestState(ctx, toFlush); err != nil {
+		slog.Warn("persist ingest state flush failed", "err", err)
+	}
+}
+
+func (g *Ingester) process(ctx context.Context, path string, fi os.FileInfo) (trackID string, err error) {
+	if fi == nil {
+		var statErr error
+		fi, statErr = os.Stat(path)
+		if statErr != nil {
+			return "", statErr
+		}
 	}
 	if g.upToDate(path, fi) {
 		return "", ErrSkipped
@@ -434,33 +474,9 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 		slog.Warn("ingest: failed to reload state, proceeding with stale cache", "err", err)
 	}
 
-	var paths []string
-	for _, dir := range g.cfg.Dirs {
-		dir = strings.TrimSpace(dir)
-		if dir == "" {
-			continue
-		}
-		if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				slog.Warn("walk error", "path", path, "err", walkErr)
-				return nil
-			}
-			if d.IsDir() {
-				if path != dir && g.isDirExcluded(path) {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if isAudioFile(path) {
-				paths = append(paths, path)
-			}
-			return nil
-		}); err != nil {
-			slog.Warn("walk error", "dir", dir, "err", err)
-		}
-	}
+	entries := g.collectPaths()
 
-	total := len(paths)
+	total := len(entries)
 	var nDone, nSkipped, nErrs int64
 	var mu sync.Mutex
 	var ids []string
@@ -469,19 +485,19 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 	if workers < 1 {
 		workers = 1
 	}
-	pathCh := make(chan string, workers*2)
+	entryCh := make(chan pathEntry, workers*2)
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for p := range pathCh {
-				id, err := g.process(ctx, p)
+			for pe := range entryCh {
+				id, err := g.process(ctx, pe.path, pe.fi)
 				switch {
 				case errors.Is(err, ErrSkipped):
 					atomic.AddInt64(&nSkipped, 1)
 				case err != nil:
-					slog.Error("ingest failed", "path", p, "err", err)
+					slog.Error("ingest failed", "path", pe.path, "err", err)
 					atomic.AddInt64(&nErrs, 1)
 				default:
 					if id != "" {
@@ -497,16 +513,23 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 					Done:     done,
 					Skipped:  int(atomic.LoadInt64(&nSkipped)),
 					Errors:   int(atomic.LoadInt64(&nErrs)),
-					FilePath: p,
+					FilePath: pe.path,
 				})
 			}
 		}()
 	}
-	for _, p := range paths {
-		pathCh <- p
+	for _, pe := range entries {
+		entryCh <- pe
 	}
-	close(pathCh)
+	close(entryCh)
 	wg.Wait()
+	g.flushPendingState(ctx)
+
+	// Extract paths slice for orphan pruning.
+	paths := make([]string, len(entries))
+	for i, pe := range entries {
+		paths[i] = pe.path
+	}
 
 	// Prune DB records for files that were deleted from disk since the last scan.
 	pruned, objKeys, err := g.db.PruneOrphanedTracks(ctx, paths)
@@ -554,7 +577,7 @@ func (g *Ingester) ReingestAlbum(ctx context.Context, albumID string) (newTrackI
 	var mu sync.Mutex
 	var ids []string
 	for _, p := range paths {
-		id, err := g.process(ctx, p)
+		id, err := g.process(ctx, p, nil)
 		switch {
 		case errors.Is(err, ErrSkipped):
 			skipped++
@@ -676,7 +699,8 @@ func (g *Ingester) Run(ctx context.Context) error {
 							return nil
 						}
 						if isAudioFile(path) {
-							if _, err := g.process(ctx, path); err != nil && !errors.Is(err, ErrSkipped) {
+							dfi, _ := d.Info()
+							if _, err := g.process(ctx, path, dfi); err != nil && !errors.Is(err, ErrSkipped) {
 								slog.Error("ingest failed", "path", path, "err", err)
 							}
 						}
@@ -688,11 +712,11 @@ func (g *Ingester) Run(ctx context.Context) error {
 			if !isAudioFile(ev.Name) {
 				continue
 			}
-			go func(p string) {
-				if _, err := g.process(ctx, p); err != nil && !errors.Is(err, ErrSkipped) {
+			go func(p string, pfi os.FileInfo) {
+				if _, err := g.process(ctx, p, pfi); err != nil && !errors.Is(err, ErrSkipped) {
 					slog.Error("ingest failed", "path", p, "err", err)
 				}
-			}(ev.Name)
+			}(ev.Name, fi)
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return nil
@@ -763,30 +787,31 @@ func (g *Ingester) watchWithPolling(ctx context.Context) error {
 }
 
 func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, existingTrackID string) (string, error) {
-	f, err := os.Open(path)
+	f, err := openAudioFile(path)
 	if err != nil {
 		return "", err
 	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil {
-			slog.Warn("ingest: file close failed", "path", path, "err", cerr)
-		}
-	}()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", fmt.Errorf("hash: %w", err)
+	fadviseSequential(f)
+	// Read the entire file into memory once. This eliminates all subsequent
+	// seeks (tag parse, FLAC header, object store write) and — for local FS
+	// object stores — prevents the disk head from bouncing between the source
+	// file and the destination during the copy.
+	buf, err := io.ReadAll(f)
+	if cerr := f.Close(); cerr != nil {
+		slog.Warn("ingest: file close failed", "path", path, "err", cerr)
 	}
-	fingerprint := hex.EncodeToString(h.Sum(nil))
+	if err != nil {
+		return "", fmt.Errorf("read file: %w", err)
+	}
+
+	sum := sha256.Sum256(buf)
+	fingerprint := hex.EncodeToString(sum[:])
 	trackID := existingTrackID
 	if trackID == "" {
 		trackID = deterministicUUID(fingerprint)
 	}
 
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return "", err
-	}
-	m, err := tag.ReadFrom(f)
+	m, err := tag.ReadFrom(bytes.NewReader(buf))
 	if err != nil {
 		return "", fmt.Errorf("read tags: %w", err)
 	}
@@ -935,7 +960,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		discNum = d
 	}
 
-	bitDepth, sampleRate, durationMs := readFLACInfo(f, ext)
+	bitDepth, sampleRate, durationMs := readFLACInfoFromBytes(buf, ext)
 	if sampleRate == 0 {
 		sampleRate = 44100
 	}
@@ -999,10 +1024,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 	}
 
 	if exists, _ := g.obj.Exists(ctx, fileKey); !exists {
-		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return "", err
-		}
-		if err := g.obj.Put(ctx, fileKey, f, fi.Size()); err != nil {
+		if err := g.obj.Put(ctx, fileKey, bytes.NewReader(buf), int64(len(buf))); err != nil {
 			return "", fmt.Errorf("store audio: %w", err)
 		}
 	}
@@ -1224,6 +1246,81 @@ func matchExcludeGlob(pattern, path string) bool {
 	return false
 }
 
+// pathEntry pairs a file path with its already-obtained FileInfo so callers
+// avoid a second os.Stat syscall when dispatching to workers.
+type pathEntry struct {
+	path string
+	fi   os.FileInfo
+}
+
+// inodeOf extracts the inode number from a FileInfo for sorting purposes.
+// Returns 0 on platforms where syscall.Stat_t is unavailable (e.g. Windows),
+// which makes the sort a no-op (stable order preserved).
+func inodeOf(fi os.FileInfo) uint64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return st.Ino
+	}
+	return 0
+}
+
+// collectPaths walks all configured directories and returns a slice of
+// pathEntry values for every audio file found. The slice is sorted by inode
+// number so that workers read the disk in roughly sequential order — critical
+// for spinning-disk (HDD) performance where random seeks are expensive.
+func (g *Ingester) collectPaths() []pathEntry {
+	// dirInodes caches each directory's inode so we can use it as the primary
+	// sort key. Files in the same album directory share a disk region; sorting
+	// by (dir inode, file inode) keeps the head within that region before
+	// advancing to the next album — better than a flat inode sort when albums
+	// were added to the library at different times (non-contiguous inodes).
+	dirInodes := make(map[string]uint64)
+
+	var entries []pathEntry
+	for _, dir := range g.cfg.Dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				slog.Warn("walk error", "path", path, "err", walkErr)
+				return nil
+			}
+			if d.IsDir() {
+				if path != dir && g.isDirExcluded(path) {
+					return filepath.SkipDir
+				}
+				// Cache the directory inode while we have the DirEntry handy.
+				if dfi, err := d.Info(); err == nil {
+					dirInodes[path] = inodeOf(dfi)
+				}
+				return nil
+			}
+			if !isAudioFile(path) {
+				return nil
+			}
+			fi, err := d.Info()
+			if err != nil {
+				slog.Warn("ingest: stat failed during walk", "path", path, "err", err)
+				return nil
+			}
+			entries = append(entries, pathEntry{path: path, fi: fi})
+			return nil
+		}); err != nil {
+			slog.Warn("walk error", "dir", dir, "err", err)
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		di, dj := filepath.Dir(entries[i].path), filepath.Dir(entries[j].path)
+		inoi, inoj := dirInodes[di], dirInodes[dj]
+		if inoi != inoj {
+			return inoi < inoj
+		}
+		return inodeOf(entries[i].fi) < inodeOf(entries[j].fi)
+	})
+	return entries
+}
+
 func isAudioFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".flac", ".wav", ".mp3", ".aiff", ".aif":
@@ -1313,17 +1410,11 @@ func encodeImageToJPEG(ctx context.Context, data []byte) ([]byte, error) {
 	return out, nil
 }
 
-func readFLACInfo(f *os.File, ext string) (bitDepth, sampleRate int, durationMs int64) {
-	if ext != "flac" {
+func readFLACInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, durationMs int64) {
+	if ext != "flac" || len(data) < 42 {
 		return
 	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return
-	}
-	buf := make([]byte, 42)
-	if _, err := io.ReadFull(f, buf); err != nil {
-		return
-	}
+	buf := data[:42]
 	if string(buf[0:4]) != "fLaC" || buf[4]&0x7F != 0 {
 		return
 	}
@@ -1410,7 +1501,7 @@ func (g *Ingester) ScanAndEnqueue(ctx context.Context, kv *redis.Client) (int, e
 			if !isAudioFile(path) {
 				return nil
 			}
-			fi, err := os.Stat(path)
+			fi, err := d.Info()
 			if err != nil {
 				return nil
 			}

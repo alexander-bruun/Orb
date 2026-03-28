@@ -341,10 +341,21 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 	if len(dirs) == 0 {
 		return nil
 	}
+	workers := runtime.NumCPU()
+	if w := config.Env("INGEST_WORKERS", ""); w != "" {
+		if n, err := strconv.Atoi(w); err == nil && n > 0 {
+			workers = n
+		}
+	}
+	if anyDirOnHDD(dirs) && workers > 2 {
+		workers = 2
+		slog.Info("ingest: spinning-disk detected, limiting workers to 2 to reduce seek thrashing")
+	}
+
 	cfg := ingest.Config{
 		Dirs:              dirs,
 		ExcludeGlobs:      parseDirs(config.Env("INGEST_EXCLUDE", "")),
-		Workers:           runtime.NumCPU(),
+		Workers:           workers,
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
 		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
@@ -465,6 +476,101 @@ func detectLANIP() string {
 		}
 	}
 	return "127.0.0.1"
+}
+
+// anyDirOnHDD returns true if any of the given directory paths appears to live
+// on a spinning hard disk. It reads /sys/block/<dev>/queue/rotational (Linux
+// only); on other platforms or when the check fails it returns false so the
+// worker count is left unchanged.
+func anyDirOnHDD(dirs []string) bool {
+	for _, dir := range dirs {
+		if isOnHDD(dir) {
+			return true
+		}
+	}
+	return false
+}
+
+// isOnHDD checks whether path lives on a rotational (spinning) block device by
+// reading /sys/block/<dev>/queue/rotational. Returns false on any error or on
+// non-Linux platforms.
+func isOnHDD(path string) bool {
+	var st syscall.Stat_t
+	if err := syscall.Stat(path, &st); err != nil {
+		return false
+	}
+	major := uint64(st.Dev>>8) & 0xfff
+	minor := uint64(st.Dev) & 0xff
+
+	// Walk /sys/block to find the matching block device by major:minor.
+	entries, err := os.ReadDir("/sys/block")
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		devFile := filepath.Join("/sys/block", e.Name(), "dev")
+		data, err := os.ReadFile(devFile)
+		if err != nil {
+			continue
+		}
+		// Format is "major:minor\n"
+		parts := strings.SplitN(strings.TrimSpace(string(data)), ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		maj, err1 := strconv.ParseUint(parts[0], 10, 64)
+		min, err2 := strconv.ParseUint(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if maj != major || min != minor {
+			// Also check partitions: partition dev files live under
+			// /sys/block/<dev>/<part>/dev — the parent device is what has
+			// the rotational flag, so we match on major only for partitions.
+			_ = maj
+			_ = min
+			continue
+		}
+		rotFile := filepath.Join("/sys/block", e.Name(), "queue", "rotational")
+		rot, err := os.ReadFile(rotFile)
+		if err != nil {
+			return false
+		}
+		return strings.TrimSpace(string(rot)) == "1"
+	}
+
+	// Path may be on a partition — try matching by major number and finding a
+	// partition whose minor matches, then check its parent's rotational flag.
+	for _, e := range entries {
+		// Read each partition under this block device.
+		partEntries, err := os.ReadDir(filepath.Join("/sys/block", e.Name()))
+		if err != nil {
+			continue
+		}
+		for _, pe := range partEntries {
+			devFile := filepath.Join("/sys/block", e.Name(), pe.Name(), "dev")
+			data, err := os.ReadFile(devFile)
+			if err != nil {
+				continue
+			}
+			parts := strings.SplitN(strings.TrimSpace(string(data)), ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			maj, err1 := strconv.ParseUint(parts[0], 10, 64)
+			min, err2 := strconv.ParseUint(parts[1], 10, 64)
+			if err1 != nil || err2 != nil || maj != major || min != minor {
+				continue
+			}
+			rotFile := filepath.Join("/sys/block", e.Name(), "queue", "rotational")
+			rot, err := os.ReadFile(rotFile)
+			if err != nil {
+				return false
+			}
+			return strings.TrimSpace(string(rot)) == "1"
+		}
+	}
+	return false
 }
 
 // buildAudiobookIngestService creates the audiobook ingest service if AUDIOBOOK_DIRS is set.

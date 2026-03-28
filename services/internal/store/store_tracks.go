@@ -455,6 +455,26 @@ ON CONFLICT (path) DO UPDATE
 	return err
 }
 
+// BatchUpsertIngestState bulk-upserts ingest state rows in a single round trip.
+func (s *Store) BatchUpsertIngestState(ctx context.Context, rows []IngestStateRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	query := `INSERT INTO ingest_state (path, mtime_unix, file_size, track_id, ingested_at) VALUES `
+	args := make([]any, 0, len(rows)*4)
+	for i, r := range rows {
+		if i > 0 {
+			query += ", "
+		}
+		n := i * 4
+		query += fmt.Sprintf("($%d, $%d, $%d, $%d, now())", n+1, n+2, n+3, n+4)
+		args = append(args, r.Path, r.MtimeUnix, r.FileSize, r.TrackID)
+	}
+	query += ` ON CONFLICT (path) DO UPDATE SET mtime_unix = EXCLUDED.mtime_unix, file_size = EXCLUDED.file_size, track_id = EXCLUDED.track_id, ingested_at = EXCLUDED.ingested_at`
+	_, err := s.pool.Exec(ctx, query, args...)
+	return err
+}
+
 // DeleteIngestStateForAlbum removes ingest_state rows for all tracks belonging
 // to the given album and returns the filesystem paths that were deleted.
 // Call this before a targeted rescan so the files are not skipped by upToDate.
