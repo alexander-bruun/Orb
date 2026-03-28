@@ -308,7 +308,7 @@ func (s *Service) uploadAvatar(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusBadRequest, "missing avatar file")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if header.Size > maxAvatarSize {
 		httputil.WriteErr(w, http.StatusRequestEntityTooLarge, "avatar must be ≤2 MB")

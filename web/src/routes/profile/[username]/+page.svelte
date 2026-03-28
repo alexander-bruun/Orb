@@ -7,7 +7,7 @@
   import type { PublicProfile, ActivityRow, UserStats } from '$lib/api/social';
   import type { Playlist } from '$lib/types';
 
-  const username = $page.params.username;
+  const username = $page.params.username!;
   $: isOwnProfile = $authStore.user?.username === username;
 
   let profile: PublicProfile | null = null;

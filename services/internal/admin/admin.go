@@ -658,7 +658,7 @@ func (s *Service) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusBadRequest, "missing cover field")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	imgData, err := io.ReadAll(io.LimitReader(file, 10<<20))
 	if err != nil {
@@ -735,7 +735,7 @@ func (s *Service) uploadAudiobookCover(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusBadRequest, "missing cover field")
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	imgData, err := io.ReadAll(io.LimitReader(file, 10<<20))
 	if err != nil {

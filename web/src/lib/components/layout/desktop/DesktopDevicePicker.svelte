@@ -78,21 +78,20 @@
           class="device-item"
           class:is-active={$castState === 'connected'}
           on:click={handleCastToggle}
-          disabled={$castState === 'connecting' || $castState === 'unavailable'}
+          disabled={$castState === 'connecting'}
         >
           <div class="device-item-left">
             {#if $castState === 'connected'}
               <span class="device-active-dot"></span>
             {:else}
-              <span class="device-idle-dot" class:dim={$castState === 'unavailable'}></span>
+              <span class="device-idle-dot"></span>
             {/if}
             <div class="device-item-info">
               <span class="device-item-name">
                 {$castState === 'connected' ? $castDeviceName : 'Chromecast / Google TV'}
               </span>
               <span class="device-item-track">
-                {#if $castState === 'unavailable'}Requires Chrome — no Cast devices found
-                {:else if $castState === 'connecting'}Connecting…
+                {#if $castState === 'connecting'}Connecting…
                 {:else if $castState === 'connected'}Casting now — click to stop
                 {:else}Click to cast to a nearby device{/if}
               </span>
@@ -100,7 +99,7 @@
           </div>
           {#if $castState === 'connected'}
             <span class="device-transfer-hint" style="color:var(--error,#e55)">Stop</span>
-          {:else if $castState !== 'unavailable'}
+          {:else}
             <span class="device-transfer-hint">Cast</span>
           {/if}
         </button>
@@ -340,10 +339,7 @@
     opacity: 0.35;
     flex-shrink: 0;
   }
-  .device-idle-dot.dim {
-    opacity: 0.15;
-  }
-  .device-picker-empty {
+.device-picker-empty {
     font-size: 0.8rem;
     color: var(--text-muted);
     padding: 6px 10px;
