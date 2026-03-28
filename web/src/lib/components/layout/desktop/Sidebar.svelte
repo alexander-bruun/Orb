@@ -71,7 +71,7 @@
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    padding: 16px 0;
+    padding-top: 16px;
     overflow-y: auto;
   }
   .nav { display: flex; flex-direction: column; gap: 2px; padding: 0 12px; }
