@@ -126,3 +126,77 @@ function createWaveformStore() {
 }
 
 export const waveformEnabled = createWaveformStore();
+
+// ── Visualizer button visibility ──────────────────────────────────────────────
+
+const VIS_BTN_KEY = STORAGE_KEYS.VISUALIZER_BUTTON_ENABLED;
+
+function createVisualizerButtonStore() {
+	const initial = browser
+		? (localStorage.getItem(VIS_BTN_KEY) ?? 'true') !== 'false'
+		: true;
+	const { subscribe, set } = writable<boolean>(initial);
+	return {
+		subscribe,
+		set(value: boolean) {
+			if (browser) localStorage.setItem(VIS_BTN_KEY, String(value));
+			set(value);
+		},
+		toggle() {
+			const current = browser ? (localStorage.getItem(VIS_BTN_KEY) ?? 'true') !== 'false' : true;
+			const next = !current;
+			if (browser) localStorage.setItem(VIS_BTN_KEY, String(next));
+			set(next);
+		}
+	};
+}
+
+export const visualizerButtonEnabled = createVisualizerButtonStore();
+
+// ── Bottom bar secondary info preference ─────────────────────────────────────
+
+const BOTTOM_BAR_SECONDARY_KEY = STORAGE_KEYS.BOTTOM_BAR_SECONDARY;
+
+export type BottomBarSecondary = 'album' | 'artist';
+
+function createBottomBarSecondaryStore() {
+	const initial: BottomBarSecondary = browser
+		? ((localStorage.getItem(BOTTOM_BAR_SECONDARY_KEY) ?? 'album') as BottomBarSecondary)
+		: 'album';
+	const { subscribe, set } = writable<BottomBarSecondary>(initial);
+	return {
+		subscribe,
+		set(value: BottomBarSecondary) {
+			if (browser) localStorage.setItem(BOTTOM_BAR_SECONDARY_KEY, value);
+			set(value);
+		},
+	};
+}
+
+export const bottomBarSecondary = createBottomBarSecondaryStore();
+
+// ── Listen Along button visibility ───────────────────────────────────────────
+
+const LISTEN_ALONG_KEY = STORAGE_KEYS.LISTEN_ALONG_ENABLED;
+
+function createListenAlongEnabledStore() {
+	const initial = browser
+		? (localStorage.getItem(LISTEN_ALONG_KEY) ?? 'true') !== 'false'
+		: true;
+	const { subscribe, set } = writable<boolean>(initial);
+	return {
+		subscribe,
+		set(value: boolean) {
+			if (browser) localStorage.setItem(LISTEN_ALONG_KEY, String(value));
+			set(value);
+		},
+		toggle() {
+			const current = browser ? (localStorage.getItem(LISTEN_ALONG_KEY) ?? 'true') !== 'false' : true;
+			const next = !current;
+			if (browser) localStorage.setItem(LISTEN_ALONG_KEY, String(next));
+			set(next);
+		}
+	};
+}
+
+export const listenAlongEnabled = createListenAlongEnabledStore();

@@ -5,12 +5,15 @@
   let open = false;
   let triggerEl: HTMLButtonElement;
 
+  export let closeOther: () => void = () => {};
+
   function toggle(e: MouseEvent) {
     e.stopPropagation();
+    if (!open) closeOther();
     open = !open;
   }
 
-  function close() {
+  export function close() {
     open = false;
   }
 

@@ -10,11 +10,11 @@
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled, smartShuffleEnabled } from '$lib/stores/player';
-  import { waveformEnabled } from '$lib/stores/settings/theme';
+  import { waveformEnabled, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
   import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
-  import { downloads, deleteDownload, deleteAllDownloads, getStorageEstimate } from '$lib/stores/offline/downloads';
+  import { downloads, deleteDownload, deleteAllDownloads, getStorageEstimate, retryDownload } from '$lib/stores/offline/downloads';
   import {
     audioOutputDevices,
     selectedAudioOutputId,
@@ -1380,12 +1380,49 @@
       >
         <span class="toggle-knob"></span>
       </button>
-    </div>
+      </div>
 
-    <div class="setting-row">
+      <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-name">Waveform seek bar</span>
+        <span class="setting-name">Visualizer button</span>
         <span class="setting-desc">
+          Show the sound visualizer toggle in the bottom player bar.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$visualizerButtonEnabled}
+        role="switch"
+        aria-checked={$visualizerButtonEnabled}
+        on:click={() => visualizerButtonEnabled.toggle()}
+        title={$visualizerButtonEnabled ? 'Disable visualizer button' : 'Enable visualizer button'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+      </div>
+
+      <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Listen Along button</span>
+        <span class="setting-desc">
+          Show the Listen Along button in the bottom player bar.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$listenAlongEnabled}
+        role="switch"
+        aria-checked={$listenAlongEnabled}
+        on:click={() => listenAlongEnabled.toggle()}
+        title={$listenAlongEnabled ? 'Disable Listen Along button' : 'Enable Listen Along button'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+      </div>
+
+      <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Waveform seek bar</span>        <span class="setting-desc">
           Show a waveform visualisation instead of a plain seek bar. Pre-generated during ingest using audiowaveform; falls back to client-side computation.
         </span>
       </div>
@@ -1741,6 +1778,38 @@
         {/each}
       </div>
     </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-name">Bottom bar secondary info</span>
+        <span class="setting-desc">What to show below the track title in the player bar</span>
+      </div>
+      <div class="mode-toggle">
+        <button
+          class="mode-btn"
+          class:active={$bottomBarSecondary === 'album'}
+          on:click={() => bottomBarSecondary.set('album')}
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="12" cy="12" r="4"/>
+            <circle cx="12" cy="12" r="1" fill="currentColor"/>
+          </svg>
+          Album
+        </button>
+        <button
+          class="mode-btn"
+          class:active={$bottomBarSecondary === 'artist'}
+          on:click={() => bottomBarSecondary.set('artist')}
+        >
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="4"/>
+            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+          </svg>
+          Artist
+        </button>
+      </div>
+    </div>
   </section>
 
   <!-- ── Downloads ─────────────────────────────────────── -->
@@ -1782,7 +1851,9 @@
         {#each errorEntries as entry (entry.trackId)}
           <div class="dl-error-item">
             <span class="dl-error-title">{entry.title}</span>
+            {#if entry.artistName}<span class="dl-error-artist">{entry.artistName}</span>{/if}
             <span class="dl-error-msg">{entry.error || 'Unknown error'}</span>
+            <button class="btn-ghost" style="font-size:11px;padding:2px 8px" on:click={() => retryDownload(entry)}>Retry</button>
             <button class="btn-ghost" style="font-size:11px;padding:2px 8px" on:click={() => deleteDownload(entry.trackId)}>Dismiss</button>
           </div>
         {/each}
@@ -2786,6 +2857,13 @@
   }
   .dl-error-title {
     color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dl-error-artist {
+    color: var(--text-muted, #888);
+    font-size: 11px;
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;

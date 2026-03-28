@@ -5,12 +5,15 @@
 
   let menuOpen = false;
 
+  export let closeOther: () => void = () => {};
+
   export function close() {
     menuOpen = false;
   }
 
   function toggleMenu(e: MouseEvent) {
     e.stopPropagation();
+    if (!menuOpen) closeOther();
     menuOpen = !menuOpen;
   }
 

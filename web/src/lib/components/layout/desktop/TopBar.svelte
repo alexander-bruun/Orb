@@ -11,9 +11,11 @@
 
   let quickSearchRef: QuickSearch;
   let userMenuRef: UserMenu;
+  let ingestRef: IngestIndicator;
 
   function closeAll() {
     userMenuRef?.close();
+    ingestRef?.close();
     quickSearchRef?.blur();
   }
 </script>
@@ -49,10 +51,10 @@
   {/if}
 
   {#if $authStore.user?.is_admin}
-    <IngestIndicator />
+    <IngestIndicator bind:this={ingestRef} closeOther={() => userMenuRef?.close()} />
   {/if}
 
-  <UserMenu bind:this={userMenuRef} />
+  <UserMenu bind:this={userMenuRef} closeOther={() => ingestRef?.close()} />
 
 </header>
 

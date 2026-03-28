@@ -61,9 +61,14 @@ export const STORAGE_KEYS = {
 	CROSSFADE_ENABLED: 'orb-crossfade-enabled',
 	GAPLESS_ENABLED: 'orb-gapless-enabled',
 	VISUALIZER_PREFS: 'orb-visualizer-prefs',
+	VISUALIZER_BUTTON_ENABLED: 'orb_visualizer_button_enabled',
 	COVER_EXPANDED: 'orb:cover-expanded',
 	SAVED_SEARCH_FILTERS: 'orb:savedSearchFilters',
 	DOWNLOADS_META: 'orb-downloads-v1',
+	AUDIOBOOK_PROGRESS: 'orb-ab-progress-v1',
+	AUDIOBOOK_META: 'orb-ab-meta-v1',
+	BOTTOM_BAR_SECONDARY: 'orb_bottom_bar_secondary',
+	LISTEN_ALONG_ENABLED: 'orb_listen_along_enabled',
 } as const;
 
 // ── IndexedDB constants ──────────────────────────────────────────────────────

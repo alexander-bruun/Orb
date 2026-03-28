@@ -41,7 +41,8 @@
   import { visualizerStore } from '$lib/stores/player/visualizer';
   import Visualizer from '$lib/components/ui/Visualizer.svelte';
   import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
-  import { waveformEnabled } from '$lib/stores/settings/theme';
+  import { waveformEnabled, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
+  import { waveformFailed } from '$lib/stores/player/waveformPeaks';
 
   let waveformWidth = 0;
   import DesktopDevicePicker from './DesktopDevicePicker.svelte';
@@ -92,9 +93,27 @@
       {/if}
       <!-- Track metadata: always visible when a track is loaded -->
       <div class="track-meta" class:full-width={$expanded}>
-        {#if $currentAlbum}
+        {#if $bottomBarSecondary === 'album'}
+          {#if $currentAlbum}
+            <div class="album-title">
+              <a href="/library/albums/{$currentAlbum.id}" class="album-link">{$currentAlbum.title}</a>
+            </div>
+          {:else if $currentTrack.album_name}
+            <div class="album-title">
+              {#if $currentTrack.album_id}
+                <a href="/library/albums/{$currentTrack.album_id}" class="album-link">{$currentTrack.album_name}</a>
+              {:else}
+                <span class="album-link">{$currentTrack.album_name}</span>
+              {/if}
+            </div>
+          {/if}
+        {:else if $currentTrack.artist_id}
           <div class="album-title">
-            <a href="/library/albums/{$currentAlbum.id}" class="album-link">{$currentAlbum.title}</a>
+            <a href="/library/artists/{$currentTrack.artist_id}" class="album-link">{$currentTrack.artist_name ?? $currentTrack.artist_id}</a>
+          </div>
+        {:else if $currentTrack.artist_name}
+          <div class="album-title">
+            <span class="album-link">{$currentTrack.artist_name}</span>
           </div>
         {/if}
         <div class="song-title-row">
@@ -180,7 +199,7 @@
 
     <div class="seek-area">
       <span class="time">{$formattedPosition}</span>
-      {#if $waveformEnabled}
+      {#if $waveformEnabled && !$waveformFailed}
         <div class="waveform-wrap" bind:clientWidth={waveformWidth}>
           {#if waveformWidth > 0}
             <TrackWaveform width={waveformWidth} height={36} />
@@ -201,34 +220,36 @@
 
     <div class="right-controls">
       <!-- Listen Along button -->
-      {#if $lpRole === 'host'}
-        <button
-          class="ctrl-btn icon-btn party-btn"
-          class:active={$lpPanelOpen}
-          on:click={() => lpPanelOpen.update(v => !v)}
-          title="Listen Along"
-          aria-label="Listen Along panel"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-            <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
-          </svg>
-          {#if $lpParticipants.length > 0}
-            <span class="party-count">{$lpParticipants.length}</span>
-          {/if}
-        </button>
-      {:else if $lpRole === null}
-        <button
-          class="ctrl-btn icon-btn party-btn"
-          on:click={createAndConnect}
-          title="Start Listen Along"
-          aria-label="Start Listen Along"
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-            <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
-          </svg>
-        </button>
+      {#if $listenAlongEnabled}
+        {#if $lpRole === 'host'}
+          <button
+            class="ctrl-btn icon-btn party-btn"
+            class:active={$lpPanelOpen}
+            on:click={() => lpPanelOpen.update(v => !v)}
+            title="Listen Along"
+            aria-label="Listen Along panel"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+              <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+            </svg>
+            {#if $lpParticipants.length > 0}
+              <span class="party-count">{$lpParticipants.length}</span>
+            {/if}
+          </button>
+        {:else if $lpRole === null}
+          <button
+            class="ctrl-btn icon-btn party-btn"
+            on:click={createAndConnect}
+            title="Start Listen Along"
+            aria-label="Start Listen Along"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+              <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+            </svg>
+          </button>
+        {/if}
       {/if}
       <input
         type="range"
@@ -277,22 +298,24 @@
       {/if}
 
       <!-- Sound visualizer toggle -->
-      <button
-        class="ctrl-btn icon-btn viz-toggle-btn"
-        class:active={$visualizerStore.visible}
-        on:click={() => visualizerStore.toggle()}
-        aria-label="{$visualizerStore.visible ? 'Hide' : 'Show'} sound visualizer"
-        title="Sound visualizer"
-        aria-pressed={$visualizerStore.visible}
-      >
-        <!-- Simple spectrum-bar icon -->
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <rect x="2"  y="14" width="4" height="8"  rx="1" fill="currentColor"/>
-          <rect x="8"  y="8"  width="4" height="14" rx="1" fill="currentColor"/>
-          <rect x="14" y="4"  width="4" height="18" rx="1" fill="currentColor"/>
-          <rect x="20" y="10" width="2" height="12" rx="1" fill="currentColor"/>
-        </svg>
-      </button>
+      {#if $visualizerButtonEnabled}
+        <button
+          class="ctrl-btn icon-btn viz-toggle-btn"
+          class:active={$visualizerStore.visible}
+          on:click={() => visualizerStore.toggle()}
+          aria-label="{$visualizerStore.visible ? 'Hide' : 'Show'} sound visualizer"
+          title="Sound visualizer"
+          aria-pressed={$visualizerStore.visible}
+        >
+          <!-- Simple spectrum-bar icon -->
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="2"  y="14" width="4" height="8"  rx="1" fill="currentColor"/>
+            <rect x="8"  y="8"  width="4" height="14" rx="1" fill="currentColor"/>
+            <rect x="14" y="4"  width="4" height="18" rx="1" fill="currentColor"/>
+            <rect x="20" y="10" width="2" height="12" rx="1" fill="currentColor"/>
+          </svg>
+        </button>
+      {/if}
 
       <DesktopDevicePicker />
     </div>
