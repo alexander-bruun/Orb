@@ -19,7 +19,6 @@ Orb is configured via environment variables. Important options:
 ## Music Ingest
 
 - `MUSIC_DIRS` — comma-separated read-only paths to music folders mounted inside container (e.g. `/music/drive-1`)
-- `INGEST_WATCH` — enable background ingest watcher (`true`/`false`)
 - `INGEST_EXCLUDE` — comma-separated glob patterns to exclude from scanning
 - `INGEST_SIMILARITY` — compute audio similarity via chromaprint during ingest (default: `true`)
 - `INGEST_ENRICH` — fetch MusicBrainz metadata enrichment during ingest (default: `true`)

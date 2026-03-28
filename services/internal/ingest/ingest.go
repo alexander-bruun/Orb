@@ -43,6 +43,8 @@ var featuredArtistRe = regexp.MustCompile(
 
 var featSplitRe = regexp.MustCompile(`(?i)\s*[,;&]\s*|\s+and\s+|\s+(?:feat\.?|ft\.?|featuring)\s+`)
 
+var featParenRe = regexp.MustCompile(`(?i)[\(\[]\s*(?:feat\.?|ft\.?|featuring)\s+([^\)\]]+)[\)\]]`)
+
 var genreSplitRe = regexp.MustCompile(`\s*[;/\x00]\s*|\s*,\s*`)
 
 func splitGenreList(s string) []string {
@@ -58,11 +60,45 @@ func splitGenreList(s string) []string {
 
 var editionBracketsRe = regexp.MustCompile(`\{[^}]+\}|\[[^\]]+\]`)
 
+// editionParenRe matches parenthetical edition markers in album title tags,
+// e.g. "(Deluxe)", "(Deluxe Edition)", "(2011 Remaster)", "(Special Edition)".
+// It is intentionally keyword-gated to avoid stripping legitimate parenthetical
+// subtitles like "(Original Soundtrack)" or "(Live at Wembley)".
+var editionParenRe = regexp.MustCompile(`(?i)\s*\([^)]*\b(?:deluxe|special|limited|expanded|extended|remaster(?:ed)?|anniversary|bonus|reissue|explicit|clean|standard|complete|collector(?:'s)?)\b[^)]*\)`)
+
 func splitArtistList(s string) []string {
-	var out []string
+	// Extract artists from parenthetical feat. blocks before splitting on inline separators.
+	var extra []string
+	s = featParenRe.ReplaceAllStringFunc(s, func(m string) string {
+		sub := featParenRe.FindStringSubmatch(m)
+		if len(sub) > 1 {
+			extra = append(extra, sub[1])
+		}
+		return ""
+	})
+
+	var raw []string
 	for _, name := range featSplitRe.Split(s, -1) {
 		name = strings.Trim(strings.TrimSpace(name), "()[]")
 		if name != "" {
+			raw = append(raw, name)
+		}
+	}
+	for _, e := range extra {
+		for _, name := range featSplitRe.Split(e, -1) {
+			name = strings.Trim(strings.TrimSpace(name), "()[]")
+			if name != "" {
+				raw = append(raw, name)
+			}
+		}
+	}
+
+	seen := make(map[string]bool, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, name := range raw {
+		key := strings.ToLower(name)
+		if !seen[key] {
+			seen[key] = true
 			out = append(out, name)
 		}
 	}
@@ -760,19 +796,43 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		albumArtistName = parts[0]
 	}
 
-	trackArtistName := coalesce(m.Artist(), albumArtistName)
+	// When a dedicated album_artist is set (and this isn't a Various Artists
+	// compilation) the album artist is always the track's primary artist.
+	// The artist tag may contain just a guest ("Brent Faiyaz") or a compound
+	// string ("A$AP Rocky feat. Brent Faiyaz") — in either case we extract
+	// featured names from it rather than replacing the primary artist.
+	trackArtistName := albumArtistName
 	var artistTagExtras []string
-	if parts := splitArtistList(trackArtistName); len(parts) > 1 {
-		trackArtistName = parts[0]
-		for _, p := range parts[1:] {
-			cleanP, featFromP := parseFeaturedArtists(p)
-			if cleanP != "" {
-				artistTagExtras = append(artistTagExtras, cleanP)
+	if m.AlbumArtist() == "" || strings.EqualFold(m.AlbumArtist(), "Various Artists") {
+		// No album artist or compilation: honour the per-track artist tag as primary.
+		trackArtistName = coalesce(m.Artist(), albumArtistName)
+		if parts := splitArtistList(trackArtistName); len(parts) > 1 {
+			trackArtistName = parts[0]
+			for _, p := range parts[1:] {
+				cleanP, featFromP := parseFeaturedArtists(p)
+				if cleanP != "" {
+					artistTagExtras = append(artistTagExtras, cleanP)
+				}
+				artistTagExtras = append(artistTagExtras, featFromP...)
 			}
-			artistTagExtras = append(artistTagExtras, featFromP...)
+		} else if len(parts) == 1 {
+			trackArtistName = parts[0]
 		}
-	} else if len(parts) == 1 {
-		trackArtistName = parts[0]
+	} else {
+		// Extract featured artists from the artist tag without changing the primary.
+		rawArtist := m.Artist()
+		if rawArtist != "" && !strings.EqualFold(rawArtist, albumArtistName) {
+			for _, p := range splitArtistList(rawArtist) {
+				if strings.EqualFold(p, albumArtistName) {
+					continue
+				}
+				cleanP, featFromP := parseFeaturedArtists(p)
+				if cleanP != "" && !strings.EqualFold(cleanP, albumArtistName) {
+					artistTagExtras = append(artistTagExtras, cleanP)
+				}
+				artistTagExtras = append(artistTagExtras, featFromP...)
+			}
+		}
 	}
 
 	albumArtistID := deterministicID("artist:" + strings.ToLower(albumArtistName))
@@ -796,13 +856,22 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		}
 	}
 
-	albumTitle := coalesce(m.Album(), "Unknown Album")
+	rawAlbumTag := coalesce(m.Album(), "Unknown Album")
+	albumTitle := strings.TrimSpace(editionParenRe.ReplaceAllString(
+		editionBracketsRe.ReplaceAllString(rawAlbumTag, ""), ""))
+	if albumTitle == "" {
+		albumTitle = "Unknown Album"
+	}
 	albumBase := strings.ToLower(albumArtistName) + ":" + strings.ToLower(albumTitle)
 	albumGroupID := deterministicID("album:" + albumBase)
 	albumDir := filepath.Dir(path)
 	albumID := deterministicID("album:" + albumBase + ":" + albumDir)
 	var albumEditionStr string
 	if ed := albumEditionFromDir(filepath.Base(albumDir)); ed != "" {
+		albumEditionStr = ed
+	} else if ed := albumEditionFromDir(rawAlbumTag); ed != "" {
+		albumEditionStr = ed
+	} else if ed := strings.TrimSpace(editionParenRe.FindString(rawAlbumTag)); ed != "" {
 		albumEditionStr = ed
 	}
 
@@ -1196,15 +1265,10 @@ func bestFolderImage(dir string) []byte {
 }
 
 func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, data []byte) error {
-	img, _, err := image.Decode(bytes.NewReader(data))
+	encoded, err := encodeImageToJPEG(ctx, data)
 	if err != nil {
 		return fmt.Errorf("decode cover art: %w", err)
 	}
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
-		return fmt.Errorf("encode cover art: %w", err)
-	}
-	encoded := buf.Bytes()
 	if len(encoded) == 0 {
 		return errors.New("encode cover art: empty output")
 	}
@@ -1216,6 +1280,37 @@ func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, da
 		return fmt.Errorf("cover art size mismatch after write: wrote=%d stored=%d sha256=%s", len(encoded), sz, hex.EncodeToString(sum[:]))
 	}
 	return nil
+}
+
+// encodeImageToJPEG decodes any supported image format and re-encodes as JPEG.
+// For formats unsupported by Go's image package (e.g. AVIF), it falls back to
+// ffmpeg if available.
+func encodeImageToJPEG(ctx context.Context, data []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err == nil {
+		var buf bytes.Buffer
+		if encErr := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); encErr != nil {
+			return nil, encErr
+		}
+		return buf.Bytes(), nil
+	}
+	// Fallback: convert via ffmpeg (handles AVIF, WebP, TIFF, etc.)
+	if _, lookErr := exec.LookPath("ffmpeg"); lookErr != nil {
+		return nil, err // return original decode error
+	}
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-hide_banner", "-loglevel", "error",
+		"-i", "pipe:0",
+		"-vframes", "1",
+		"-f", "image2", "-vcodec", "mjpeg", "-q:v", "2",
+		"pipe:1",
+	)
+	cmd.Stdin = bytes.NewReader(data)
+	out, ffErr := cmd.Output()
+	if ffErr != nil || len(out) == 0 {
+		return nil, err // return original decode error
+	}
+	return out, nil
 }
 
 func readFLACInfo(f *os.File, ext string) (bitDepth, sampleRate int, durationMs int64) {
