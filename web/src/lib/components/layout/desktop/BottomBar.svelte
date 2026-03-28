@@ -29,7 +29,7 @@
     seek(($durationMs / 1000) * (pct / 100));
   }
   import { library } from '$lib/api/library';
-  import { writable } from 'svelte/store';
+  import { writable, get } from 'svelte/store';
   import { expanded } from './coverExpandStore';
   import {
     lpRole,
@@ -62,14 +62,21 @@
 
   // Phase offset driven by rAF so the wave travels without shifting the
   // smoothstep envelope — the wave is always flat at x=0 and x=progressX.
+  // waveAmp (0–1) fades the whole squiggle in/out when pausing/resuming.
   let wavePhase = 0;
+  let waveAmp = 1;
   onMount(() => {
     let raf: number;
     let last = performance.now();
     function tick(now: number) {
-      // ~1.5 s per full cycle
-      wavePhase += ((now - last) / 1500) * Math.PI * 2;
+      const dt = now - last;
       last = now;
+      const playing = get(playbackState) === 'playing';
+      // Exponential ease toward target amplitude (~200 ms time constant)
+      waveAmp += ((playing ? 1 : 0) - waveAmp) * (1 - Math.exp(-dt / 200));
+      if (playing) {
+        wavePhase += (dt / 1500) * Math.PI * 2;
+      }
       raf = requestAnimationFrame(tick);
     }
     raf = requestAnimationFrame(tick);
@@ -90,7 +97,7 @@
       const x = (i / steps) * W;
       const t = Math.min(x / fade, (W - x) / fade, 1);
       const env = t * t * (3 - 2 * t); // smoothstep
-      const wy = y + SEEK_WAVE_AMP * env * Math.sin((x / SEEK_WAVE_LEN) * Math.PI * 2 + wavePhase);
+      const wy = y + SEEK_WAVE_AMP * waveAmp * env * Math.sin((x / SEEK_WAVE_LEN) * Math.PI * 2 + wavePhase);
       d += ` L ${x.toFixed(1)} ${wy.toFixed(2)}`;
     }
     d += ` L ${W.toFixed(1)} ${y}`; // guarantee exact flat endpoint
