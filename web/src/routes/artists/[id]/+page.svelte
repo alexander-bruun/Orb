@@ -1,12 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { library as libApi } from '$lib/api/library';
+  import { recommend } from '$lib/api/recommend';
   import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
   import type { Artist, Album, Genre, RelatedArtist } from '$lib/types';
   import { playTrack, shuffle, startRadio } from '$lib/stores/player';
 
   import { getApiBase } from '$lib/api/base';
+
+  interface SimilarArtist { id: string; name: string; hasImage: boolean; }
 
   let artist: Artist | null = null;
   let albums: Album[] = [];
@@ -15,6 +19,7 @@
   let appearsOn: Album[] = [];
   let appearsOnGrouped: Map<string, Album[]> = new Map();
   let appearsOnKeys: string[] = [];
+  let similarArtists: SimilarArtist[] = [];
 
   // Discography timeline
   let timelineYears: string[] = [];
@@ -33,7 +38,7 @@
   export const snapshot = {
     capture: () => ({
       artist, albums, genres, relatedArtists, appearsOn, appearsOnGrouped, appearsOnKeys,
-      timelineYears, albumsByYear, bio, bioUrl
+      timelineYears, albumsByYear, bio, bioUrl, similarArtists
     }),
     restore: (value) => {
       artist = value.artist;
@@ -47,6 +52,7 @@
       albumsByYear = value.albumsByYear;
       bio = value.bio;
       bioUrl = value.bioUrl;
+      similarArtists = value.similarArtists ?? [];
       isRestoring = true;
       loading = false;
     }
@@ -97,6 +103,21 @@
       bioUrl = bioRes.bio_url ?? '';
     } catch {
       // bio stays empty
+    }
+
+    // Fetch similar artists via recommendation engine (non-blocking)
+    try {
+      const simTracks = await recommend.radioByArtist(id, 60);
+      const seen = new Set<string>();
+      const result: SimilarArtist[] = [];
+      for (const t of simTracks) {
+        if (!t.artist_id || t.artist_id === id || seen.has(t.artist_id)) continue;
+        seen.add(t.artist_id);
+        result.push({ id: t.artist_id, name: t.artist_name ?? 'Unknown Artist', hasImage: false });
+      }
+      similarArtists = result.slice(0, 12);
+    } catch {
+      // similarArtists stays empty
     }
   });
 
@@ -222,6 +243,33 @@
       {/each}
     </div>
   {/if}
+
+  {#if similarArtists.length > 0}
+    <h2 class="section" style="margin-top: 32px;">Similar Artists</h2>
+    <div class="similar-carousel">
+      {#each similarArtists as sa (sa.id)}
+        <div
+          class="sim-card"
+          role="button"
+          tabindex="0"
+          aria-label="Open {sa.name}"
+          on:click={() => goto(`/artists/${sa.id}`)}
+          on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(`/artists/${sa.id}`); } }}
+        >
+          <div class="sim-photo-wrap">
+            <img
+              src="{getApiBase()}/covers/artist/{sa.id}"
+              alt={sa.name}
+              class="sim-photo"
+              on:error={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex'; }}
+            />
+            <div class="sim-photo-fallback" style="display:none">{sa.name[0]?.toUpperCase() ?? '?'}</div>
+          </div>
+          <span class="sim-name" title={sa.name}>{sa.name}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
 {/if}
 
 <svelte:head>
@@ -339,6 +387,15 @@
     text-decoration: none;
   }
   .bio-source:hover { color: var(--text); }
+
+  /* ── Similar Artists ────────────────────────────────────── */
+  .similar-carousel { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin; }
+  .sim-card { flex-shrink: 0; width: 100px; display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; }
+  .sim-card:hover .sim-photo { transform: scale(1.05); }
+  .sim-photo-wrap { position: relative; width: 90px; height: 90px; border-radius: 50%; overflow: hidden; background: var(--bg-elevated); flex-shrink: 0; }
+  .sim-photo { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.15s; }
+  .sim-photo-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; color: var(--text-muted); background: var(--bg-hover); }
+  .sim-name { font-size: 0.75rem; font-weight: 600; color: var(--text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
 
   /* ── Mobile ─────────────────────────────────────────────── */
   @media (max-width: 640px) {
