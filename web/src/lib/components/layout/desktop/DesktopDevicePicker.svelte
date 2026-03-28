@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     transferPlayback,
   } from '$lib/stores/player';
@@ -19,6 +20,11 @@
   let castPickerOpen = false;
   let devicePickerOpen = false;
 
+  onMount(() => {
+    // Start searching for cast devices immediately so we know if we should show the button.
+    initCastSdk();
+  });
+
   async function handleCastToggle() {
     if ($castState === 'connected') {
       stopCast();
@@ -33,105 +39,107 @@
   }
 </script>
 
-<!-- Cast / audio output — always visible, separate from session management -->
-<div class="device-picker-wrap">
-  <button
-    class="ctrl-btn icon-btn cast-btn"
-    class:active={castPickerOpen || $castState === 'connected'}
-    on:click={() => { castPickerOpen = !castPickerOpen; devicePickerOpen = false; if (castPickerOpen) { initCastSdk(); refreshAudioOutputDevices(); } }}
-    title="Cast / audio output"
-    aria-label="Cast to a device or change audio output"
-  >
-    <!-- Cast / screen-share icon -->
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/>
-      <path d="M2 15a7 7 0 0 1 7 7"/>
-      <path d="M2 15a3 3 0 0 1 3 3"/>
-      <line x1="2" y1="22" x2="2.01" y2="22"/>
-    </svg>
-    {#if $castState === 'connected'}
-      <span class="device-count cast-dot"></span>
-    {/if}
-  </button>
-
-  {#if castPickerOpen}
-    
+<!-- Cast / audio output — hidden if no cast devices found -->
+{#if $castState !== 'unavailable'}
+  <div class="device-picker-wrap">
     <button
-      type="button"
-      class="device-picker-overlay"
-      tabindex="-1"
-      aria-label="Close cast picker"
-      on:click={() => castPickerOpen = false}
-    ></button>
-    <div class="device-picker-popup">
-
-      <!-- ── Chromecast section — always shown ─────────────── -->
-      <div class="device-picker-header">Chromecast</div>
-      <button
-        class="device-item"
-        class:is-active={$castState === 'connected'}
-        on:click={handleCastToggle}
-        disabled={$castState === 'connecting' || $castState === 'unavailable'}
-      >
-        <div class="device-item-left">
-          {#if $castState === 'connected'}
-            <span class="device-active-dot"></span>
-          {:else}
-            <span class="device-idle-dot" class:dim={$castState === 'unavailable'}></span>
-          {/if}
-          <div class="device-item-info">
-            <span class="device-item-name">
-              {$castState === 'connected' ? $castDeviceName : 'Chromecast / Google TV'}
-            </span>
-            <span class="device-item-track">
-              {#if $castState === 'unavailable'}Requires Chrome — no Cast devices found
-              {:else if $castState === 'connecting'}Connecting…
-              {:else if $castState === 'connected'}Casting now — click to stop
-              {:else}Click to cast to a nearby device{/if}
-            </span>
-          </div>
-        </div>
-        {#if $castState === 'connected'}
-          <span class="device-transfer-hint" style="color:var(--error,#e55)">Stop</span>
-        {:else if $castState !== 'unavailable'}
-          <span class="device-transfer-hint">Cast</span>
-        {/if}
-      </button>
-
-      <!-- ── Audio output section ──────────────────────────── -->
-      {#if sinkIdSupported}
-        <div class="device-picker-header" style="margin-top:8px">Audio output</div>
-        {#if $audioOutputDevices.length === 0}
-          <p class="device-picker-empty">No additional outputs found</p>
-        {:else}
-          {#each $audioOutputDevices as out (out.deviceId)}
-            <button
-              class="device-item"
-              class:is-active={$selectedAudioOutputId === out.deviceId}
-              on:click={() => { setAudioOutput(out.deviceId); castPickerOpen = false; }}
-            >
-              <div class="device-item-left">
-                {#if $selectedAudioOutputId === out.deviceId}
-                  <span class="device-active-dot"></span>
-                {:else}
-                  <span class="device-idle-dot"></span>
-                {/if}
-                <div class="device-item-info">
-                  <span class="device-item-name">{out.label}</span>
-                  <span class="device-item-track">{out.deviceId === 'default' ? 'System default' : 'Audio output'}</span>
-                </div>
-              </div>
-              {#if $selectedAudioOutputId !== out.deviceId}
-                <span class="device-transfer-hint">Select</span>
-              {/if}
-            </button>
-          {/each}
-        {/if}
+      class="ctrl-btn icon-btn cast-btn"
+      class:active={castPickerOpen || $castState === 'connected'}
+      on:click={() => { castPickerOpen = !castPickerOpen; devicePickerOpen = false; if (castPickerOpen) { refreshAudioOutputDevices(); } }}
+      title="Cast / audio output"
+      aria-label="Cast to a device or change audio output"
+    >
+      <!-- Cast / screen-share icon -->
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/>
+        <path d="M2 15a7 7 0 0 1 7 7"/>
+        <path d="M2 15a3 3 0 0 1 3 3"/>
+        <line x1="2" y1="22" x2="2.01" y2="22"/>
+      </svg>
+      {#if $castState === 'connected'}
+        <span class="device-count cast-dot"></span>
       {/if}
+    </button>
 
-    </div>
-  {/if}
-</div>
+    {#if castPickerOpen}
+      
+      <button
+        type="button"
+        class="device-picker-overlay"
+        tabindex="-1"
+        aria-label="Close cast picker"
+        on:click={() => castPickerOpen = false}
+      ></button>
+      <div class="device-picker-popup">
+
+        <!-- ── Chromecast section — only shown if available (though the whole button is hidden if unavailable) ─────────────── -->
+        <div class="device-picker-header">Chromecast</div>
+        <button
+          class="device-item"
+          class:is-active={$castState === 'connected'}
+          on:click={handleCastToggle}
+          disabled={$castState === 'connecting' || $castState === 'unavailable'}
+        >
+          <div class="device-item-left">
+            {#if $castState === 'connected'}
+              <span class="device-active-dot"></span>
+            {:else}
+              <span class="device-idle-dot" class:dim={$castState === 'unavailable'}></span>
+            {/if}
+            <div class="device-item-info">
+              <span class="device-item-name">
+                {$castState === 'connected' ? $castDeviceName : 'Chromecast / Google TV'}
+              </span>
+              <span class="device-item-track">
+                {#if $castState === 'unavailable'}Requires Chrome — no Cast devices found
+                {:else if $castState === 'connecting'}Connecting…
+                {:else if $castState === 'connected'}Casting now — click to stop
+                {:else}Click to cast to a nearby device{/if}
+              </span>
+            </div>
+          </div>
+          {#if $castState === 'connected'}
+            <span class="device-transfer-hint" style="color:var(--error,#e55)">Stop</span>
+          {:else if $castState !== 'unavailable'}
+            <span class="device-transfer-hint">Cast</span>
+          {/if}
+        </button>
+
+        <!-- ── Audio output section ──────────────────────────── -->
+        {#if sinkIdSupported}
+          <div class="device-picker-header" style="margin-top:8px">Audio output</div>
+          {#if $audioOutputDevices.length === 0}
+            <p class="device-picker-empty">No additional outputs found</p>
+          {:else}
+            {#each $audioOutputDevices as out (out.deviceId)}
+              <button
+                class="device-item"
+                class:is-active={$selectedAudioOutputId === out.deviceId}
+                on:click={() => { setAudioOutput(out.deviceId); castPickerOpen = false; }}
+              >
+                <div class="device-item-left">
+                  {#if $selectedAudioOutputId === out.deviceId}
+                    <span class="device-active-dot"></span>
+                  {:else}
+                    <span class="device-idle-dot"></span>
+                  {/if}
+                  <div class="device-item-info">
+                    <span class="device-item-name">{out.label}</span>
+                    <span class="device-item-track">{out.deviceId === 'default' ? 'System default' : 'Audio output'}</span>
+                  </div>
+                </div>
+                {#if $selectedAudioOutputId !== out.deviceId}
+                  <span class="device-transfer-hint">Select</span>
+                {/if}
+              </button>
+            {/each}
+          {/if}
+        {/if}
+
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <!-- Sessions button — only when exclusive mode is on and multiple sessions exist -->
 {#if $exclusiveMode && $activeDevices.length > 1}
