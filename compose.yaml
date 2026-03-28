@@ -35,8 +35,6 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, SETGID, SETUID, DAC_OVERRIDE]
-    networks:
-      - orb
 
   valkey:
     image: valkey/valkey:7-alpine
@@ -51,32 +49,26 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [CHOWN, FOWNER, SETGID, SETUID, DAC_OVERRIDE]
-    networks:
-      - orb
 
   app:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    # To use the published image instead of building locally, comment out the build section above and uncomment the line below:
-    # image: alexbruun/orb:latest
     environment:
       KV_MODE: standalone
-      KV_ADDR: valkey:6379
+      KV_ADDR: "valkey:6379"
+      DB_HOST: "postgres"
       STORE_ROOT: /data/audio
       HTTP_PORT: "8080"
       MUSIC_DIRS: /music
       AUDIOBOOK_DIRS: /audiobooks
-      DLNA_ENABLED: "true"
     volumes:
       - audio_data:/data/audio
       - secrets:/run/secrets:ro
       - ${MUSIC_DIR:-/mnt/d/Music}:/music:ro
       - ${AUDIOBOOK_DIR:-/mnt/d/Audiobooks}:/audiobooks:ro
     ports:
-      - 3000:80         # UI
-      - 9090:9090       # DLNA
-      - 1900:1900/udp   # SSDP for DLNA discovery
+      - "3000:3000"
     depends_on:
       secrets-init:
         condition: service_completed_successfully
@@ -88,12 +80,6 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE, CHOWN, SETGID, SETUID, DAC_OVERRIDE]
-    networks:
-      - orb
-
-networks:
-  orb:
-    driver: bridge
 
 volumes:
   postgres_data:

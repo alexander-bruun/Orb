@@ -24,7 +24,6 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/config"
 	"github.com/alexander-bruun/orb/services/internal/device"
 	"github.com/alexander-bruun/orb/services/internal/discovery"
-	"github.com/alexander-bruun/orb/services/internal/dlna"
 	"github.com/alexander-bruun/orb/services/internal/ingest"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/library"
@@ -293,21 +292,6 @@ func run(ctx context.Context) error {
 		} else {
 			defer mdnsSrv.Shutdown()
 		}
-	}
-
-	// --- DLNA/UPnP media server ---
-	if config.Env("DLNA_ENABLED", "true") == "true" {
-		dlnaPort, _ := strconv.Atoi(config.Env("DLNA_PORT", "9090"))
-		dlnaSrv := dlna.New(db, obj, dlna.Config{
-			HTTPPort:   dlnaPort,
-			ServerName: config.Env("DLNA_NAME", config.Env("SERVER_NAME", "Orb Music Server")),
-			ExternalIP: config.Env("DLNA_IP", ""),
-		})
-		go func() {
-			if err := dlnaSrv.Start(ctx); err != nil {
-				slog.Warn("dlna server stopped", "err", err)
-			}
-		}()
 	}
 
 	// --- HTTP server ---

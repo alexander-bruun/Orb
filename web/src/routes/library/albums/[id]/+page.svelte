@@ -5,7 +5,7 @@
   import { authStore } from '$lib/stores/auth';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import type { Album, Track, Genre } from '$lib/types';
-  import { playTrack, shuffle, startRadio } from '$lib/stores/player';
+  import { playTrack, shuffle, startRadio, currentTrack, playbackState, togglePlayPause } from '$lib/stores/player';
   import { downloadAlbum, downloads } from '$lib/stores/offline/downloads';
   import { getApiBase } from '$lib/api/base';
 
@@ -17,6 +17,10 @@
   let artistId: string | null = null;
   let loading = true;
   let isRestoring = false;
+
+  $: isAlbumActive = album?.id === $currentTrack?.album_id;
+  $: isPlayingGlobal = $playbackState === 'playing';
+  $: isPausedThisAlbum = isAlbumActive && $playbackState === 'paused';
 
   export const snapshot = {
     capture: () => ({ album, tracks, genres, variants, artistName, artistId }),
@@ -317,7 +321,15 @@
       {/if}
 
       <div class="actions">
-        <button class="btn-play" on:click={playAll} disabled={tracks.length === 0}>▶ Play</button>
+        <button class="btn-play" on:click={isPlayingGlobal || isPausedThisAlbum ? togglePlayPause : playAll} disabled={tracks.length === 0}>
+          {#if isPlayingGlobal}
+            ⏸ Pause
+          {:else if isPausedThisAlbum}
+            ▶ Resume
+          {:else}
+            ▶ Play
+          {/if}
+        </button>
         <button class="btn-shuffle" on:click={shuffleAll} disabled={tracks.length === 0} title="Shuffle">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>

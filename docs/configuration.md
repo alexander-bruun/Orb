@@ -41,15 +41,6 @@ Orb is configured via environment variables. Important options:
 - `MDNS_ENABLED` — enable mDNS server discovery (default: `true`)
 - `SERVER_NAME` — display name advertised via mDNS (default: auto-detected hostname)
 
-## DLNA / UPnP
-
-> **Note:** DLNA support is experimental and may not work with all renderers or network setups.
-
-- `DLNA_ENABLED` — enable DLNA server (default: `true`)
-- `DLNA_PORT` — DLNA HTTP port (default: `9090`)
-- `DLNA_NAME` — DLNA server display name (default: `Orb Music Server`)
-- `DLNA_IP` — advertise this IP for SSDP LOCATION header (optional; auto-detected if unset)
-
 ## Chromecast
 
 - `CAST_BASE_URL` — base URL the cast proxy advertises to cast devices (default: auto-detected LAN IP + HTTP_PORT)

@@ -6,7 +6,7 @@ SECRETS_DIR=${SECRETS_DIR:-/run/secrets}
 # Build DATABASE_URL from the persisted password file if not already set.
 if [ -z "$DATABASE_URL" ] && [ -f "${SECRETS_DIR}/db_password" ]; then
   DB_PASS=$(cat "${SECRETS_DIR}/db_password")
-  export DATABASE_URL="postgres://orb:${DB_PASS}@postgres:5432/orb?sslmode=disable"
+  export DATABASE_URL="postgres://orb:${DB_PASS}@${DB_HOST:-postgres}:5432/orb?sslmode=disable"
 fi
 
 # Load JWT secret from file if not already set.

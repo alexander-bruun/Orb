@@ -21,7 +21,3 @@ Example endpoints (shown with the nginx `/api/` prefix as used from the browser)
 - `GET /api/admin/ingest/status` — ingest status (requires admin JWT)
 
 When accessing the API directly on port 8080, omit the `/api/` prefix.
-
-## DLNA / Discovery
-
-The server exposes DLNA on port `9090` and uses SSDP on UDP `1900` for discovery.

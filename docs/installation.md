@@ -13,14 +13,11 @@ Notes:
 - The compose file (`compose.yaml`) builds the unified image and starts Postgres and Valkey alongside the Orb service.
 - The web UI is served by nginx inside the container on port 80, exposed to the host on port **3000** by default.
 - The API process listens on port **8080** and is also exposed directly on the host.
-- DLNA is exposed on port **9090** (TCP) and **1900/udp** (SSDP discovery).
 
 | Host port | Service               |
 | --------- | --------------------- |
 | 3000      | Web UI (nginx)        |
 | 8080      | API (direct)          |
-| 9090      | DLNA                  |
-| 1900/udp  | SSDP (DLNA discovery) |
 
 ## Local development with Compose
 
