@@ -10,7 +10,7 @@
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled, smartShuffleEnabled } from '$lib/stores/player';
-  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
+  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled, autoDownloadFavorites } from '$lib/stores/settings/theme';
   import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
@@ -1927,6 +1927,25 @@
   <!-- ── Downloads ─────────────────────────────────────── -->
   <section id="downloads" class="card">
     <h2 class="section-title">Downloads</h2>
+
+    <div class="setting-row" style="border-top:none;padding-top:0">
+      <div class="setting-info">
+        <span class="setting-name">Auto-download favorites</span>
+        <span class="setting-desc">
+          Automatically download a track for offline playback when you add it to your favorites.
+        </span>
+      </div>
+      <button
+        class="toggle-btn"
+        class:on={$autoDownloadFavorites}
+        role="switch"
+        aria-checked={$autoDownloadFavorites}
+        on:click={() => autoDownloadFavorites.toggle()}
+        title={$autoDownloadFavorites ? 'Disable auto-download favorites' : 'Enable auto-download favorites'}
+      >
+        <span class="toggle-knob"></span>
+      </button>
+    </div>
 
     <!-- Storage summary -->
     <div class="dl-summary">

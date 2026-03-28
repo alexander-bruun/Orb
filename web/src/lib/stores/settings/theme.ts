@@ -206,3 +206,29 @@ function createListenAlongEnabledStore() {
 }
 
 export const listenAlongEnabled = createListenAlongEnabledStore();
+
+// ── Auto-download favorites ───────────────────────────────────────────────────
+
+const AUTO_DL_FAV_KEY = STORAGE_KEYS.AUTO_DOWNLOAD_FAVORITES;
+
+function createAutoDownloadFavoritesStore() {
+	const initial = browser
+		? (localStorage.getItem(AUTO_DL_FAV_KEY) ?? 'false') !== 'false'
+		: false;
+	const { subscribe, set } = writable<boolean>(initial);
+	return {
+		subscribe,
+		set(value: boolean) {
+			if (browser) localStorage.setItem(AUTO_DL_FAV_KEY, String(value));
+			set(value);
+		},
+		toggle() {
+			const current = browser ? (localStorage.getItem(AUTO_DL_FAV_KEY) ?? 'false') !== 'false' : false;
+			const next = !current;
+			if (browser) localStorage.setItem(AUTO_DL_FAV_KEY, String(next));
+			set(next);
+		}
+	};
+}
+
+export const autoDownloadFavorites = createAutoDownloadFavoritesStore();

@@ -70,6 +70,7 @@ export const STORAGE_KEYS = {
 	AUDIOBOOK_META: 'orb-ab-meta-v1',
 	BOTTOM_BAR_SECONDARY: 'orb_bottom_bar_secondary',
 	LISTEN_ALONG_ENABLED: 'orb_listen_along_enabled',
+	AUTO_DOWNLOAD_FAVORITES: 'orb_auto_download_favorites',
 } as const;
 
 // ── IndexedDB constants ──────────────────────────────────────────────────────

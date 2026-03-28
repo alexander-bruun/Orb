@@ -1,6 +1,8 @@
 import { writable, get } from 'svelte/store';
 import { library } from '$lib/api/library';
 import type { Track } from '$lib/types';
+import { autoDownloadFavorites } from '$lib/stores/settings/theme';
+import { downloadTrack } from '$lib/stores/offline/downloads';
 
 const store = writable<Set<string>>(new Set());
 const trackStore = writable<Track[] | null>(null);
@@ -32,6 +34,7 @@ export const favorites = {
 		store.update(s => { const n = new Set(s); n.add(trackId); return n; });
 		if (track) {
 			trackStore.update(ts => ts !== null ? [track, ...ts] : null);
+			if (get(autoDownloadFavorites)) downloadTrack(track);
 		}
 	},
 
@@ -51,6 +54,7 @@ export const favorites = {
 			store.update(s => { const n = new Set(s); n.add(trackId); return n; });
 			if (track) {
 				trackStore.update(ts => ts !== null ? [track, ...ts] : null);
+				if (get(autoDownloadFavorites)) downloadTrack(track);
 			}
 		}
 	}
