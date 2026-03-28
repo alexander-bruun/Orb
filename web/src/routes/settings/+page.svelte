@@ -10,7 +10,7 @@
   import { library } from '$lib/api/library';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled, smartShuffleEnabled } from '$lib/stores/player';
-  import { waveformEnabled, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
+  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
   import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
@@ -1497,22 +1497,58 @@
       </div>
 
       <div class="setting-row">
-      <div class="setting-info">
-        <span class="setting-name">Waveform seek bar</span>        <span class="setting-desc">
-          Show a waveform visualisation instead of a plain seek bar. Pre-generated during ingest using audiowaveform; falls back to client-side computation.
-        </span>
+        <div class="setting-info">
+          <span class="setting-name">Seek bar style</span>
+          <span class="setting-desc">
+            Waveform shows a pre-generated audio waveform (falls back to client-side). Squiggle shows an animated sine-wave line. Line shows a plain flat bar.
+          </span>
+        </div>
+        <div class="mode-toggle">
+          <button
+            class="mode-btn"
+            class:active={$seekBarMode === 'waveform'}
+            on:click={() => seekBarMode.set('waveform')}
+            title="Waveform seek bar"
+          >
+            <!-- Waveform icon: irregular peaks like an audio waveform -->
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="2"  y1="12" x2="2"  y2="12"/>
+              <line x1="5"  y1="8"  x2="5"  y2="16"/>
+              <line x1="8"  y1="4"  x2="8"  y2="20"/>
+              <line x1="11" y1="7"  x2="11" y2="17"/>
+              <line x1="14" y1="10" x2="14" y2="14"/>
+              <line x1="17" y1="5"  x2="17" y2="19"/>
+              <line x1="20" y1="9"  x2="20" y2="15"/>
+              <line x1="23" y1="12" x2="23" y2="12"/>
+            </svg>
+            Waveform
+          </button>
+          <button
+            class="mode-btn"
+            class:active={$seekBarMode === 'squiggle'}
+            on:click={() => seekBarMode.set('squiggle')}
+            title="Squiggle seek bar"
+          >
+            <!-- Squiggle icon: a sine wave -->
+            <svg width="14" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1 7 C3 2, 6 2, 8 7 S13 12, 15 7 S20 2, 22 7 S27 12, 29 7"/>
+            </svg>
+            Squiggle
+          </button>
+          <button
+            class="mode-btn"
+            class:active={$seekBarMode === 'line'}
+            on:click={() => seekBarMode.set('line')}
+            title="Plain line seek bar"
+          >
+            <!-- Line icon: flat horizontal line -->
+            <svg width="14" height="14" viewBox="0 0 24 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <line x1="1" y1="7" x2="23" y2="7"/>
+            </svg>
+            Line
+          </button>
+        </div>
       </div>
-      <button
-        class="toggle-btn"
-        class:on={$waveformEnabled}
-        role="switch"
-        aria-checked={$waveformEnabled}
-        on:click={() => waveformEnabled.set(!$waveformEnabled)}
-        title={$waveformEnabled ? 'Disable waveform seek bar' : 'Enable waveform seek bar'}
-      >
-        <span class="toggle-knob"></span>
-      </button>
-    </div>
 
     <div class="setting-row">
       <div class="setting-info">

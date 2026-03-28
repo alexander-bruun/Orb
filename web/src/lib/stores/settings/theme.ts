@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 import { STORAGE_KEYS } from '$lib/constants';
 
@@ -102,30 +102,36 @@ function createAvatarStore() {
 
 export const avatarStore = createAvatarStore();
 
-// ── Waveform seek bar preference ──────────────────────────────────────────────
+// ── Seek bar mode ─────────────────────────────────────────────────────────────
 
-const WAVEFORM_KEY = STORAGE_KEYS.WAVEFORM_ENABLED;
+export type SeekBarMode = 'waveform' | 'squiggle' | 'line';
 
-function createWaveformStore() {
-	const initial = browser
-		? (localStorage.getItem(WAVEFORM_KEY) ?? 'true') !== 'false'
-		: true;
-	const { subscribe, set } = writable<boolean>(initial);
+const SEEK_BAR_MODE_KEY = STORAGE_KEYS.SEEK_BAR_MODE;
+
+function loadSeekBarMode(): SeekBarMode {
+	if (!browser) return 'waveform';
+	const stored = localStorage.getItem(SEEK_BAR_MODE_KEY);
+	if (stored === 'waveform' || stored === 'squiggle' || stored === 'line') return stored;
+	// Migrate legacy waveformEnabled boolean
+	const legacy = localStorage.getItem(STORAGE_KEYS.WAVEFORM_ENABLED);
+	return legacy === 'false' ? 'squiggle' : 'waveform';
+}
+
+function createSeekBarModeStore() {
+	const { subscribe, set } = writable<SeekBarMode>(loadSeekBarMode());
 	return {
 		subscribe,
-		set(value: boolean) {
-			if (browser) localStorage.setItem(WAVEFORM_KEY, String(value));
+		set(value: SeekBarMode) {
+			if (browser) localStorage.setItem(SEEK_BAR_MODE_KEY, value);
 			set(value);
 		},
-		toggle() {
-			const next = !(browser ? (localStorage.getItem(WAVEFORM_KEY) ?? 'true') !== 'false' : true);
-			if (browser) localStorage.setItem(WAVEFORM_KEY, String(next));
-			set(next);
-		}
 	};
 }
 
-export const waveformEnabled = createWaveformStore();
+export const seekBarMode = createSeekBarModeStore();
+
+/** Backward-compat alias used by waveformFailed fallback logic */
+export const waveformEnabled = derived(seekBarMode, m => m === 'waveform');
 
 // ── Visualizer button visibility ──────────────────────────────────────────────
 

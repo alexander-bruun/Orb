@@ -52,6 +52,7 @@ export const STORAGE_KEYS = {
 	THEME: 'orb_theme',
 	AVATAR: 'orb_avatar',
 	WAVEFORM_ENABLED: 'orb_waveform_enabled',
+	SEEK_BAR_MODE: 'orb_seek_bar_mode',
 	PLAYER_STATE: 'orb-player-state-v1',
 	DEVICE_ID: 'orb_device_id',
 	NATIVE_DEVICE_ID: 'orb_native_device_id',

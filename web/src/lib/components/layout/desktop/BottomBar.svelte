@@ -41,11 +41,61 @@
   import { visualizerStore } from '$lib/stores/player/visualizer';
   import Visualizer from '$lib/components/ui/Visualizer.svelte';
   import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
-  import { waveformEnabled, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
+  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
+  import { onMount } from 'svelte';
   import { waveformFailed } from '$lib/stores/player/waveformPeaks';
 
   let waveformWidth = 0;
   let seekBarWidth = 0;
+
+  // Sine-wave seek bar constants
+  const SEEK_WAVE_LEN = 12; // px per full cycle
+  const SEEK_WAVE_AMP = 2;  // amplitude in px
+  const THUMB_R = 6;        // half of 12 px thumb
+
+  // Match the browser's thumb-centering formula: the thumb doesn't overflow the
+  // track ends, so center = thumbR + progress/100 × (trackWidth − 2×thumbR).
+  // This keeps our SVG playhead line exactly under the thumb's center.
+  $: progressX = seekBarWidth > 2 * THUMB_R
+    ? THUMB_R + (progress / 100) * (seekBarWidth - 2 * THUMB_R)
+    : seekBarWidth * progress / 100;
+
+  // Phase offset driven by rAF so the wave travels without shifting the
+  // smoothstep envelope — the wave is always flat at x=0 and x=progressX.
+  let wavePhase = 0;
+  onMount(() => {
+    let raf: number;
+    let last = performance.now();
+    function tick(now: number) {
+      // ~1.5 s per full cycle
+      wavePhase += ((now - last) / 1500) * Math.PI * 2;
+      last = now;
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  });
+
+  // Sine-wave path from x=0 to x=progressX.  A smoothstep envelope drives
+  // amplitude to zero over one wave period at each end (C¹-continuous with the
+  // straight tails), matching the same technique used on the album-card ring.
+  $: seekWavePath = (() => {
+    if (progressX <= 1) return '';
+    const y = 2;
+    const W = progressX;
+    const fade = SEEK_WAVE_LEN; // fade zone = one wave period at each end
+    const steps = Math.ceil(W / 1.5);
+    let d = `M 0 ${y}`;
+    for (let i = 1; i <= steps; i++) {
+      const x = (i / steps) * W;
+      const t = Math.min(x / fade, (W - x) / fade, 1);
+      const env = t * t * (3 - 2 * t); // smoothstep
+      const wy = y + SEEK_WAVE_AMP * env * Math.sin((x / SEEK_WAVE_LEN) * Math.PI * 2 + wavePhase);
+      d += ` L ${x.toFixed(1)} ${wy.toFixed(2)}`;
+    }
+    d += ` L ${W.toFixed(1)} ${y}`; // guarantee exact flat endpoint
+    return d;
+  })();
   import DesktopDevicePicker from './DesktopDevicePicker.svelte';
 
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
@@ -200,7 +250,7 @@
 
     <div class="seek-area">
       <span class="time">{$formattedPosition}</span>
-      {#if $waveformEnabled && !$waveformFailed}
+      {#if $seekBarMode === 'waveform' && !$waveformFailed}
         <div class="waveform-wrap" bind:clientWidth={waveformWidth}>
           {#if waveformWidth > 0}
             <TrackWaveform width={waveformWidth} height={36} />
@@ -209,27 +259,29 @@
       {:else}
         <div class="seek-bar-wrap" bind:clientWidth={seekBarWidth}>
           {#if seekBarWidth > 0}
-            <!-- SVG seek bar: played portion has a traveling sine-wave top edge,
-                 unplayed portion is a plain flat bar. Same wave technique as the album ring. -->
             <svg class="seek-svg" width={seekBarWidth} height="4" overflow="visible">
-              <defs>
-                <!-- Sine-wave tile: one full wave cycle (up-bump then down-notch) spanning 8×4 units.
-                     The top edge of the played fill oscillates while the bottom stays flat. -->
-                <pattern id="seek-wave" x="0" y="0" width="8" height="4" patternUnits="userSpaceOnUse">
-                  <path d="M 0 4 L 0 0 c 1.333,-2.667 2.667,-2.667 4,0 c 1.333,2.667 2.667,2.667 4,0 L 8 4 Z"
-                        fill="var(--accent)" />
-                </pattern>
-                <!-- Clip to the played width -->
-                <clipPath id="seek-progress-clip">
-                  <rect x="0" y="-3" width="{seekBarWidth * progress / 100}" height="10" />
-                </clipPath>
-              </defs>
-              <!-- Unplayed track background -->
-              <rect x="0" y="0" width="100%" height="4" rx="2" fill="var(--bg-hover)" />
-              <!-- Buffered region -->
-              <rect x="0" y="0" width="{seekBarWidth * $bufferedPct / 100}" height="4" rx="2" fill="rgba(160,160,160,0.35)" />
-              <!-- Played region: tiled wave pattern clipped to progress position -->
-              <rect x="0" y="-3" width="100%" height="10" fill="url(#seek-wave)" clip-path="url(#seek-progress-clip)" />
+              <!-- Unplayed: grey line only from the playhead onward -->
+              <line x1={progressX} y1="2" x2={seekBarWidth} y2="2"
+                    stroke="var(--bg-hover)" stroke-width="2" stroke-linecap="round" />
+              <!-- Buffered region overlay (only in unplayed zone) -->
+              {#if seekBarWidth * $bufferedPct / 100 > progressX}
+                <line x1={progressX} y1="2" x2={seekBarWidth * $bufferedPct / 100} y2="2"
+                      stroke="rgba(160,160,160,0.35)" stroke-width="2" stroke-linecap="round" />
+              {/if}
+              {#if $seekBarMode !== 'line' && progressX > 1}
+                <!-- Squiggle: phase-animated sine-wave with smoothstep fade at both ends -->
+                <path d={seekWavePath}
+                      stroke="var(--accent)" stroke-width="2" fill="none" stroke-linecap="round" />
+              {:else if progressX > 0}
+                <!-- Line: plain flat accent bar for the played region -->
+                <line x1="0" y1="2" x2={progressX} y2="2"
+                      stroke="var(--accent)" stroke-width="2" stroke-linecap="round" />
+              {/if}
+              <!-- Playhead: vertical tick — hidden on hover (thumb takes over) -->
+              {#if progressX > 0 && progressX < seekBarWidth}
+                <line class="seek-playhead" x1={progressX} y1="-3" x2={progressX} y2="7"
+                      stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" />
+              {/if}
             </svg>
           {/if}
           <input type="range" min="0" max="100" step="0.1" value={progress}
@@ -613,6 +665,8 @@
   }
   .seek-bar-wrap:hover .seek-input::-webkit-slider-thumb { opacity: 1; }
   .seek-bar-wrap:hover .seek-input::-moz-range-thumb { opacity: 1; }
+  .seek-playhead { transition: opacity 0.15s; }
+  .seek-bar-wrap:hover .seek-playhead { opacity: 0; }
 
   .right-controls { flex-shrink: 0; display: flex; align-items: center; gap: 12px; }
 
