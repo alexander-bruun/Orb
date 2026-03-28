@@ -3,10 +3,13 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { getArtistName } from '$lib/stores/library/artists';
+  import { currentTrack } from '$lib/stores/player';
 
   export let album: Album;
 
   let artistName: string = '';
+
+  $: isPlaying = $currentTrack?.album_id === album.id;
 
   import { getApiBase } from '$lib/api/base';
 
@@ -21,7 +24,7 @@
   });
 </script>
 
-<button class="album-card" on:click={() => goto(`/library/albums/${album.id}`)} aria-label="View album {album.title}">
+<button class="album-card" class:playing={isPlaying} on:click={() => goto(`/library/albums/${album.id}`)} aria-label="View album {album.title}">
   <div class="cover-wrap">
     {#if album.cover_art_key}
       <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" loading="lazy" />
@@ -58,6 +61,8 @@
     transition: background 0.15s, border-color 0.15s;
   }
   .album-card:hover { background: var(--bg-hover); border-color: var(--accent); }
+  .album-card.playing { border-color: var(--accent); background: var(--accent-dim); }
+  .album-card.playing:hover { background: var(--bg-hover); }
   .cover-wrap {
     position: relative;
     width: 100%;
