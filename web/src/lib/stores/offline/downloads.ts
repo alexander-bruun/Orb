@@ -1,9 +1,11 @@
 import { writable, get } from 'svelte/store';
 import { authStore } from '$lib/stores/auth';
 import { getApiBase } from '$lib/api/base';
+import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
 import { nativePlatform } from '$lib/utils/platform';
 import type { Track, Audiobook, AudiobookChapter } from '$lib/types';
 import type { LyricLine } from '$lib/stores/player/lyrics';
+import { saveLocalProgress, restoreLocalProgress } from '$lib/stores/offline/audiobookProgress';
 import { STORAGE_KEYS, IDB } from '$lib/constants';
 
 export type DownloadStatus = 'downloading' | 'done' | 'error';
@@ -203,6 +205,7 @@ export function restoreDownloads(): void {
     const raw = localStorage.getItem(META_KEY);
     if (raw) downloads.set(new Map(JSON.parse(raw)));
   } catch { /* corrupt data — start fresh */ }
+  restoreLocalProgress();
 }
 
 // ── Storage estimate ─────────────────────────────────────────────────────────
@@ -482,6 +485,27 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
   });
 }
 
+// ── Retry a failed download ──────────────────────────────────────────────────
+
+export async function retryDownload(entry: DownloadEntry): Promise<void> {
+  if (entry.isAudiobook) {
+    const auth = get(authStore);
+    await downloadAudiobookChapter(
+      { id: entry.trackId, title: entry.title } as import('$lib/types').AudiobookChapter,
+      { id: entry.albumId ?? '', title: entry.albumName, author_name: entry.artistName },
+      auth.token ?? '',
+    );
+  } else {
+    await downloadTrack({
+      id:          entry.trackId,
+      title:       entry.title,
+      artist_name: entry.artistName,
+      album_name:  entry.albumName,
+      album_id:    entry.albumId,
+    } as import('$lib/types').Track);
+  }
+}
+
 // ── Delete a downloaded track ────────────────────────────────────────────────
 
 export async function deleteDownload(trackId: string): Promise<void> {
@@ -728,11 +752,41 @@ export async function downloadAudiobookChapter(
   }
 }
 
+// ── Audiobook metadata cache (full book object for offline playback) ──────────
+
+export function cacheAudiobookMeta(book: Audiobook): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.AUDIOBOOK_META);
+    const map: Record<string, Audiobook> = raw ? JSON.parse(raw) : {};
+    map[book.id] = book;
+    localStorage.setItem(STORAGE_KEYS.AUDIOBOOK_META, JSON.stringify(map));
+  } catch { /* storage full */ }
+}
+
+export function getCachedAudiobookMeta(audiobookId: string): Audiobook | undefined {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.AUDIOBOOK_META);
+    if (raw) return (JSON.parse(raw) as Record<string, Audiobook>)[audiobookId];
+  } catch { /* corrupt */ }
+  return undefined;
+}
+
 /** Download all chapters of an audiobook sequentially. */
 export async function downloadAudiobook(
   book: Audiobook,
   token: string
 ): Promise<void> {
+  // Cache full book metadata (with chapters) for offline playback
+  cacheAudiobookMeta(book);
+
+  // Download current progress too so it's available offline
+  try {
+    const { progress } = await audiobooksApi.getProgress(book.id);
+    saveLocalProgress(book.id, progress.position_ms, progress.completed);
+  } catch (e) {
+    console.error(`Failed to download progress for audiobook ${book.id}:`, e);
+  }
+
   const chapters = book.chapters ?? [];
   for (const chapter of chapters) {
     await downloadAudiobookChapter(chapter, book, token);

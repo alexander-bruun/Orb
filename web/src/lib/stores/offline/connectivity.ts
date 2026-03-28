@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { getApiBase } from '$lib/api/base';
 import { TIMINGS } from '$lib/constants';
+import { syncProgressToServer } from '$lib/stores/offline/audiobookProgress';
 
 /**
  * Reactive store: true when the backend API is unreachable.
@@ -45,8 +46,17 @@ export async function checkConnectivity(): Promise<boolean> {
     });
     if (timeoutId) clearTimeout(timeoutId);
     // healthz always returns 200 when the server is up.
-    isOffline.set(!res.ok);
-    return !res.ok;
+    const nowOffline = !res.ok;
+    const wasOffline = get(isOffline);
+    
+    isOffline.set(nowOffline);
+
+    if (wasOffline && !nowOffline) {
+      // Transitioned from offline to online - sync data
+      syncProgressToServer().catch(() => {});
+    }
+
+    return nowOffline;
   } catch {
     isOffline.set(true);
     return true;

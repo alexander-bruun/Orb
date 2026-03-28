@@ -23,6 +23,8 @@ import { TIMINGS } from '$lib/constants';
 import { exclusiveMode, deviceId, activeDeviceId, sendHeartbeat } from './deviceSession';
 import { devices as devicesApi } from '$lib/api/devices';
 import { isCurrentlyOffline } from '$lib/stores/offline/connectivity';
+import { saveLocalProgress, getLocalProgress } from '$lib/stores/offline/audiobookProgress';
+import { getCachedAudiobookMeta } from '$lib/stores/offline/downloads';
 import * as engine from './engine';
 import type { AudiobookContentProvider, ControlPayload, RemoteState } from './engine';
 
@@ -407,7 +409,14 @@ function _persistProgress(completed = false) {
 	const pos = get(abPositionMs);
 	if (pos === _lastSavedMs && !completed) return;
 	_lastSavedMs = pos;
-	audiobooksApi.saveProgress(book.id, pos, completed).catch(() => {});
+
+	// Always save locally first (for offline support and quick resume)
+	saveLocalProgress(book.id, pos, completed);
+
+	// Try to sync with server if online
+	if (!isCurrentlyOffline()) {
+		audiobooksApi.saveProgress(book.id, pos, completed).catch(() => {});
+	}
 }
 
 function _startSaveInterval() {
@@ -488,12 +497,20 @@ export async function playAudiobook(book: Audiobook, startMs?: number) {
 
 	let fullBook = book;
 	if (!book.chapters || book.chapters.length === 0) {
-		try {
-			const res = await audiobooksApi.get(book.id);
-			fullBook = res.audiobook;
-			currentAudiobook.set(fullBook); // Update with full details (chapters, etc.)
-		} catch (e) {
-			console.error('Failed to fetch full audiobook details', e);
+		if (isCurrentlyOffline()) {
+			const cached = getCachedAudiobookMeta(book.id);
+			if (cached) {
+				fullBook = cached;
+				currentAudiobook.set(fullBook);
+			}
+		} else {
+			try {
+				const res = await audiobooksApi.get(book.id);
+				fullBook = res.audiobook;
+				currentAudiobook.set(fullBook); // Update with full details (chapters, etc.)
+			} catch (e) {
+				console.error('Failed to fetch full audiobook details', e);
+			}
 		}
 	}
 
@@ -518,11 +535,26 @@ export async function playAudiobook(book: Audiobook, startMs?: number) {
 	// Determine resume position
 	let resumeMs = startMs;
 	if (resumeMs === undefined) {
+		const local = getLocalProgress(fullBook.id);
+		let serverMs: number | undefined;
+
 		try {
-			const { progress } = await audiobooksApi.getProgress(fullBook.id);
-			resumeMs = progress.position_ms;
+			if (!isCurrentlyOffline()) {
+				const { progress } = await audiobooksApi.getProgress(fullBook.id);
+				serverMs = progress.position_ms;
+			}
 		} catch {
-			resumeMs = 0;
+			// server unavailable
+		}
+
+		if (local && (serverMs === undefined || local.updatedAt > 0)) {
+			// If we have local progress, we should consider it. 
+			// We check local.updatedAt to see if it's potentially newer.
+			// Since we don't always have updatedAt for server progress in this call,
+			// we favor local if we are offline or if it exists.
+			resumeMs = local.positionMs;
+		} else {
+			resumeMs = serverMs ?? 0;
 		}
 	}
 	resumeMs = resumeMs ?? 0;
