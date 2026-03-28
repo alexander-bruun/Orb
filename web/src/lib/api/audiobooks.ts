@@ -6,6 +6,10 @@ export const audiobooks = {
 		return apiFetch(`/audiobooks?limit=${limit}&offset=${offset}&sort_by=${sortBy}`);
 	},
 
+	recentlyAdded(limit = 20): Promise<{ audiobooks: Audiobook[] }> {
+		return apiFetch(`/audiobooks/recently-added?limit=${limit}`);
+	},
+
 	inProgress(limit = 10): Promise<{ audiobooks: (Audiobook & { position_ms: number; progress_updated_at: string })[] }> {
 		return apiFetch(`/audiobooks/in-progress?limit=${limit}`);
 	},

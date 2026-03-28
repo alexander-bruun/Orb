@@ -33,6 +33,7 @@ func New(db *store.Store, obj objstore.ObjectStore, ingestSvc *ingest.AudiobookI
 func (s *Service) Routes(r chi.Router) {
 	// Browse
 	r.Get("/", s.list)
+	r.Get("/recently-added", s.listRecentlyAdded)
 	r.Get("/in-progress", s.listInProgress)
 	r.Get("/series/{name}", s.listBySeries)
 	r.Get("/{id}", s.get)
@@ -79,6 +80,22 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "list audiobooks: "+err.Error())
+		return
+	}
+	if books == nil {
+		books = []store.Audiobook{}
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]interface{}{"audiobooks": books})
+}
+
+func (s *Service) listRecentlyAdded(w http.ResponseWriter, r *http.Request) {
+	limit := httputil.QueryInt(r, "limit", 20)
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	books, err := s.db.ListRecentAudiobooks(r.Context(), limit)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "list recent audiobooks: "+err.Error())
 		return
 	}
 	if books == nil {
