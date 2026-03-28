@@ -247,7 +247,7 @@ func (s *Store) SearchTracks(ctx context.Context, p SearchTracksParams) ([]Track
 
 	args = append(args, p.Limit)
 	q := fmt.Sprintf(
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
 FROM tracks t
 LEFT JOIN track_features tf ON tf.track_id = t.id
 LEFT JOIN artists ar ON ar.id = t.artist_id%s

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Artist } from '$lib/types';
   import { goto } from '$app/navigation';
+  import { getApiBase } from '$lib/api/base';
 
   export let artists: Artist[] = [];
 </script>
@@ -8,7 +9,11 @@
 <div class="artist-list">
   {#each artists as artist (artist.id)}
     <button class="artist-row" on:click={() => goto(`/artists/${artist.id}`)} aria-label="View artist {artist.name}">
-      <div class="monogram">{artist.name.slice(0, 1).toUpperCase()}</div>
+      {#if artist.image_key}
+        <img class="artist-thumb" src="{getApiBase()}/covers/artist/{artist.id}" alt={artist.name} loading="lazy" />
+      {:else}
+        <div class="monogram">{artist.name.slice(0, 1).toUpperCase()}</div>
+      {/if}
       <span class="name">{artist.name}</span>
       <svg class="chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
         <polyline points="9 18 15 12 9 6"/>
@@ -40,6 +45,15 @@
     min-width: 0;
   }
   .artist-row:hover { background: var(--bg-hover); }
+
+  .artist-thumb {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    display: block;
+  }
 
   .monogram {
     width: 32px;
