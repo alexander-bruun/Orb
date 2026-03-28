@@ -3,18 +3,12 @@ package config
 
 import "os"
 
-// DefaultDSN is the fallback Postgres connection string used when DATABASE_URL
-// is not set. Override it via the DATABASE_URL environment variable in
-// production.
-const DefaultDSN = "postgres://orb:orb@localhost:5432/orb?sslmode=disable"
-
 // DSN returns the Postgres connection string from the DATABASE_URL environment
-// variable, falling back to DefaultDSN when unset.
+// variable. In Docker, the entrypoint populates this from /run/secrets/db_password.
+// Returns an empty string if unset, which will cause the database driver to
+// return a clear error rather than attempting a connection with stale defaults.
 func DSN() string {
-	if v := os.Getenv("DATABASE_URL"); v != "" {
-		return v
-	}
-	return DefaultDSN
+	return os.Getenv("DATABASE_URL")
 }
 
 // Env returns the value of the environment variable key, or def if unset.

@@ -4,7 +4,7 @@ Orb is configured via environment variables. Important options:
 
 ## Core
 
-- `DATABASE_URL` — Postgres DSN (default: `postgres://orb:orb@postgres:5432/orb?sslmode=disable`)
+- `DATABASE_URL` — Postgres DSN. **Required.** In Docker, set automatically by the entrypoint from `/run/secrets/db_password` (`postgres://orb:<secret>@postgres:5432/orb?sslmode=disable`). Must be set explicitly in all other environments.
 - `KV_MODE` — key-value mode: `standalone` or `sentinel` (default: `standalone`)
 - `KV_ADDR` — address of Valkey/Redis (default: `localhost:6379`; used when `KV_MODE=standalone`)
 - `KV_SENTINEL_ADDRS` — comma-separated sentinel addresses (default: `localhost:26379`; used when `KV_MODE=sentinel`)
