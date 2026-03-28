@@ -112,7 +112,10 @@ func (s *Service) Routes(r chi.Router) {
 
 	// Library / job control
 	r.Post("/albums/{id}/refetch-cover", s.refetchAlbumCover)
+	r.Put("/albums/{id}/cover", s.uploadAlbumCover)
 	r.Get("/albums/no-cover", s.albumsNoCover)
+	r.Post("/audiobooks/{id}/refetch-cover", s.refetchAudiobookCover)
+	r.Put("/audiobooks/{id}/cover", s.uploadAudiobookCover)
 
 	// System backup / restore
 	r.Get("/backup", s.backup)
@@ -637,6 +640,120 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.db.InsertAuditLog(r.Context(), actorID, "refetch_cover", "album", albumID, nil); err != nil {
 		slog.Warn("audit log failed", "action", "refetch_cover", "err", err)
+	}
+	httputil.WriteOK(w, map[string]string{"cover_art_key": coverKey})
+}
+
+// PUT /admin/albums/{id}/cover — upload a cover image (multipart field "cover").
+func (s *Service) uploadAlbumCover(w http.ResponseWriter, r *http.Request) {
+	albumID := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+	file, _, err := r.FormFile("cover")
+	if err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "missing cover field")
+		return
+	}
+	defer file.Close()
+
+	imgData, err := io.ReadAll(io.LimitReader(file, 10<<20))
+	if err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "failed to read cover")
+		return
+	}
+
+	coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
+	if err := storeCoverArt(r.Context(), s.obj, coverKey, imgData); err != nil {
+		httputil.WriteErr(w, http.StatusUnprocessableEntity, "invalid image: "+err.Error())
+		return
+	}
+	if err := s.db.UpdateAlbumCoverArt(r.Context(), albumID, coverKey); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "upload_cover", "album", albumID, nil); err != nil {
+		slog.Warn("audit log failed", "action", "upload_cover", "err", err)
+	}
+	httputil.WriteOK(w, map[string]string{"cover_art_key": coverKey})
+}
+
+// POST /admin/audiobooks/{id}/refetch-cover — re-fetch cover art from OpenLibrary.
+func (s *Service) refetchAudiobookCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+
+	book, err := s.db.GetAudiobook(r.Context(), id)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusNotFound, "audiobook not found")
+		return
+	}
+
+	ol := openlibrary.New()
+	authorName := derefOr(book.AuthorName, "")
+	meta, olErr := ol.Search(r.Context(), book.Title, authorName)
+	if olErr != nil || meta == nil || meta.CoverID == 0 {
+		httputil.WriteErr(w, http.StatusNotFound, "no cover art found")
+		return
+	}
+
+	coverData, err := ol.FetchCoverArt(r.Context(), meta.CoverID)
+	if err != nil || len(coverData) == 0 {
+		httputil.WriteErr(w, http.StatusNotFound, "no cover art found")
+		return
+	}
+
+	coverKey := fmt.Sprintf("covers/audiobook/%s.jpg", id)
+	if err := storeCoverArt(r.Context(), s.obj, coverKey, coverData); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "failed to store cover art: "+err.Error())
+		return
+	}
+	if err := s.db.UpdateAudiobookCoverArt(r.Context(), id, coverKey); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "refetch_cover", "audiobook", id, nil); err != nil {
+		slog.Warn("audit log failed", "action", "refetch_cover", "err", err)
+	}
+	httputil.WriteOK(w, map[string]string{"cover_art_key": coverKey})
+}
+
+// PUT /admin/audiobooks/{id}/cover — upload a cover image (multipart field "cover").
+func (s *Service) uploadAudiobookCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	actorID := auth.UserIDFromCtx(r.Context())
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid multipart form")
+		return
+	}
+	file, _, err := r.FormFile("cover")
+	if err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "missing cover field")
+		return
+	}
+	defer file.Close()
+
+	imgData, err := io.ReadAll(io.LimitReader(file, 10<<20))
+	if err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "failed to read cover")
+		return
+	}
+
+	coverKey := fmt.Sprintf("covers/audiobook/%s.jpg", id)
+	if err := storeCoverArt(r.Context(), s.obj, coverKey, imgData); err != nil {
+		httputil.WriteErr(w, http.StatusUnprocessableEntity, "invalid image: "+err.Error())
+		return
+	}
+	if err := s.db.UpdateAudiobookCoverArt(r.Context(), id, coverKey); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "upload_cover", "audiobook", id, nil); err != nil {
+		slog.Warn("audit log failed", "action", "upload_cover", "err", err)
 	}
 	httputil.WriteOK(w, map[string]string{"cover_art_key": coverKey})
 }
@@ -1490,15 +1607,10 @@ func derefOr[T any](p *T, fallback T) T {
 
 // storeCoverArt stores a cover art image, re-encoding as JPEG for consistency.
 func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, data []byte) error {
-	img, _, err := image.Decode(bytes.NewReader(data))
+	encoded, err := encodeImageToJPEG(ctx, data)
 	if err != nil {
 		return fmt.Errorf("decode cover art: %w", err)
 	}
-	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
-		return fmt.Errorf("encode cover art: %w", err)
-	}
-	encoded := buf.Bytes()
 	if len(encoded) == 0 {
 		return errors.New("encode cover art: empty output")
 	}
@@ -1510,6 +1622,37 @@ func storeCoverArt(ctx context.Context, obj objstore.ObjectStore, key string, da
 		return fmt.Errorf("cover art size mismatch after write: wrote=%d stored=%d sha256=%s", len(encoded), sz, hex.EncodeToString(sum[:]))
 	}
 	return nil
+}
+
+// encodeImageToJPEG decodes any supported image format and re-encodes as JPEG.
+// For formats unsupported by Go's image package (e.g. AVIF), it falls back to
+// ffmpeg if available.
+func encodeImageToJPEG(ctx context.Context, data []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err == nil {
+		var buf bytes.Buffer
+		if encErr := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); encErr != nil {
+			return nil, encErr
+		}
+		return buf.Bytes(), nil
+	}
+	// Fallback: convert via ffmpeg (handles AVIF, WebP, TIFF, etc.)
+	if _, lookErr := exec.LookPath("ffmpeg"); lookErr != nil {
+		return nil, err // return original decode error
+	}
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-hide_banner", "-loglevel", "error",
+		"-i", "pipe:0",
+		"-vframes", "1",
+		"-f", "image2", "-vcodec", "mjpeg", "-q:v", "2",
+		"pipe:1",
+	)
+	cmd.Stdin = bytes.NewReader(data)
+	out, ffErr := cmd.Output()
+	if ffErr != nil || len(out) == 0 {
+		return nil, err // return original decode error
+	}
+	return out, nil
 }
 
 func findLocalAlbumCover(paths []string) []byte {

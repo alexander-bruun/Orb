@@ -213,6 +213,40 @@ export const admin = {
 		apiFetch(`/admin/albums/no-cover?limit=${limit}&offset=${offset}`),
 	refetchAlbumCover: (albumId: string): Promise<{ cover_art_key: string }> =>
 		apiFetch(`/admin/albums/${albumId}/refetch-cover`, { method: 'POST' }),
+	uploadAlbumCover: async (albumId: string, file: File): Promise<{ cover_art_key: string }> => {
+		const token = get(authStore).token ?? '';
+		const body = new FormData();
+		body.append('cover', file);
+		const res = await fetch(`${getApiBase()}/admin/albums/${albumId}/cover`, {
+			method: 'PUT',
+			headers: token ? { Authorization: `Bearer ${token}` } : {},
+			body
+		});
+		if (!res.ok) {
+			let msg = res.statusText;
+			try { const d = await res.json(); msg = d.error ?? msg; } catch { /* ignore */ }
+			throw new Error(msg);
+		}
+		return res.json();
+	},
+	refetchAudiobookCover: (id: string): Promise<{ cover_art_key: string }> =>
+		apiFetch(`/admin/audiobooks/${id}/refetch-cover`, { method: 'POST' }),
+	uploadAudiobookCover: async (id: string, file: File): Promise<{ cover_art_key: string }> => {
+		const token = get(authStore).token ?? '';
+		const body = new FormData();
+		body.append('cover', file);
+		const res = await fetch(`${getApiBase()}/admin/audiobooks/${id}/cover`, {
+			method: 'PUT',
+			headers: token ? { Authorization: `Bearer ${token}` } : {},
+			body
+		});
+		if (!res.ok) {
+			let msg = res.statusText;
+			try { const d = await res.json(); msg = d.error ?? msg; } catch { /* ignore */ }
+			throw new Error(msg);
+		}
+		return res.json();
+	},
 
 	// Metadata editing
 	updateAlbumMeta: (id: string, body: { title: string; release_year?: number | null; label?: string | null }): Promise<void> =>
