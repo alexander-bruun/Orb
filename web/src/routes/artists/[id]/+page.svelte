@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { library as libApi } from '$lib/api/library';
@@ -58,13 +57,16 @@
     }
   };
 
-  onMount(async () => {
-    const id = $page.params.id ?? '';
-
+  async function loadArtist(id: string) {
     if (isRestoring && artist?.id === id) {
+      loading = false;
       isRestoring = false;
       return;
     }
+    loading = true;
+    artist = null; albums = []; genres = []; relatedArtists = []; appearsOn = [];
+    appearsOnGrouped = new Map(); appearsOnKeys = []; timelineYears = []; albumsByYear = new Map();
+    bio = ''; bioUrl = ''; similarArtists = [];
 
     try {
       const res = await libApi.artist(id);
@@ -94,32 +96,31 @@
       appearsOnKeys = Array.from(appearsOnGrouped.keys()).sort();
     } finally {
       loading = false;
+      isRestoring = false;
     }
 
     // Fetch bio in the background (non-blocking)
-    try {
-      const bioRes = await libApi.artistBio(id);
-      bio = bioRes.bio ?? '';
-      bioUrl = bioRes.bio_url ?? '';
-    } catch {
-      // bio stays empty
-    }
+    libApi.artistBio(id)
+      .then((bioRes) => { bio = bioRes.bio ?? ''; bioUrl = bioRes.bio_url ?? ''; })
+      .catch(() => {});
 
     // Fetch similar artists via recommendation engine (non-blocking)
-    try {
-      const simTracks = await recommend.radioByArtist(id, 60);
-      const seen = new Set<string>();
-      const result: SimilarArtist[] = [];
-      for (const t of simTracks) {
-        if (!t.artist_id || t.artist_id === id || seen.has(t.artist_id)) continue;
-        seen.add(t.artist_id);
-        result.push({ id: t.artist_id, name: t.artist_name ?? 'Unknown Artist', hasImage: false });
-      }
-      similarArtists = result.slice(0, 12);
-    } catch {
-      // similarArtists stays empty
-    }
-  });
+    recommend.radioByArtist(id, 60)
+      .then((simTracks) => {
+        const seen = new Set<string>();
+        const result: SimilarArtist[] = [];
+        for (const t of simTracks) {
+          const aid = t.artist_id;
+          if (!aid || aid === id || seen.has(aid)) continue;
+          seen.add(aid);
+          result.push({ id: aid, name: t.artist_name ?? 'Unknown Artist', hasImage: false });
+        }
+        similarArtists = result.slice(0, 12);
+      })
+      .catch(() => {});
+  }
+
+  $: if ($page.params.id) loadArtist($page.params.id);
 
   async function shuffleAll() {
     if (albums.length === 0 || shuffling) return;
