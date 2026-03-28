@@ -1,25 +1,58 @@
 services:
+  secrets-init:
+    image: alpine:3.21
+    volumes:
+      - secrets:/run/secrets
+    # Generate credentials on first boot only; no-op on subsequent runs.
+    command: >-
+      sh -c "
+      [ -f /run/secrets/db_password ] || od -A n -t x -N 16 /dev/urandom | tr -d ' \n\t' > /run/secrets/db_password &&
+      [ -f /run/secrets/jwt_secret  ] || od -A n -t x -N 32 /dev/urandom | tr -d ' \n\t' > /run/secrets/jwt_secret  &&
+      chmod 600 /run/secrets/db_password /run/secrets/jwt_secret
+      "
+    restart: "no"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: orb
-      POSTGRES_PASSWORD: orb
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
       POSTGRES_DB: orb
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./services/db:/docker-entrypoint-initdb.d:ro
+      - secrets:/run/secrets:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orb"]
       interval: 5s
       retries: 10
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETGID, SETUID, DAC_OVERRIDE]
+    networks:
+      - orb
 
   valkey:
     image: valkey/valkey:7-alpine
     command: valkey-server --appendonly yes
     volumes:
       - valkey_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      retries: 10
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, SETGID, SETUID, DAC_OVERRIDE]
+    networks:
+      - orb
 
   app:
     build:
@@ -28,34 +61,42 @@ services:
     # To use the published image instead of building locally, comment out the build section above and uncomment the line below:
     # image: alexbruun/orb:latest
     environment:
-      DATABASE_URL: postgres://orb:orb@postgres:5432/orb?sslmode=disable
       KV_MODE: standalone
       KV_ADDR: valkey:6379
       STORE_ROOT: /data/audio
-      LOG_FILE: /data/audio/orb.log
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       HTTP_PORT: "8080"
       MUSIC_DIRS: /music
       AUDIOBOOK_DIRS: /audiobooks
-      INGEST_WATCH: "true"
       DLNA_ENABLED: "true"
     volumes:
       - audio_data:/data/audio
-      - /mnt/d/Music:/music:ro
-      - /mnt/d/Audiobooks:/audiobooks:ro
+      - secrets:/run/secrets:ro
+      - ${MUSIC_DIR:-/mnt/d/Music}:/music:ro
+      - ${AUDIOBOOK_DIR:-/mnt/d/Audiobooks}:/audiobooks:ro
     ports:
-      - 3000:80 # UI
-      - 8080:8080 # API
-      - 9090:9090 # DLNA
-      - 1900:1900/udp # SSDP for DLNA discovery
+      - 3000:80         # UI
+      - 9090:9090       # DLNA
+      - 1900:1900/udp   # SSDP for DLNA discovery
     depends_on:
+      secrets-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       valkey:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE, CHOWN, SETGID, SETUID, DAC_OVERRIDE]
+    networks:
+      - orb
+
+networks:
+  orb:
+    driver: bridge
 
 volumes:
   postgres_data:
   valkey_data:
   audio_data:
+  secrets:

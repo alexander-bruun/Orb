@@ -1,0 +1,22 @@
+# Frontend build artifacts and dependencies
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/src-tauri/target/
+web/src-tauri/gen/
+
+# Docs / scripts (not needed in image)
+docs/
+scripts/
+*.md
+mkdocs.yml
+cliff.toml
+Makefile
+
+# IDE
+.vscode/
+.idea/
+
+# Compiled binaries
+bin/
+orb
