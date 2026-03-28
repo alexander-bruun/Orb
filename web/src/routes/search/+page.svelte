@@ -326,7 +326,7 @@
           </section>
         {/if}
 
-        {#if $searchResults.tracks.length}
+        {#if $searchResults.tracks.length && !$searchResults.artists.length}
           <section>
             <h2 class="section-title">
               Tracks

@@ -2,31 +2,53 @@
   import type { Artist } from '$lib/types';
   import { goto } from '$app/navigation';
   import { getApiBase } from '$lib/api/base';
+  import TrackRow from '$lib/components/library/TrackRow.svelte';
 
   export let artists: Artist[] = [];
 </script>
 
 <div class="artist-list">
   {#each artists as artist (artist.id)}
-    <button class="artist-row" on:click={() => goto(`/artists/${artist.id}`)} aria-label="View artist {artist.name}">
-      {#if artist.image_key}
-        <img class="artist-thumb" src="{getApiBase()}/covers/artist/{artist.id}" alt={artist.name} loading="lazy" />
-      {:else}
-        <div class="monogram">{artist.name.slice(0, 1).toUpperCase()}</div>
+    <div class="artist-card">
+      <button class="artist-row" on:click={() => goto(`/artists/${artist.id}`)} aria-label="View artist {artist.name}">
+        {#if artist.image_key}
+          <img class="artist-thumb" src="{getApiBase()}/covers/artist/{artist.id}" alt={artist.name} loading="lazy" />
+        {:else}
+          <div class="monogram">{artist.name.slice(0, 1).toUpperCase()}</div>
+        {/if}
+        <span class="name">{artist.name}</span>
+        <svg class="chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
+
+      {#if artist.top_tracks && artist.top_tracks.length > 0}
+        <div class="top-tracks">
+          {#each artist.top_tracks as track, i (track.id)}
+            <TrackRow {track} trackList={artist.top_tracks} index={i} useRankIndex={true} />
+          {/each}
+        </div>
       {/if}
-      <span class="name">{artist.name}</span>
-      <svg class="chevron" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-        <polyline points="9 18 15 12 9 6"/>
-      </svg>
-    </button>
+    </div>
   {/each}
 </div>
 
 <style>
   .artist-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 4px;
+  }
+
+  .artist-card {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    transition: border-color 0.15s;
+  }
+  .artist-card:has(.top-tracks) {
+    border-color: var(--border);
+    background: var(--surface);
   }
 
   .artist-row {
@@ -43,6 +65,9 @@
     transition: background 0.1s;
     width: 100%;
     min-width: 0;
+  }
+  .artist-card:has(.top-tracks) .artist-row {
+    border-radius: 8px 8px 0 0;
   }
   .artist-row:hover { background: var(--bg-hover); }
 
@@ -85,4 +110,10 @@
     opacity: 0.5;
   }
   .artist-row:hover .chevron { opacity: 1; color: var(--accent); }
+
+  /* Top tracks */
+  .top-tracks {
+    border-top: 1px solid var(--border);
+    padding: 4px 0;
+  }
 </style>

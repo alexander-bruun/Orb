@@ -29,6 +29,7 @@ export interface Artist {
 	end_date?: string;
 	disambiguation?: string;
 	image_key?: string;
+	top_tracks?: Track[];
 }
 
 export interface Album {

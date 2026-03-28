@@ -45,6 +45,32 @@ ORDER BY t.disc_number ASC, t.track_number ASC`,
 	return scanTracks(rows)
 }
 
+// TopTracksByArtist returns the most-played tracks for an artist, ordered by
+// global play count descending, falling back to track_number order.
+func (s *Store) TopTracksByArtist(ctx context.Context, artistID string, limit int) ([]Track, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number,
+		        t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth,
+		        t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at,
+		        COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
+		FROM tracks t
+		LEFT JOIN track_features tf ON tf.track_id = t.id
+		LEFT JOIN (
+		  SELECT track_id, COUNT(*) AS play_count
+		  FROM play_history
+		  GROUP BY track_id
+		) ph ON ph.track_id = t.id
+		WHERE t.artist_id = $1
+		ORDER BY COALESCE(ph.play_count, 0) DESC, t.track_number ASC
+		LIMIT $2`,
+		artistID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTracks(rows)
+}
+
 func (s *Store) RemoveTrackFromLibrary(ctx context.Context, userID, trackID string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM user_library WHERE user_id = $1 AND track_id = $2`, userID, trackID)
 	return err

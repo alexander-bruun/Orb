@@ -473,7 +473,19 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 			ToTsquery: q,
 			Limit:     20,
 		})
-		out["artists"] = artists
+		type artistWithTracks struct {
+			store.Artist
+			TopTracks []trackWithArtists `json:"top_tracks,omitempty"`
+		}
+		result := make([]artistWithTracks, len(artists))
+		for i, a := range artists {
+			tracks, _ := s.db.TopTracksByArtist(r.Context(), a.ID, 5)
+			result[i] = artistWithTracks{
+				Artist:    a,
+				TopTracks: s.enrichTracks(r.Context(), tracks),
+			}
+		}
+		out["artists"] = result
 	} else {
 		out["artists"] = []any{}
 	}
