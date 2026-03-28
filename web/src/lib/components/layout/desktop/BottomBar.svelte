@@ -45,6 +45,7 @@
   import { waveformFailed } from '$lib/stores/player/waveformPeaks';
 
   let waveformWidth = 0;
+  let seekBarWidth = 0;
   import DesktopDevicePicker from './DesktopDevicePicker.svelte';
 
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
@@ -206,11 +207,31 @@
           {/if}
         </div>
       {:else}
-        <div class="seek-bar-wrap">
-          <div class="seek-track">
-            <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
-            <div class="seek-progress" style="width: {progress}%"></div>
-          </div>
+        <div class="seek-bar-wrap" bind:clientWidth={seekBarWidth}>
+          {#if seekBarWidth > 0}
+            <!-- SVG seek bar: played portion has a traveling sine-wave top edge,
+                 unplayed portion is a plain flat bar. Same wave technique as the album ring. -->
+            <svg class="seek-svg" width={seekBarWidth} height="4" overflow="visible">
+              <defs>
+                <!-- Sine-wave tile: one full wave cycle (up-bump then down-notch) spanning 8×4 units.
+                     The top edge of the played fill oscillates while the bottom stays flat. -->
+                <pattern id="seek-wave" x="0" y="0" width="8" height="4" patternUnits="userSpaceOnUse">
+                  <path d="M 0 4 L 0 0 c 1.333,-2.667 2.667,-2.667 4,0 c 1.333,2.667 2.667,2.667 4,0 L 8 4 Z"
+                        fill="var(--accent)" />
+                </pattern>
+                <!-- Clip to the played width -->
+                <clipPath id="seek-progress-clip">
+                  <rect x="0" y="-3" width="{seekBarWidth * progress / 100}" height="10" />
+                </clipPath>
+              </defs>
+              <!-- Unplayed track background -->
+              <rect x="0" y="0" width="100%" height="4" rx="2" fill="var(--bg-hover)" />
+              <!-- Buffered region -->
+              <rect x="0" y="0" width="{seekBarWidth * $bufferedPct / 100}" height="4" rx="2" fill="rgba(160,160,160,0.35)" />
+              <!-- Played region: tiled wave pattern clipped to progress position -->
+              <rect x="0" y="-3" width="100%" height="10" fill="url(#seek-wave)" clip-path="url(#seek-progress-clip)" />
+            </svg>
+          {/if}
           <input type="range" min="0" max="100" step="0.1" value={progress}
             on:input={onSeek} class="seek-input" aria-label="Seek" />
         </div>
@@ -554,31 +575,17 @@
   .seek-bar-wrap {
     flex: 1;
     position: relative;
-    height: 4px;
+    height: 8px; /* extra height so wave bumps above have room */
     display: flex;
     align-items: center;
     min-width: 0;
+    overflow: visible;
   }
-  .seek-track {
+  .seek-svg {
     position: absolute;
-    left: 0; right: 0;
-    height: 4px;
-    background: var(--bg-hover);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .seek-buffered {
-    position: absolute;
-    height: 100%;
-    background: rgba(160,160,160,0.45);
-    transition: width 0.4s ease;
-    pointer-events: none;
-  }
-  .seek-progress {
-    position: absolute;
-    height: 100%;
-    background: var(--accent);
-    pointer-events: none;
+    left: 0;
+    display: block;
+    overflow: visible;
   }
   .seek-input {
     position: absolute;
@@ -604,7 +611,6 @@
     background: var(--accent); border: none; cursor: pointer;
     opacity: 0; transition: opacity 0.15s;
   }
-  .seek-bar-wrap:hover .seek-track { height: 6px; }
   .seek-bar-wrap:hover .seek-input::-webkit-slider-thumb { opacity: 1; }
   .seek-bar-wrap:hover .seek-input::-moz-range-thumb { opacity: 1; }
 
