@@ -494,3 +494,56 @@ ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS asin TEXT;
 
 -- Subtitle extracted from folder-name or metadata (e.g. "Book Title - Subtitle Here").
 ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS subtitle TEXT;
+
+-- ── Social: user profile extensions ─────────────────────────────────────────
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_public BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key TEXT;
+
+-- ── Social: who follows whom ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_follows (
+  follower_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followee_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (follower_id, followee_id)
+);
+CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows(followee_id);
+
+-- ── Social: activity feed ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_activity (
+  id          TEXT        PRIMARY KEY,
+  user_id     TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type        TEXT        NOT NULL,   -- 'play', 'favorite', 'playlist_create', 'playlist_follow'
+  entity_type TEXT        NOT NULL,   -- 'track', 'album', 'artist', 'playlist'
+  entity_id   TEXT        NOT NULL,
+  metadata    JSONB,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS user_activity_user_created ON user_activity(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS user_activity_created      ON user_activity(created_at DESC);
+
+-- ── Social: playlist collaboration ───────────────────────────────────────────
+ALTER TABLE playlists ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE playlist_tracks ADD COLUMN IF NOT EXISTS added_by TEXT REFERENCES users(id);
+
+CREATE TABLE IF NOT EXISTS playlist_collaborators (
+  playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role        TEXT NOT NULL DEFAULT 'editor',  -- 'editor' | 'viewer'
+  invited_by  TEXT NOT NULL REFERENCES users(id),
+  invited_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  accepted_at TIMESTAMPTZ,
+  PRIMARY KEY (playlist_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS playlist_collaborators_user_idx ON playlist_collaborators(user_id);
+
+CREATE TABLE IF NOT EXISTS playlist_invite_tokens (
+  token       TEXT        PRIMARY KEY,
+  playlist_id TEXT        NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+  invited_by  TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role        TEXT        NOT NULL DEFAULT 'editor',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '7 days',
+  used_at     TIMESTAMPTZ
+);

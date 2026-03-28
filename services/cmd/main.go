@@ -21,6 +21,7 @@ import (
 	audiobookpkg "github.com/alexander-bruun/orb/services/internal/audiobook"
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/castproxy"
+	"github.com/alexander-bruun/orb/services/internal/collaboration"
 	"github.com/alexander-bruun/orb/services/internal/config"
 	"github.com/alexander-bruun/orb/services/internal/device"
 	"github.com/alexander-bruun/orb/services/internal/discovery"
@@ -35,6 +36,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/recommend"
 	"github.com/alexander-bruun/orb/services/internal/share"
 	"github.com/alexander-bruun/orb/services/internal/smartplaylist"
+	"github.com/alexander-bruun/orb/services/internal/social"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/stream"
 	"github.com/alexander-bruun/orb/services/internal/user"
@@ -142,6 +144,8 @@ func registerRoutes(
 	r.Get("/covers/playlist/{id}", streamSvc.PlaylistCover)
 	r.Get("/covers/playlist/{id}/composite", streamSvc.PlaylistCoverComposite)
 	r.Get("/covers/audiobook/{id}", streamSvc.AudiobookCover)
+	// Public avatar endpoint (no auth — used by profile pages)
+	r.Get("/covers/avatar/{key}", streamSvc.AvatarImage)
 
 	// Protected routes
 	jwtMW := auth.JWTMiddleware(jwtSecret, kv)
@@ -161,6 +165,14 @@ func registerRoutes(
 
 		plSvc := playlist.New(db)
 		r.Route("/playlists", plSvc.Routes)
+
+		// Collaboration (sub-routes under /playlists and /playlists/invite)
+		collabSvc := collaboration.New(db)
+		collabSvc.Routes(r)
+
+		// Social: feed, follow, profiles, avatar upload
+		socialSvc := social.New(db, obj)
+		socialSvc.Routes(r)
 
 		spSvc := smartplaylist.New(db)
 		r.Route("/smart-playlists", spSvc.Routes)

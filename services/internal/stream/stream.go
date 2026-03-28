@@ -845,6 +845,14 @@ func (s *Service) ServeAudiobookCover(w http.ResponseWriter, r *http.Request, au
 	s.serveCover(w, r, *book.CoverArtKey)
 }
 
+// AvatarImage serves a user avatar from the object store. Public endpoint — no auth.
+// Route: GET /covers/avatar/{key} where key is the uuid portion (without path prefix).
+func (s *Service) AvatarImage(w http.ResponseWriter, r *http.Request) {
+	key := chi.URLParam(r, "key")
+	// Accept just the filename part; prepend the avatars/ directory.
+	s.serveCover(w, r, "avatars/"+key)
+}
+
 func closeReadCloser(rc io.ReadCloser) {
 	if err := rc.Close(); err != nil {
 		slog.Warn("stream: reader close failed", "err", err)

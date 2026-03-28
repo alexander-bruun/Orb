@@ -61,6 +61,7 @@
     </svg>
     <span>Favorites</span>
   </a>
+
 </nav>
 
 <style>

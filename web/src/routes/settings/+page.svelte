@@ -650,10 +650,50 @@
   }
 
   import { onMount } from 'svelte';
+  import { social } from '$lib/api/social';
+
+  // ── Public profile ────────────────────────────────────────
+  let profileDisplayName = '';
+  let profileBio = '';
+  let profilePublic = false;
+  let profileSaving = false;
+  let profileSaveMsg = '';
+  let profileSaveError = '';
+
+  async function loadPublicProfile() {
+    try {
+      const p = await social.getMyProfile();
+      profileDisplayName = p.display_name ?? '';
+      profileBio = p.bio ?? '';
+      profilePublic = p.profile_public ?? false;
+    } catch {
+      // ignore — fields stay blank
+    }
+  }
+
+  async function savePublicProfile() {
+    profileSaving = true;
+    profileSaveMsg = '';
+    profileSaveError = '';
+    try {
+      await social.updateMyProfile({
+        display_name: profileDisplayName,
+        bio: profileBio,
+        profile_public: profilePublic,
+      });
+      profileSaveMsg = 'Profile saved.';
+      setTimeout(() => { profileSaveMsg = ''; }, 3000);
+    } catch (err: any) {
+      profileSaveError = err?.message ?? 'Failed to save profile.';
+    } finally {
+      profileSaving = false;
+    }
+  }
 
   let activeSection = 'profile';
 
   onMount(() => {
+    loadPublicProfile();
     fetchServerVersion();
 
     // Setup scroll spy for nav active state
@@ -795,6 +835,42 @@
         {#if resendError}<span class="msg msg--error" style="margin:0">{resendError}</span>{/if}
       </div>
     {/if}
+
+    <!-- Public profile fields -->
+    <div class="setting-row" style="border-top:none;margin-top:16px;padding-top:0;flex-direction:column;align-items:stretch;gap:12px;">
+      <div class="setting-row" style="border-top:none;padding-top:0">
+        <div class="setting-info">
+          <span class="setting-name">Make profile public</span>
+          <span class="setting-desc">Let others find and view your profile, activity, and public playlists.</span>
+        </div>
+        <button
+          class="toggle-btn"
+          class:on={profilePublic}
+          role="switch"
+          aria-checked={profilePublic}
+          on:click={() => { profilePublic = !profilePublic; }}
+          title={profilePublic ? 'Disable public profile' : 'Enable public profile'}
+        ><span class="toggle-knob"></span></button>
+      </div>
+      <div class="field-col">
+        <label class="field-label-sm" for="display-name">Display name</label>
+        <input id="display-name" class="form-input" type="text" placeholder={$authStore.user?.username ?? ''} bind:value={profileDisplayName} maxlength="64" />
+      </div>
+      <div class="field-col">
+        <label class="field-label-sm" for="bio">Bio</label>
+        <textarea id="bio" class="form-input form-input--textarea" rows="3" placeholder="Tell others about yourself…" bind:value={profileBio} maxlength="300"></textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button class="btn-primary btn--sm" on:click={savePublicProfile} disabled={profileSaving}>
+          {profileSaving ? 'Saving…' : 'Save'}
+        </button>
+        {#if profilePublic && $authStore.user}
+          <a href="/profile/{$authStore.user.username}" class="btn-ghost btn--sm">View profile →</a>
+        {/if}
+        {#if profileSaveMsg}<span class="msg msg--ok">{profileSaveMsg}</span>{/if}
+        {#if profileSaveError}<span class="msg msg--error">{profileSaveError}</span>{/if}
+      </div>
+    </div>
   </section>
 
   <!-- ── Change password ────────────────────────────────────── -->
@@ -2266,7 +2342,9 @@
   .form-input:focus { border-color: var(--accent); }
   .form-input:disabled { opacity: 0.5; }
   .form-input--error { border-color: #f87171 !important; }
+  .form-input--textarea { height: auto; padding: 8px 10px; resize: vertical; font-family: inherit; line-height: 1.5; }
   .field-col { display: flex; flex-direction: column; gap: 3px; }
+  .field-label-sm { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
   .field-error { color: #f87171; font-size: 11px; }
 
   /* ── Messages ── */

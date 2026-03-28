@@ -460,9 +460,22 @@ func (s *Store) BatchUpsertIngestState(ctx context.Context, rows []IngestStateRo
 	if len(rows) == 0 {
 		return nil
 	}
+	// Deduplicate by path (last writer wins) so that PostgreSQL's
+	// ON CONFLICT DO UPDATE never sees the same constrained value twice
+	// within the same statement, which it rejects with SQLSTATE 21000.
+	seen := make(map[string]int, len(rows))
+	deduped := rows[:0:0]
+	for _, r := range rows {
+		if idx, ok := seen[r.Path]; ok {
+			deduped[idx] = r
+		} else {
+			seen[r.Path] = len(deduped)
+			deduped = append(deduped, r)
+		}
+	}
 	query := `INSERT INTO ingest_state (path, mtime_unix, file_size, track_id, ingested_at) VALUES `
-	args := make([]any, 0, len(rows)*4)
-	for i, r := range rows {
+	args := make([]any, 0, len(deduped)*4)
+	for i, r := range deduped {
 		if i > 0 {
 			query += ", "
 		}

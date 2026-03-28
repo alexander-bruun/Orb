@@ -224,7 +224,7 @@ async function setupCrossfade(track: Track): Promise<void> {
 
 			advanceQueueState();
 
-			libraryApi.recordPlay(nextTrack.id, 0).catch(() => {});
+			libraryApi.recordPlay(nextTrack.id, nextTrack.duration_ms ?? 0).catch(() => {});
 			sendHeartbeat().catch(() => {});
 
 			setupCrossfade(nextTrack).catch(() => {});
@@ -324,7 +324,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		}
 		sendHeartbeat().catch(() => {});
 		recentlyPlayedIds.add(track.id);
-		libraryApi.recordPlay(track.id, 0).catch(() => {});
+		libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => {});
 	} catch (err) {
 		console.error('playTrack error', err);
 		playbackState.set('idle');

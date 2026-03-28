@@ -23,6 +23,12 @@
     goto('/admin');
   }
 
+  function goProfile(e: MouseEvent) {
+    e.stopPropagation();
+    menuOpen = false;
+    goto(`/profile/${$authStore.user?.username}`);
+  }
+
   function goSettings(e: MouseEvent) {
     e.stopPropagation();
     menuOpen = false;
@@ -37,7 +43,8 @@
 </script>
 
 {#if $isAuthenticated}
-  <div class="avatar-wrap">
+  <div class="user-area">
+    <!-- Avatar button opens the dropdown -->
     <button class="avatar" on:click={toggleMenu} aria-label="User menu" title={$authStore.user?.username ?? 'User'}>
       {#if $avatarStore}
         <img src={$avatarStore} alt="avatar" class="avatar-img" />
@@ -73,6 +80,13 @@
           </button>
         {/if}
         <div class="menu-divider"></div>
+        <button class="menu-item" on:click={goProfile}>
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          Profile
+        </button>
         <button class="menu-item" on:click={goSettings}>
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="3"/>
@@ -95,7 +109,7 @@
 {/if}
 
 <style>
-  .avatar-wrap {
+  .user-area {
     position: relative;
     flex-shrink: 0;
   }

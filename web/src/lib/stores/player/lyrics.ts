@@ -8,7 +8,25 @@ export interface LyricLine {
 	text: string;
 }
 
+export type LyricsMode = 'modal' | 'overlay' | 'teleprompter';
+
+function makeLyricsModeStore() {
+	const stored = typeof localStorage !== 'undefined'
+		? (localStorage.getItem('orb_lyrics_mode') as LyricsMode | null)
+		: null;
+	const { subscribe, set, update } = writable<LyricsMode>(stored ?? 'modal');
+	return {
+		subscribe,
+		update,
+		set(v: LyricsMode) {
+			if (typeof localStorage !== 'undefined') localStorage.setItem('orb_lyrics_mode', v);
+			set(v);
+		},
+	};
+}
+
 export const lyricsOpen = writable(false);
+export const lyricsMode = makeLyricsModeStore();
 export const lyricsLines = writable<LyricLine[]>([]);
 export const lyricsLoading = writable(false);
 

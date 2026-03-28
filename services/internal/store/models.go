@@ -837,3 +837,80 @@ type ListAudiobooksParams struct {
 	Offset int32
 	SortBy string // "title" | "author" | "year"
 }
+
+// ── Social models ────────────────────────────────────────────────────────────
+
+// CollaboratorRow is a row from playlist_collaborators with user info joined.
+type CollaboratorRow struct {
+	UserID      string     `json:"user_id"`
+	Username    string     `json:"username"`
+	DisplayName *string    `json:"display_name,omitempty"`
+	AvatarKey   *string    `json:"avatar_key,omitempty"`
+	Role        string     `json:"role"`
+	InvitedBy   string     `json:"invited_by"`
+	InvitedAt   time.Time  `json:"invited_at"`
+	AcceptedAt  *time.Time `json:"accepted_at,omitempty"`
+}
+
+// PlaylistInvite is a row from playlist_invite_tokens.
+type PlaylistInvite struct {
+	Token      string     `json:"token"`
+	PlaylistID string     `json:"playlist_id"`
+	InvitedBy  string     `json:"invited_by"`
+	Role       string     `json:"role"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	UsedAt     *time.Time `json:"used_at,omitempty"`
+}
+
+// ActivityRow is a row from user_activity with denormalized metadata.
+type ActivityRow struct {
+	ID         string            `json:"id"`
+	UserID     string            `json:"user_id"`
+	Username   string            `json:"username"`
+	DisplayName *string          `json:"display_name,omitempty"`
+	AvatarKey  *string           `json:"avatar_key,omitempty"`
+	Type       string            `json:"type"`
+	EntityType string            `json:"entity_type"`
+	EntityID   string            `json:"entity_id"`
+	Metadata   map[string]any    `json:"metadata,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+}
+
+// PublicProfile is a denormalized public view of a user.
+type PublicProfile struct {
+	ID             string    `json:"id"`
+	Username       string    `json:"username"`
+	DisplayName    string    `json:"display_name,omitempty"`
+	Bio            string    `json:"bio,omitempty"`
+	AvatarKey      *string   `json:"avatar_key,omitempty"`
+	ProfilePublic  bool      `json:"profile_public"`
+	FollowerCount  int       `json:"follower_count"`
+	FollowingCount int       `json:"following_count"`
+	PlaylistCount  int       `json:"playlist_count"`
+	JoinedAt       time.Time `json:"joined_at"`
+}
+
+// UserStats holds aggregate listening stats for a public profile.
+type UserStats struct {
+	TotalPlays    int    `json:"total_plays"`
+	TotalPlayedMs int64  `json:"total_played_ms"`
+	TopArtists    []TopArtistStat `json:"top_artists"`
+}
+
+// TopArtistStat is an artist entry in a user's top artists.
+type TopArtistStat struct {
+	ArtistID   string `json:"artist_id"`
+	ArtistName string `json:"artist_name"`
+	Plays      int    `json:"plays"`
+}
+
+// InsertActivityParams holds the fields for inserting an activity event.
+type InsertActivityParams struct {
+	ID         string
+	UserID     string
+	Type       string
+	EntityType string
+	EntityID   string
+	Metadata   map[string]any
+}
