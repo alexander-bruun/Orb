@@ -167,7 +167,7 @@
           {/if}
         {:else if $currentTrack.artist_id}
           <div class="album-title">
-            <a href="/library/artists/{$currentTrack.artist_id}" class="album-link">{$currentTrack.artist_name ?? $currentTrack.artist_id}</a>
+            <a href="/artists/{$currentTrack.artist_id}" class="album-link">{$currentTrack.artist_name ?? $currentTrack.artist_id}</a>
           </div>
         {:else if $currentTrack.artist_name}
           <div class="album-title">
