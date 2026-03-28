@@ -6,6 +6,7 @@
   import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
   import { getApiBase } from '$lib/api/base';
   import { isNative } from '$lib/utils/platform';
+  import { ingestStatus } from '$lib/stores/ingestStatus';
 
   /** Returns the effective site base URL to pre-fill the admin setting. */
   function effectiveSiteURL(): string {
@@ -19,7 +20,7 @@
   import type {
     AdminSummary, UserPlayStat, TrackPlayCount, ArtistPlayCount,
     DailyPlayCount, StorageStats, InviteToken, AuditLog, Album,
-    SiteSettings, IngestProgressEvent, Webhook, WebhookDelivery, ServerLogTail
+    SiteSettings, Webhook, WebhookDelivery, ServerLogTail
   } from '$lib/api/admin';
   import type { Audiobook } from '$lib/types';
 
@@ -45,16 +46,31 @@
   let quotaEditUser = '';
   let quotaInputGB = '';
 
-  // Library / jobs
-  let ingestRunning = false;
-  let ingestProgress: IngestProgressEvent | null = null;
+  // Library / jobs — driven by shared ingestStatus store
+  $: ingestRunning = $ingestStatus.running;
   let ingestLog: string[] = [];
-  let ingestES: EventSource | null = null;
+  // Accumulate processed file paths from the store into the local log
+  let _prevCurrentFile: string | undefined;
+  let _prevIngestRunning = false;
+  $: {
+    const running = $ingestStatus.running;
+    const cf = $ingestStatus.currentFile;
+    if (running && !_prevIngestRunning) {
+      ingestLog = [];
+    }
+    if (running && cf && cf !== _prevCurrentFile) {
+      ingestLog = [...ingestLog.slice(-99), cf];
+    }
+    _prevCurrentFile = cf;
+    _prevIngestRunning = running;
+  }
   let artworkAlbums: Album[] = [];
   let artworkTotal = 0;
   let artworkOffset = 0;
   let artworkLoading = false;
   let artworkRefetching: Record<string, boolean> = {};
+  let artworkErrors: Record<string, string> = {};
+  let artworkUploading: Record<string, boolean> = {};
   let showForceScanModal = false;
   let showForceAudiobookModal = false;
   let audiobookScanMsg = '';
@@ -64,6 +80,9 @@
   let noCoverTotal = 0;
   let noCoverOffset = 0;
   let noCoverLoading = false;
+  let abRefetching: Record<string, boolean> = {};
+  let abErrors: Record<string, string> = {};
+  let abUploading: Record<string, boolean> = {};
   let noSeriesAudiobooks: Audiobook[] = [];
   let noSeriesTotal = 0;
   let noSeriesOffset = 0;
@@ -117,6 +136,7 @@
 
   onMount(async () => {
     if (!$authStore.user?.is_admin) { goto('/'); return; }
+    ingestStatus.init();
     try {
       [summary, users, topTracks, topArtists, playsByDay] = await Promise.all([
         adminApi.summary(),
@@ -133,7 +153,7 @@
   });
 
   onDestroy(() => {
-    ingestES?.close();
+    ingestStatus.destroy();
     if (logAutoTimer) {
       clearInterval(logAutoTimer);
       logAutoTimer = null;
@@ -241,47 +261,21 @@
 
   async function startScan() {
     if (ingestRunning) return;
-    ingestRunning = true; ingestLog = []; ingestProgress = null;
     try {
-      await adminApi.triggerScan();
+      await ingestStatus.triggerScan();
     } catch (e: unknown) {
       ingestLog = [`Error: ${(e as Error).message}`];
-      ingestRunning = false;
-      return;
     }
-    ingestES?.close();
-    ingestES = adminApi.openIngestStream((ev) => {
-      ingestProgress = ev;
-      if (ev.file_path) ingestLog = [...ingestLog.slice(-99), ev.file_path];
-      if (ev.type === 'complete' || ev.type === 'error') {
-        ingestRunning = false;
-        ingestES?.close(); ingestES = null;
-        if (summary) adminApi.summary().then(s => { summary = s; }).catch(() => {});
-      }
-    });
   }
 
   async function startForceScan() {
     showForceScanModal = false;
     if (ingestRunning) return;
-    ingestRunning = true; ingestLog = []; ingestProgress = null;
     try {
-      await adminApi.triggerForceScan();
+      await ingestStatus.triggerScan(true);
     } catch (e: unknown) {
       ingestLog = [`Error: ${(e as Error).message}`];
-      ingestRunning = false;
-      return;
     }
-    ingestES?.close();
-    ingestES = adminApi.openIngestStream((ev) => {
-      ingestProgress = ev;
-      if (ev.file_path) ingestLog = [...ingestLog.slice(-99), ev.file_path];
-      if (ev.type === 'complete' || ev.type === 'error') {
-        ingestRunning = false;
-        ingestES?.close(); ingestES = null;
-        if (summary) adminApi.summary().then(s => { summary = s; }).catch(() => {});
-      }
-    });
   }
 
   async function startForceAudiobookScan() {
@@ -308,17 +302,72 @@
 
   async function refetchCover(albumId: string) {
     artworkRefetching = { ...artworkRefetching, [albumId]: true };
+    artworkErrors = { ...artworkErrors, [albumId]: '' };
     try {
       await adminApi.refetchAlbumCover(albumId);
       artworkAlbums = artworkAlbums.filter(a => a.id !== albumId);
       artworkTotal = Math.max(0, artworkTotal - 1);
       if (summary) summary = { ...summary, albums_no_cover_art: summary.albums_no_cover_art - 1 };
-    } catch (e: unknown) { alert((e as Error).message); }
+    } catch (e: unknown) {
+      artworkErrors = { ...artworkErrors, [albumId]: (e as Error).message };
+    }
     finally { artworkRefetching = { ...artworkRefetching, [albumId]: false }; }
   }
 
   async function refetchAllCovers() {
     for (const a of [...artworkAlbums]) await refetchCover(a.id).catch(() => {});
+  }
+
+  async function uploadAlbumCover(albumId: string, file: File) {
+    artworkUploading = { ...artworkUploading, [albumId]: true };
+    artworkErrors = { ...artworkErrors, [albumId]: '' };
+    try {
+      await adminApi.uploadAlbumCover(albumId, file);
+      artworkAlbums = artworkAlbums.filter(a => a.id !== albumId);
+      artworkTotal = Math.max(0, artworkTotal - 1);
+      if (summary) summary = { ...summary, albums_no_cover_art: summary.albums_no_cover_art - 1 };
+    } catch (e: unknown) {
+      artworkErrors = { ...artworkErrors, [albumId]: (e as Error).message };
+    }
+    finally { artworkUploading = { ...artworkUploading, [albumId]: false }; }
+  }
+
+  function onAlbumFileInput(albumId: string, e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) uploadAlbumCover(albumId, file);
+    (e.target as HTMLInputElement).value = '';
+  }
+
+  async function refetchAudiobookCover(id: string) {
+    abRefetching = { ...abRefetching, [id]: true };
+    abErrors = { ...abErrors, [id]: '' };
+    try {
+      await adminApi.refetchAudiobookCover(id);
+      noCoverAudiobooks = noCoverAudiobooks.filter(a => a.id !== id);
+      noCoverTotal = Math.max(0, noCoverTotal - 1);
+    } catch (e: unknown) {
+      abErrors = { ...abErrors, [id]: (e as Error).message };
+    }
+    finally { abRefetching = { ...abRefetching, [id]: false }; }
+  }
+
+  async function uploadAudiobookCover(id: string, file: File) {
+    abUploading = { ...abUploading, [id]: true };
+    abErrors = { ...abErrors, [id]: '' };
+    try {
+      await adminApi.uploadAudiobookCover(id, file);
+      noCoverAudiobooks = noCoverAudiobooks.filter(a => a.id !== id);
+      noCoverTotal = Math.max(0, noCoverTotal - 1);
+    } catch (e: unknown) {
+      abErrors = { ...abErrors, [id]: (e as Error).message };
+    }
+    finally { abUploading = { ...abUploading, [id]: false }; }
+  }
+
+  function onAudiobookFileInput(id: string, e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (file) uploadAudiobookCover(id, file);
+    (e.target as HTMLInputElement).value = '';
   }
 
   async function loadNoCoverPage() {
@@ -691,24 +740,58 @@
   {:else if activeTab === 'library'}
     <section class="panel">
       <div class="section-header">
-        <h2>Ingest</h2>
-        <div class="scan-split-btn">
-          <button class="btn-accent scan-main" disabled={ingestRunning} on:click={startScan}>{ingestRunning ? 'Scanning…' : 'Trigger Scan'}</button>
-          <button class="btn-accent scan-arrow" disabled={ingestRunning} on:click={() => showForceScanModal = true} title="Force rescan entire library" aria-label="Force rescan options">⭯</button>
+        <h2>Library Scanning</h2>
+      </div>
+      <div class="scan-actions">
+        <div class="scan-action-card">
+          <div class="scan-action-info">
+            <span class="scan-action-title">Scan for New Music</span>
+            <span class="scan-action-desc">Find and add new tracks — skips files that haven't changed</span>
+          </div>
+          <button class="btn-accent" disabled={ingestRunning} on:click={startScan}>{ingestRunning ? 'Scanning…' : 'Scan Now'}</button>
         </div>
-        <div style="display:flex; gap:0.5rem; margin-left:auto">
-          <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceScanModal = true}>Re-ingest Music</button>
-          <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceAudiobookModal = true}>Re-ingest Audiobooks</button>
+        <div class="scan-action-card">
+          <div class="scan-action-info">
+            <span class="scan-action-title">Reprocess Entire Music Library</span>
+            <span class="scan-action-desc">Re-read metadata for every music file, even ones already imported</span>
+          </div>
+          <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceScanModal = true}>Reprocess</button>
+        </div>
+        <div class="scan-action-card">
+          <div class="scan-action-info">
+            <span class="scan-action-title">Reprocess Entire Audiobook Library</span>
+            <span class="scan-action-desc">Re-read metadata for every audiobook file, even ones already imported</span>
+          </div>
+          <button class="btn-accent" disabled={ingestRunning} on:click={() => showForceAudiobookModal = true}>Reprocess</button>
         </div>
       </div>
-      {#if ingestProgress}
-        <div class="progress-bar-wrap">
-          <div class="progress-bar" style="width:{ingestProgress.total > 0 ? Math.round(ingestProgress.done / ingestProgress.total * 100) : 0}%"></div>
+      {#if $ingestStatus.running || $ingestStatus.phase === 'complete' || $ingestStatus.phase === 'error'}
+        {@const pct = $ingestStatus.total > 0 ? Math.round($ingestStatus.done / $ingestStatus.total * 100) : 0}
+        {@const isDone = $ingestStatus.phase === 'complete'}
+        {@const isError = $ingestStatus.phase === 'error'}
+        <div class="ingest-status">
+          <div class="ingest-status-row">
+            {#if $ingestStatus.running}
+              <span class="ingest-spinner" aria-hidden="true"></span>
+              <span class="ingest-status-label">Scanning…</span>
+            {:else if isDone}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span class="ingest-status-label" style="color:#34d399">Complete</span>
+            {:else if isError}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span class="ingest-status-label" style="color:#f87171">Error</span>
+            {/if}
+            <span class="ingest-counts">
+              <span>{$ingestStatus.done}<span class="muted">/{$ingestStatus.total}</span></span>
+              {#if $ingestStatus.skipped > 0}<span class="muted">· {$ingestStatus.skipped} skipped</span>{/if}
+              {#if $ingestStatus.errors > 0}<span style="color:#f87171">· {$ingestStatus.errors} errors</span>{/if}
+            </span>
+            <span class="ingest-pct">{pct}%</span>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" class:done={isDone} style="width:{pct}%"></div>
+          </div>
         </div>
-        <p class="progress-info muted">
-          {ingestProgress.done}/{ingestProgress.total} · {ingestProgress.skipped} skipped · {ingestProgress.errors} errors
-          {#if ingestProgress.type === 'complete'} · <strong style="color:var(--accent)">Done</strong>{/if}
-        </p>
       {/if}
       {#if ingestLog.length > 0}
         <div class="ingest-log">{#each ingestLog as line}<div class="log-line">{line}</div>{/each}</div>
@@ -726,21 +809,73 @@
         {/if}
       </div>
       {#if artworkLoading}
-        <p class="muted">Loading…</p>
+        <div class="cover-grid-loading">
+          {#each Array(6) as _}
+            <div class="cover-card skeleton"></div>
+          {/each}
+        </div>
       {:else if artworkAlbums.length === 0}
-        <p class="muted">All albums have artwork.</p>
+        <div class="empty-state">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+          <p>All albums have artwork.</p>
+        </div>
       {:else}
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Album</th><th>Artist</th><th></th></tr></thead>
-            <tbody>{#each artworkAlbums as a}
-              <tr>
-                <td>{a.title}</td>
-                <td class="muted">{a.artist_name ?? '—'}</td>
-                <td><button class="btn-xs" disabled={artworkRefetching[a.id]} on:click={() => refetchCover(a.id)}>{artworkRefetching[a.id] ? '…' : 'Re-fetch'}</button></td>
-              </tr>
-            {/each}</tbody>
-          </table>
+        <div class="cover-grid">
+          {#each artworkAlbums as a (a.id)}
+            <div class="cover-card" class:has-error={!!artworkErrors[a.id]}>
+              <div class="cover-thumb no-cover" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+                  <line x1="12" y1="2" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="22"/>
+                </svg>
+              </div>
+              <div class="cover-info">
+                <a class="cover-title" href="/library/albums/{a.id}" title={a.title}>{a.title}</a>
+                <span class="cover-sub" title={a.artist_name ?? ''}>{a.artist_name ?? '—'}</span>
+                {#if artworkErrors[a.id]}
+                  <span class="cover-error">{artworkErrors[a.id]}</span>
+                {/if}
+              </div>
+              <div class="cover-actions">
+                <button
+                  class="cover-btn"
+                  disabled={artworkRefetching[a.id] || artworkUploading[a.id]}
+                  on:click={() => refetchCover(a.id)}
+                  title="Search online for cover art"
+                >
+                  {#if artworkRefetching[a.id]}
+                    <span class="spinner" aria-hidden="true"></span>
+                    Searching…
+                  {:else}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Re-fetch
+                  {/if}
+                </button>
+                <label
+                  class="cover-btn upload-btn"
+                  class:disabled={artworkRefetching[a.id] || artworkUploading[a.id]}
+                  title="Upload cover image manually"
+                  for="album-cover-{a.id}"
+                >
+                  {#if artworkUploading[a.id]}
+                    <span class="spinner" aria-hidden="true"></span>
+                    Uploading…
+                  {:else}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                    Upload
+                  {/if}
+                </label>
+                <input
+                  id="album-cover-{a.id}"
+                  type="file"
+                  accept="image/*"
+                  class="hidden-file-input"
+                  disabled={artworkRefetching[a.id] || artworkUploading[a.id]}
+                  on:change={(e) => onAlbumFileInput(a.id, e)}
+                />
+              </div>
+            </div>
+          {/each}
         </div>
         {#if artworkTotal > 50}
           <div class="pagination">
@@ -757,20 +892,72 @@
         <h2>Audiobooks Without Cover Art ({noCoverTotal})</h2>
       </div>
       {#if noCoverLoading}
-        <p class="muted">Loading…</p>
+        <div class="cover-grid-loading">
+          {#each Array(4) as _}
+            <div class="cover-card skeleton"></div>
+          {/each}
+        </div>
       {:else if noCoverTotal === 0}
-        <p class="muted">All audiobooks have cover art.</p>
+        <div class="empty-state">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <p>All audiobooks have cover art.</p>
+        </div>
       {:else}
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Title</th><th>Author</th></tr></thead>
-            <tbody>{#each noCoverAudiobooks as ab}
-              <tr>
-                <td>{ab.title}</td>
-                <td class="muted">{ab.author_name ?? '—'}</td>
-              </tr>
-            {/each}</tbody>
-          </table>
+        <div class="cover-grid">
+          {#each noCoverAudiobooks as ab (ab.id)}
+            <div class="cover-card" class:has-error={!!abErrors[ab.id]}>
+              <div class="cover-thumb no-cover" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+              </div>
+              <div class="cover-info">
+                <span class="cover-title" title={ab.title}>{ab.title}</span>
+                <span class="cover-sub">{ab.author_name ?? '—'}</span>
+                {#if abErrors[ab.id]}
+                  <span class="cover-error">{abErrors[ab.id]}</span>
+                {/if}
+              </div>
+              <div class="cover-actions">
+                <button
+                  class="cover-btn"
+                  disabled={abRefetching[ab.id] || abUploading[ab.id]}
+                  on:click={() => refetchAudiobookCover(ab.id)}
+                  title="Search OpenLibrary for cover art"
+                >
+                  {#if abRefetching[ab.id]}
+                    <span class="spinner" aria-hidden="true"></span>
+                    Searching…
+                  {:else}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Re-fetch
+                  {/if}
+                </button>
+                <label
+                  class="cover-btn upload-btn"
+                  class:disabled={abRefetching[ab.id] || abUploading[ab.id]}
+                  title="Upload cover image manually"
+                  for="ab-cover-{ab.id}"
+                >
+                  {#if abUploading[ab.id]}
+                    <span class="spinner" aria-hidden="true"></span>
+                    Uploading…
+                  {:else}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                    Upload
+                  {/if}
+                </label>
+                <input
+                  id="ab-cover-{ab.id}"
+                  type="file"
+                  accept="image/*"
+                  class="hidden-file-input"
+                  disabled={abRefetching[ab.id] || abUploading[ab.id]}
+                  on:change={(e) => onAudiobookFileInput(ab.id, e)}
+                />
+              </div>
+            </div>
+          {/each}
         </div>
         {#if noCoverTotal > 50}
           <div class="pagination">
@@ -1062,17 +1249,17 @@
 >
   <div class="modal force-scan-modal">
     <div class="force-scan-icon">⚠️</div>
-    <h2>Force Rescan Library?</h2>
+    <h2>Reprocess Entire Music Library?</h2>
     <p class="force-scan-desc">
-      This will re-process <strong>every file</strong> in the library, overwriting existing track metadata.
-      Unchanged files that are normally skipped will also be re-ingested.
+      This will re-read metadata from <strong>every music file</strong> in your library, including files that haven't changed.
+      Existing track data will be overwritten with fresh values.
     </p>
     <p class="force-scan-warn">
       This may take a long time depending on your library size and cannot be stopped once started.
     </p>
     <div class="modal-actions">
       <button class="btn-xs" on:click={() => showForceScanModal = false}>Cancel</button>
-      <button class="btn-danger" on:click={startForceScan}>Yes, Force Rescan</button>
+      <button class="btn-danger" on:click={startForceScan}>Yes, Reprocess</button>
     </div>
   </div>
 </div>
@@ -1090,17 +1277,17 @@
 >
   <div class="modal force-scan-modal">
     <div class="force-scan-icon">⚠️</div>
-    <h2>Re-ingest All Audiobooks?</h2>
+    <h2>Reprocess Entire Audiobook Library?</h2>
     <p class="force-scan-desc">
-      This will re-process <strong>every audiobook</strong> in your library and refresh metadata.
-      Unchanged files that are normally skipped will also be re-ingested.
+      This will re-read metadata from <strong>every audiobook file</strong> in your library, including files that haven't changed.
+      Existing audiobook data will be overwritten with fresh values.
     </p>
     <p class="force-scan-warn">
       This may take a long time depending on your audiobook library size and cannot be stopped once started.
     </p>
     <div class="modal-actions">
       <button class="btn-xs" on:click={() => showForceAudiobookModal = false}>Cancel</button>
-      <button class="btn-danger" on:click={startForceAudiobookScan}>Yes, Re-ingest Audiobooks</button>
+      <button class="btn-danger" on:click={startForceAudiobookScan}>Yes, Reprocess</button>
     </div>
   </div>
 </div>
@@ -1157,6 +1344,13 @@
   .tab:hover { background: var(--surface-hover, #2a2a3a); color: var(--text-primary, #fff); }
   .tab.active { background: var(--accent, #a78bfa); color: #fff; }
 
+  @media (max-width: 600px) {
+    .admin-page { padding: 1rem; }
+    .admin-header { flex-direction: column; align-items: stretch; gap: 0.75rem; }
+    .tabs-scroll { width: 100%; }
+    .tab { padding: 0.45rem 0.65rem; font-size: 0.8rem; }
+  }
+
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
   .card { background: var(--surface, #1e1e2e); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
   .cv { font-size: 1.35rem; font-weight: 700; color: var(--accent, #a78bfa); }
@@ -1206,10 +1400,44 @@
   .quota-input { width: 72px; padding: 0.1rem 0.35rem; background: var(--surface-hover, #2a2a3a); border: 1px solid var(--border, #444); border-radius: 4px; color: var(--text-primary, #fff); font-size: 0.75rem; }
   .delete-confirm { display: flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; }
 
-  .progress-bar-wrap { background: var(--surface-hover, #2a2a3a); border-radius: 4px; height: 8px; margin-bottom: 0.5rem; overflow: hidden; }
+  .ingest-status { margin-bottom: 0.75rem; }
+  .ingest-status-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; flex-wrap: wrap; }
+  .ingest-status-label { font-size: 0.82rem; font-weight: 600; }
+  .ingest-counts { display: flex; gap: 0.4rem; align-items: center; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--text-primary, #fff); }
+  .ingest-pct { margin-left: auto; font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--accent, #a78bfa); font-weight: 600; }
+  .ingest-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(167,139,250,0.25); border-top-color: var(--accent, #a78bfa); border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+  .progress-bar-wrap { background: var(--surface-hover, #2a2a3a); border-radius: 4px; height: 6px; overflow: hidden; }
   .progress-bar { height: 100%; background: var(--accent, #a78bfa); border-radius: 4px; transition: width 0.3s; }
+  .progress-bar.done { background: #34d399; }
   .progress-info { font-size: 0.8rem; margin-bottom: 0.75rem; }
-  .ingest-log { background: #0a0a14; border-radius: 6px; padding: 0.75rem; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; color: var(--text-secondary, #888); }
+  .ingest-log { background: #0a0a14; border-radius: 6px; padding: 0.75rem; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; color: var(--text-secondary, #888); margin-top: 0.75rem; }
+
+  /* Cover art card grid */
+  .cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; }
+  .cover-card { background: var(--surface-hover, #2a2a3a); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; border: 1px solid var(--border, #333); transition: border-color 0.15s; }
+  .cover-card.has-error { border-color: #f87171; }
+  .cover-thumb { height: 130px; display: flex; align-items: center; justify-content: center; background: var(--surface, #1e1e2e); }
+  .cover-thumb.no-cover { color: var(--text-secondary, #555); opacity: 0.6; }
+  .cover-info { padding: 0.6rem 0.7rem 0.4rem; display: flex; flex-direction: column; gap: 0.15rem; flex: 1; min-height: 0; }
+  .cover-title { font-size: 0.83rem; font-weight: 600; color: var(--text-primary, #fff); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  a.cover-title { text-decoration: none; }
+  a.cover-title:hover { text-decoration: underline; }
+  .cover-sub { font-size: 0.75rem; color: var(--text-secondary, #888); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cover-error { font-size: 0.72rem; color: #f87171; margin-top: 0.2rem; white-space: normal; line-height: 1.35; }
+  .cover-actions { display: flex; gap: 0.4rem; padding: 0.5rem 0.7rem 0.65rem; }
+  .cover-btn { display: inline-flex; align-items: center; gap: 0.3rem; background: var(--surface, #1e1e2e); border: 1px solid var(--border, #444); color: var(--text-secondary, #888); border-radius: 6px; padding: 0.3rem 0.6rem; font-size: 0.75rem; cursor: pointer; transition: color 0.15s, border-color 0.15s; white-space: nowrap; flex: 1; justify-content: center; }
+  .cover-btn:hover:not(:disabled) { color: var(--text-primary, #fff); border-color: var(--accent, #a78bfa); }
+  .cover-btn:disabled { opacity: 0.45; cursor: default; }
+  .cover-btn.upload-btn { cursor: pointer; }
+  .cover-btn.disabled { opacity: 0.45; pointer-events: none; }
+  .hidden-file-input { display: none; }
+  .spinner { display: inline-block; width: 11px; height: 11px; border: 1.5px solid rgba(255,255,255,0.2); border-top-color: currentColor; border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .cover-grid-loading { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; }
+  .cover-card.skeleton { height: 230px; background: linear-gradient(90deg, var(--surface-hover, #2a2a3a) 25%, var(--surface, #1e1e2e) 50%, var(--surface-hover, #2a2a3a) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border: 1px solid var(--border, #333); border-radius: 10px; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .empty-state { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 2rem 0; color: var(--text-secondary, #888); }
+  .empty-state p { font-size: 0.85rem; margin: 0; }
   .log-line { padding: 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .server-log { background: #0a0a14; border-radius: 6px; padding: 0.75rem; max-height: 380px; overflow-y: auto; font-family: monospace; font-size: 0.72rem; color: var(--text-secondary, #888); }
   .backup-actions { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
@@ -1247,10 +1475,11 @@
   .success-text { color: #34d399; }
   code { font-family: monospace; font-size: 0.8rem; background: var(--surface-hover, #2a2a3a); padding: 1px 5px; border-radius: 3px; }
 
-  .scan-split-btn { display: flex; align-items: stretch; border-radius: 7px; overflow: hidden; }
-  .scan-main { border-radius: 0; border-top-left-radius: 7px; border-bottom-left-radius: 7px; border-right: 1px solid rgba(255,255,255,0.2); }
-  .scan-arrow { border-radius: 0; border-top-right-radius: 7px; border-bottom-right-radius: 7px; padding: 0.42rem 0.6rem; font-size: 0.7rem; min-width: 28px; }
-  .scan-arrow:hover:not(:disabled) { opacity: 0.85; }
+  .scan-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .scan-action-card { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: var(--surface-hover, #1e1e2e); border: 1px solid var(--border, #333); border-radius: 8px; padding: 0.75rem 1rem; }
+  .scan-action-info { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+  .scan-action-title { font-size: 0.85rem; font-weight: 600; color: var(--text-primary, #fff); }
+  .scan-action-desc { font-size: 0.75rem; color: var(--text-secondary, #888); }
 
   .force-scan-modal { width: min(440px, 100%); text-align: center; }
   .force-scan-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }

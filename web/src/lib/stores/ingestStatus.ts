@@ -39,6 +39,8 @@ function createIngestStatusStore() {
 
 	let es: EventSource | null = null;
 	let pollTimer: number | null = null;
+	// Ref-count so multiple callers (TopBar + admin page) can safely call init/destroy
+	let initCount = 0;
 
 	function connectSSE() {
 		if (!browser || es) return;
@@ -91,7 +93,19 @@ function createIngestStatusStore() {
 				const wasRunning = s.running;
 				const nowRunning = Boolean(data.running);
 				if (nowRunning && !wasRunning) {
+					// New scan detected (e.g. automatic/periodic) — reset counters and connect SSE
 					connectSSE();
+					return {
+						...s,
+						running: true,
+						phase: 'running',
+						done: 0,
+						total: 0,
+						skipped: 0,
+						errors: 0,
+						currentFile: undefined,
+						lastScan: data.last_scan ?? s.lastScan,
+					};
 				} else if (!nowRunning && wasRunning) {
 					disconnectSSE();
 				}
@@ -109,15 +123,21 @@ function createIngestStatusStore() {
 
 	function init() {
 		if (!browser) return;
-		fetchStatus();
-		pollTimer = window.setInterval(fetchStatus, TIMINGS.INGEST_POLL_INTERVAL);
+		initCount++;
+		if (initCount === 1) {
+			fetchStatus();
+			pollTimer = window.setInterval(fetchStatus, TIMINGS.INGEST_POLL_INTERVAL);
+		}
 	}
 
 	function destroy() {
-		disconnectSSE();
-		if (pollTimer !== null) {
-			clearInterval(pollTimer);
-			pollTimer = null;
+		initCount = Math.max(0, initCount - 1);
+		if (initCount === 0) {
+			disconnectSSE();
+			if (pollTimer !== null) {
+				clearInterval(pollTimer);
+				pollTimer = null;
+			}
 		}
 	}
 
