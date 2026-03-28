@@ -26,6 +26,7 @@
   let mostTracks: Track[] = [];
   let recentAlbums: Album[] = [];
   let newAlbums: Album[] = [];
+  let newAudiobooks: Audiobook[] = [];
   let smartPls: SmartPlaylist[] = [];
   type InProgressBook = Audiobook & { position_ms: number; progress_updated_at: string };
   let inProgressBooks: InProgressBook[] = [];
@@ -42,6 +43,7 @@
       mostTracks,
       recentAlbums,
       newAlbums,
+      newAudiobooks,
       smartPls,
       inProgressBooks,
       interval,
@@ -55,6 +57,7 @@
       mostTracks = value.mostTracks;
       recentAlbums = value.recentAlbums;
       newAlbums = value.newAlbums;
+      newAudiobooks = value.newAudiobooks ?? [];
       smartPls = value.smartPls;
       inProgressBooks = value.inProgressBooks;
       interval = value.interval;
@@ -82,7 +85,7 @@
   // The player streams via /api/stream/{id}, intercepted by the service worker
   // from IndexedDB when the track is downloaded — only `id` is required.
   $: offlineTracks = [...$downloads.values()]
-    .filter((e) => e.status === "done")
+    .filter((e) => e.status === "done" && !e.isAudiobook)
     .map(
       (e) =>
         ({
@@ -100,6 +103,23 @@
           channels: 2,
         }) satisfies Track,
     );
+
+  $: offlineBooksList = Array.from(
+    Array.from($downloads.values())
+      .filter((e) => e.status === "done" && e.isAudiobook === true)
+      .reduce((acc, e) => {
+        if (e.albumId && !acc.has(e.albumId)) {
+          acc.set(e.albumId, {
+            id: e.albumId,
+            title: e.albumName,
+            author_name: e.artistName,
+            cover_art_key: "offline",
+          } as Audiobook);
+        }
+        return acc;
+      }, new Map<string, Audiobook>())
+      .values()
+  );
 
   function playAllOffline() {
     if (offlineTracks.length > 0) playTrack(offlineTracks[0], offlineTracks);
@@ -199,11 +219,12 @@
     }
 
     try {
-      [recentTracks, mostTracks, recentAlbums, newAlbums, smartPls, inProgressBooks] = await Promise.all([
+      [recentTracks, mostTracks, recentAlbums, newAlbums, newAudiobooks, smartPls, inProgressBooks] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
         libApi.mostPlayed(100).then((r) => r ?? []),
         libApi.recentlyPlayedAlbums().then((r) => r ?? []),
         libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
+        abApi.recentlyAdded(20).then((r) => r.audiobooks ?? []).catch(() => []),
         spApi.list().then((r) => r ?? []),
         abApi.inProgress(10).then((r) => r.audiobooks ?? []).catch(() => []),
       ]);
@@ -218,6 +239,39 @@
 <!-- ── Offline view ─────────────────────────────────────────────────────────── -->
 {#if $isOffline}
   <div class="offline-view">
+    {#if offlineBooksList.length > 0}
+      <section class="home-section" style="margin-bottom: 32px;">
+        <div class="section-header">
+          <h2 class="section-title">Downloaded Audiobooks</h2>
+        </div>
+        <div class="ab-slider">
+          {#each offlineBooksList as book (book.id)}
+            <a class="ab-card" href="/audiobooks/{book.id}">
+              <div class="ab-cover-wrap">
+                {#if book.cover_art_key}
+                  <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
+                {:else}
+                  <div class="ab-cover ab-placeholder">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    </svg>
+                  </div>
+                {/if}
+                <button class="ab-play-btn" aria-label="Play {book.title}" on:click|preventDefault|stopPropagation={() => playAudiobook(book, 0)}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
+                </button>
+              </div>
+              <div class="ab-info">
+                <span class="ab-title" title={book.title}>{book.title}</span>
+                {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+              </div>
+            </a>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <div class="offline-header">
       <div class="offline-title-row">
         <h2 class="title">Downloads</h2>
@@ -478,6 +532,40 @@
     </section>
   {/if}
 
+  {#if newAudiobooks.length > 0}
+    <section class="home-section">
+      <div class="section-header">
+        <h2 class="section-title">Recently Added Audiobooks</h2>
+        <a href="/audiobooks" class="view-all">View all</a>
+      </div>
+      <div class="ab-slider">
+        {#each newAudiobooks as book (book.id)}
+          <a class="ab-card" href="/audiobooks/{book.id}">
+            <div class="ab-cover-wrap">
+              {#if book.cover_art_key}
+                <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
+              {:else}
+                <div class="ab-cover ab-placeholder">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                  </svg>
+                </div>
+              {/if}
+              <button class="ab-play-btn" aria-label="Play {book.title}" on:click|preventDefault|stopPropagation={() => playAudiobook(book, 0)}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
+              </button>
+            </div>
+            <div class="ab-info">
+              <span class="ab-title" title={book.title}>{book.title}</span>
+              {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+            </div>
+          </a>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if smartPls.length > 0}
     <section class="home-section">
       <div class="section-header">
@@ -503,7 +591,7 @@
     </section>
   {/if}
 
-  {#if recentTracks.length === 0 && mostTracks.length === 0 && recentAlbums.length === 0 && newAlbums.length === 0 && smartPls.length === 0 && inProgressBooks.length === 0}
+  {#if recentTracks.length === 0 && mostTracks.length === 0 && recentAlbums.length === 0 && newAlbums.length === 0 && newAudiobooks.length === 0 && smartPls.length === 0 && inProgressBooks.length === 0}
     <p class="muted">Nothing here yet. Go find some music!</p>
   {/if}
 {/if}
