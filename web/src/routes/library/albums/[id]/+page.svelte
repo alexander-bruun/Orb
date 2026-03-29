@@ -10,6 +10,7 @@
   import { playTrack, shuffle, startRadio, currentTrack, playbackState, togglePlayPause } from '$lib/stores/player';
   import { downloadAlbum, downloads } from '$lib/stores/offline/downloads';
   import { getApiBase } from '$lib/api/base';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   interface SimilarAlbum { id: string; title: string; cover_art_key?: string; artist_name?: string; }
 
@@ -232,7 +233,7 @@
 </script>
 
 {#if loading}
-  <p class="muted">Loading…</p>
+  <p class="muted"><Spinner /></p>
 {:else if album}
   <div class="header">
     {#if album.cover_art_key}

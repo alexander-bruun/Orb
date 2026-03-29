@@ -4,6 +4,7 @@
   import { cubicOut, cubicIn } from 'svelte/easing';
   import { lyricsOpen, lyricsLines, lyricsLoading, activeLyricIndex, lyricsMode } from '$lib/stores/player/lyrics';
   import { currentTrack, positionMs, seek } from '$lib/stores/player';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   // Drag state (modal mode only)
   let posX = 0;
@@ -186,7 +187,7 @@
     <div class="tp-strip" class:at-top={tpAtTop}>
       <div class="tp-text-area">
         {#if $lyricsLoading}
-          <span class="tp-state">Loading…</span>
+          <span class="tp-state"><Spinner size={16} /></span>
         {:else if $lyricsLines.length === 0}
           <span class="tp-state">No lyrics available</span>
         {:else if $activeLyricIndex < 0}
@@ -335,7 +336,7 @@
 
       <div class="modal-body" bind:this={listEl} on:wheel={onWheel}>
         {#if $lyricsLoading}
-          <div class="state-msg">Loading…</div>
+          <div class="state-msg"><Spinner size={22} /></div>
         {:else if $lyricsLines.length === 0}
           <div class="state-msg">No lyrics available</div>
         {:else}

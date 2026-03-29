@@ -7,6 +7,7 @@
   import type { Playlist, Track } from '$lib/types';
   import { playTrack, shuffle } from '$lib/stores/player';
   import { downloadPlaylist, downloads } from '$lib/stores/offline/downloads';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   let playlist: Playlist | null = null;
   let tracks: Track[] = [];
@@ -66,7 +67,7 @@
 </script>
 
 {#if loading}
-  <p class="muted">Loading…</p>
+  <p class="muted"><Spinner /></p>
 {:else if playlist}
   <div class="header">
     <div class="cover-placeholder cover-grid">

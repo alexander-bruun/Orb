@@ -4,6 +4,7 @@
   import { library as libApi } from '$lib/api/library';
   import AlbumCard from '$lib/components/library/AlbumCard.svelte';
   import type { Artist, Album, Genre } from '$lib/types';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   let genre: Genre | null = null;
   let artists: Artist[] = [];
@@ -47,7 +48,7 @@
 </script>
 
 {#if loading}
-  <p class="muted">Loading…</p>
+  <p class="muted"><Spinner /></p>
 {:else if genre}
   <h1 class="title">{genre.name}</h1>
 

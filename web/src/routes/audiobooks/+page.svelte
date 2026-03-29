@@ -7,6 +7,7 @@
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
   import AlphaScrollbar from "$lib/components/library/AlphaScrollbar.svelte";
   import { goto } from "$app/navigation";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   type SortMode = 'title' | 'author' | 'year' | 'series';
 
@@ -335,7 +336,7 @@
     <div bind:this={sentinel} class="sentinel"></div>
     {#if loadingMore}
       <div class="load-more">
-        <span class="loading-text">Loading more…</span>
+        <Spinner size={18} />
       </div>
     {/if}
   {/if}

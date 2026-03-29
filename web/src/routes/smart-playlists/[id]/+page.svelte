@@ -7,6 +7,7 @@
   import type { SmartPlaylist, SmartPlaylistRule, SmartPlaylistField, SmartPlaylistOp, Track } from '$lib/types';
   import TrackList from '$lib/components/library/TrackList.svelte';
   import { playTrack } from '$lib/stores/player';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   const FIELDS: { value: SmartPlaylistField; label: string }[] = [
     { value: 'genre',            label: 'Genre' },
@@ -235,7 +236,7 @@
 <svelte:head><title>{pl?.name ?? 'Smart Playlist'} – Orb</title></svelte:head>
 
 {#if loading}
-  <p class="muted">Loading…</p>
+  <p class="muted"><Spinner /></p>
 {:else if error && !pl}
   <p class="error">{error}</p>
 {:else if pl}
@@ -367,7 +368,7 @@
         {/if}
       </div>
       {#if tracksLoading}
-        <p class="muted">Loading tracks…</p>
+        <p class="muted"><Spinner /></p>
       {:else if tracks.length === 0}
         <p class="muted">No tracks match the current rules. Add rules and save to refresh.</p>
       {:else}

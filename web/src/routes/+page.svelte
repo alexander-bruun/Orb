@@ -13,6 +13,7 @@
   import { downloads } from "$lib/stores/offline/downloads";
   import { isOffline } from "$lib/stores/offline/connectivity";
   import { getApiBase } from "$lib/api/base";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const PAGE_SIZE = 10;
 
@@ -467,7 +468,7 @@
             {/if}
           </div>
           {#if playsLoading}
-            <p class="muted">Loading…</p>
+            <p class="muted"><Spinner /></p>
           {:else if pagedRecent.length > 0}
             <TrackList tracks={pagedRecent} showCover showDiscNumbers={false} />
           {:else}
@@ -490,7 +491,7 @@
             {/if}
           </div>
           {#if playsLoading}
-            <p class="muted">Loading…</p>
+            <p class="muted"><Spinner /></p>
           {:else if pagedMost.length > 0}
             <TrackList tracks={pagedMost} showCover showDiscNumbers={false} />
           {:else}

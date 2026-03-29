@@ -7,6 +7,7 @@
   import { getApiBase } from '$lib/api/base';
   import { isNative } from '$lib/utils/platform';
   import { ingestStatus } from '$lib/stores/ingestStatus';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   /** Returns the effective site base URL to pre-fill the admin setting. */
   function effectiveSiteURL(): string {
@@ -575,7 +576,7 @@
   </div>
 
   {#if loading}
-    <p class="muted">Loading…</p>
+    <p class="muted"><Spinner /></p>
   {:else if error}
     <p class="error">{error}</p>
   {:else}
@@ -974,7 +975,7 @@
         <h2>Audiobooks Without Series ({noSeriesTotal})</h2>
       </div>
       {#if noSeriesLoading}
-        <p class="muted">Loading…</p>
+        <p class="muted"><Spinner /></p>
       {:else if noSeriesTotal === 0}
         <p class="muted">All audiobooks have series information.</p>
       {:else}

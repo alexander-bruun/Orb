@@ -19,6 +19,7 @@
   import { DEFAULT_EQ_BANDS } from '$lib/types';
   import { audioEngine } from '$lib/audio/engine';
   import { onMount } from 'svelte';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   // ── State ──────────────────────────────────────────────────
   let loading = true;
@@ -180,7 +181,7 @@
 
 <div class="eq-editor">
   {#if loading}
-    <p class="msg" style="color:var(--text-2)">Loading…</p>
+    <p class="msg"><Spinner /></p>
   {:else}
     <!-- ── Profile selector ────────────────────────────────── -->
     <div class="eq-profiles-bar">

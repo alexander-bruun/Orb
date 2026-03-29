@@ -7,6 +7,7 @@
   import SmartPlaylistCard from '$lib/components/playlist/SmartPlaylistCard.svelte';
   import type { Playlist, SmartPlaylist } from '$lib/types';
   import { goto } from '$app/navigation';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   let items: Playlist[] = [];
   let smartItems: SmartPlaylist[] = [];
@@ -112,7 +113,7 @@
   {/if}
 
   {#if loading}
-    <p class="muted">Loading…</p>
+    <p class="muted"><Spinner /></p>
   {:else}
     {#if systemSmartPlaylists.length > 0}
       <div class="section-label">Auto-Generated</div>

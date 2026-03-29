@@ -6,6 +6,7 @@
   import { getApiBase } from '$lib/api/base';
   import type { PublicProfile, ActivityRow, UserStats } from '$lib/api/social';
   import type { Playlist } from '$lib/types';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   const username = $page.params.username!;
   $: isOwnProfile = $authStore.user?.username === username;
@@ -117,7 +118,7 @@
 
 <div class="profile-page">
   {#if loading}
-    <div class="state-msg">Loading…</div>
+    <div class="state-msg"><Spinner size={24} /></div>
 
   {:else if error}
     <div class="state-msg state-msg--error">{error}</div>

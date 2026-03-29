@@ -22,6 +22,7 @@
   import { getApiBase } from '$lib/api/base';
   import { lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/player/lyrics';
   import { goto } from '$app/navigation';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
   import {
     castState,
     castDeviceName,
@@ -461,7 +462,7 @@
           on:touchmove|stopPropagation={() => {}}
         >
           {#if $lyricsLoading}
-            <p class="fs-lyrics-status">Loading lyrics…</p>
+            <p class="fs-lyrics-status"><Spinner size={20} /></p>
           {:else if $lyricsLines.length === 0}
             <p class="fs-lyrics-status">No lyrics available</p>
           {:else}

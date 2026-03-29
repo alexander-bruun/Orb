@@ -8,6 +8,7 @@
   import { favorites } from '$lib/stores/library/favorites';
   import { downloads, downloadTrack, deleteDownload } from '$lib/stores/offline/downloads';
   import type { Playlist } from '$lib/types';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   let showPlaylists = false;
   let playlists: Playlist[] = [];
@@ -280,7 +281,7 @@
       </button>
       <div class="sep"></div>
       {#if loadingPlaylists}
-        <div class="hint">Loading…</div>
+        <div class="hint"><Spinner size={14} /></div>
       {:else if playlists.length === 0}
         <div class="hint">No playlists yet</div>
       {:else}

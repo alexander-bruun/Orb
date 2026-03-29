@@ -25,6 +25,7 @@
   } from '$lib/stores/social/listenParty';
 
   import { getApiBase } from '$lib/api/base';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
   const sessionId: string = $page.params.id ?? '';
 
   // Page phases: 'loading' | 'join' | 'playing' | 'kicked' | 'ended' | 'error'
@@ -277,7 +278,7 @@
 <div class="guest-shell">
   {#if phase === 'loading'}
     <div class="center-card">
-      <p class="muted">Loading session…</p>
+      <p class="muted"><Spinner size={24} /></p>
     </div>
 
   {:else if phase === 'error'}

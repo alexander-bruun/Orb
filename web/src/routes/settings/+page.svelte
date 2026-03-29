@@ -8,6 +8,7 @@
   import QRCode from 'qrcode';
   import EQEditor from '$lib/components/ui/EQEditor.svelte';
   import { library } from '$lib/api/library';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled, smartShuffleEnabled } from '$lib/stores/player';
   import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled, autoDownloadFavorites } from '$lib/stores/settings/theme';
@@ -1100,7 +1101,7 @@
     <p class="sq-hint">Server-enforced quality limits. Set a different level per connection type to save mobile data while keeping full quality at home.</p>
 
     {#if sqLoading}
-      <p class="msg" style="color:var(--text-2)">Loading…</p>
+      <p class="msg"><Spinner /></p>
     {:else}
       <!-- Tab bar -->
       <div class="sq-tabs">
@@ -2108,7 +2109,7 @@
         </div>
       {/if}
     {:else}
-      <p class="msg" style="color:var(--text-2)">Loading version…</p>
+      <p class="msg"><Spinner /></p>
     {/if}
   </section>
 </div>

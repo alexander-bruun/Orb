@@ -8,6 +8,7 @@
   import { playTrack, shuffle, startRadio } from '$lib/stores/player';
 
   import { getApiBase } from '$lib/api/base';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   interface SimilarArtist { id: string; name: string; hasImage: boolean; }
 
@@ -160,7 +161,7 @@
 </script>
 
 {#if loading}
-  <p class="muted">Loading…</p>
+  <p class="muted"><Spinner /></p>
 {:else if artist}
   <div class="header">
     {#if artist.image_key}

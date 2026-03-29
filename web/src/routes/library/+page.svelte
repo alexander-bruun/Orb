@@ -5,6 +5,7 @@
   import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
   import AlphaScrollbar from '$lib/components/library/AlphaScrollbar.svelte';
   import type { Album } from '$lib/types';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   type SortMode = 'title' | 'artist' | 'year';
 
@@ -252,12 +253,12 @@
   </div>
 
   {#if loading}
-    <p class="muted">Loading…</p>
+    <p class="muted"><Spinner /></p>
   {:else}
     <AlbumGrid {grouped} {keys} />
     <div bind:this={sentinel} class="sentinel"></div>
     {#if loadingMore}
-      <p class="muted load-more-hint">Loading more…</p>
+      <p class="muted load-more-hint"><Spinner size={18} /></p>
     {/if}
   {/if}
 </div>

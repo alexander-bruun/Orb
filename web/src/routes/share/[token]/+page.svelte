@@ -4,6 +4,7 @@
   import { share as shareApi, type RedeemShareResp } from '$lib/api/share';
   import { getApiBase } from '$lib/api/base';
   import type { Track } from '$lib/types';
+  import Spinner from '$lib/components/ui/Spinner.svelte';
 
   let state: 'loading' | 'ready' | 'used' | 'error' = 'loading';
   let data: RedeemShareResp | null = null;
@@ -189,8 +190,7 @@
 <div class="page">
   {#if state === 'loading'}
     <div class="splash">
-      <div class="spinner"></div>
-      <p class="muted">Loading…</p>
+      <Spinner size={36} />
     </div>
 
   {:else if state === 'used'}
@@ -373,14 +373,6 @@
 
   /* Loading */
   .splash { display: flex; flex-direction: column; align-items: center; gap: 16px; }
-  .spinner {
-    width: 32px; height: 32px;
-    border: 3px solid rgba(255,255,255,0.1);
-    border-top-color: #7c6af7;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Status cards */
   .center { text-align: center; max-width: 380px; width: 100%; }
