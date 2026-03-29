@@ -135,6 +135,28 @@
     );
   }
 
+  let dataFetched = false;
+
+  async function loadHomeData() {
+    loading = true;
+    try {
+      [recentTracks, mostTracks, recentAlbums, newAlbums, newAudiobooks, smartPls, inProgressBooks] = await Promise.all([
+        libApi.recentlyPlayed(100).then((r) => r ?? []),
+        libApi.mostPlayed(100).then((r) => r ?? []),
+        libApi.recentlyPlayedAlbums().then((r) => r ?? []),
+        libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
+        abApi.recentlyAdded(20).then((r) => r.audiobooks ?? []).catch(() => []),
+        spApi.list().then((r) => r ?? []),
+        abApi.inProgress(10).then((r) => r.audiobooks ?? []).catch(() => []),
+      ]);
+      dataFetched = true;
+    } catch {
+      // ignore — user may not be logged in
+    } finally {
+      loading = false;
+    }
+  }
+
   // ── Online data loading ──────────────────────────────────────────────────────
   const INTERVALS: { key: Interval; label: string }[] = [
     { key: "today", label: "Today" },
@@ -210,30 +232,27 @@
   onMount(async () => {
     if ($isOffline) {
       loading = false;
-      return;
+      // Subscribe so we load data as soon as the backend comes back online.
+      // store.subscribe fires immediately with the current value; since we're
+      // inside the $isOffline branch that value is true, so the guard below
+      // won't fire on the first call.
+      const unsub = isOffline.subscribe(async (offline) => {
+        if (!offline && !dataFetched) {
+          unsub();
+          await loadHomeData();
+        }
+      });
+      return unsub;
     }
 
     if (isRestoring && (recentTracks.length > 0 || recentAlbums.length > 0)) {
       loading = false;
       isRestoring = false;
+      dataFetched = true;
       return;
     }
 
-    try {
-      [recentTracks, mostTracks, recentAlbums, newAlbums, newAudiobooks, smartPls, inProgressBooks] = await Promise.all([
-        libApi.recentlyPlayed(100).then((r) => r ?? []),
-        libApi.mostPlayed(100).then((r) => r ?? []),
-        libApi.recentlyPlayedAlbums().then((r) => r ?? []),
-        libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
-        abApi.recentlyAdded(20).then((r) => r.audiobooks ?? []).catch(() => []),
-        spApi.list().then((r) => r ?? []),
-        abApi.inProgress(10).then((r) => r.audiobooks ?? []).catch(() => []),
-      ]);
-    } catch {
-      // ignore — user may not be logged in
-    } finally {
-      loading = false;
-    }
+    await loadHomeData();
   });
 </script>
 

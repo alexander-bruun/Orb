@@ -52,6 +52,7 @@ import {
 	currentAudiobook, abPlaybackState,
 	restoreAudiobookState,
 } from './audiobookPlayer';
+import { authStore } from '$lib/stores/auth';
 import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
 import * as engine from './engine';
 import {
@@ -502,6 +503,23 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		engine.signalRestoreComplete();
 	}
 })().catch(() => { engine.signalRestoreComplete(); });
+
+// ── Stop playback on logout ───────────────────────────────────────────────────
+
+let _prevToken: string | null = get(authStore).token;
+authStore.subscribe((auth) => {
+	if (_prevToken !== null && auth.token === null) {
+		// User just logged out — halt all playback immediately
+		if (get(activePlayer) === 'audiobook') {
+			pauseAudiobook();
+		} else {
+			audioEngine.stop();
+			positionMs.set(0);
+			playbackState.set('paused');
+		}
+	}
+	_prevToken = auth.token;
+});
 
 // ── Android Native Event Bridge ──────────────────────────────────────────────
 
