@@ -92,6 +92,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 type updateReq struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	IsPublic    *bool  `json:"is_public"`
 }
 
 func (s *Service) update(w http.ResponseWriter, r *http.Request) {
@@ -114,16 +115,22 @@ func (s *Service) update(w http.ResponseWriter, r *http.Request) {
 	if req.Description != "" {
 		desc = req.Description
 	}
+	isPublic := pl.IsPublic
+	if req.IsPublic != nil {
+		isPublic = *req.IsPublic
+	}
 	err = s.db.UpdatePlaylist(r.Context(), store.UpdatePlaylistParams{
 		ID:          id,
 		Name:        name,
 		Description: desc,
 		CoverArtKey: "",
+		IsPublic:    isPublic,
 	})
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	pl.IsPublic = isPublic
 	httputil.WriteJSON(w, http.StatusOK, pl)
 }
 

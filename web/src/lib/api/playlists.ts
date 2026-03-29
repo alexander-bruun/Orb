@@ -1,6 +1,9 @@
 // Returns up to 4 cover URLs for a playlist (for grid display)
-export function getPlaylistCoverGrid(id: string): Promise<string[]> {
-	return apiFetch<string[]>(`/covers/playlist/${id}/composite`);
+export async function getPlaylistCoverGrid(id: string): Promise<string[]> {
+	const { getApiBase } = await import('./base');
+	const paths = await apiFetch<string[]>(`/covers/playlist/${id}/composite`);
+	const base = getApiBase();
+	return paths.map(p => `${base}${p}`);
 }
 import { apiFetch } from './client';
 import type { Playlist, Track } from '$lib/types';
@@ -14,10 +17,10 @@ export const playlists = {
 		}),
 	get: (id: string) =>
 		apiFetch<{ playlist: Playlist; tracks: Track[] }>(`/playlists/${id}`),
-	update: (id: string, name: string, description?: string) =>
+	update: (id: string, fields: { name?: string; description?: string; is_public?: boolean }) =>
 		apiFetch<Playlist>(`/playlists/${id}`, {
 			method: 'PATCH',
-			body: JSON.stringify({ name, description })
+			body: JSON.stringify(fields)
 		}),
 	delete: (id: string) => apiFetch(`/playlists/${id}`, { method: 'DELETE' }),
 	addTrack: (id: string, trackId: string) =>

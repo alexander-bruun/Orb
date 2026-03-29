@@ -27,7 +27,12 @@
     {/if}
   </div>
   <div class="info">
-    <span class="name">{playlist.name}</span>
+    <div class="name-row">
+      <span class="name">{playlist.name}</span>
+      {#if playlist.track_count !== undefined}
+        <span class="count">{playlist.track_count}</span>
+      {/if}
+    </div>
     {#if playlist.description}
       <span class="desc">{playlist.description}</span>
     {/if}
@@ -60,8 +65,10 @@
     color: var(--text-muted);
     flex-shrink: 0;
   }
-  .info { display: flex; flex-direction: column; overflow: hidden; }
-  .name { font-size: 0.9rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .info { display: flex; flex-direction: column; overflow: hidden; min-width: 0; flex: 1; }
+  .name-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+  .name { font-size: 0.9rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
   .desc { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cover-grid {
     position: relative;

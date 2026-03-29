@@ -341,7 +341,9 @@ func sqlOp(op string) string {
 
 func (s *Store) ListPlaylistsByUser(ctx context.Context, userID string) ([]Playlist, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, user_id, name, description, cover_art_key, created_at FROM playlists WHERE user_id = $1 ORDER BY updated_at DESC`,
+		`SELECT id, user_id, name, description, cover_art_key, is_public,
+		        (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = playlists.id)::int AS track_count,
+		        created_at FROM playlists WHERE user_id = $1 ORDER BY updated_at DESC`,
 		userID)
 	if err != nil {
 		return nil, err
@@ -352,14 +354,16 @@ func (s *Store) ListPlaylistsByUser(ctx context.Context, userID string) ([]Playl
 
 func (s *Store) CreatePlaylist(ctx context.Context, p CreatePlaylistParams) (Playlist, error) {
 	row := s.pool.QueryRow(ctx,
-		`INSERT INTO playlists (id, user_id, name, description, cover_art_key) VALUES ($1, $2, $3, $4, $5) RETURNING id, user_id, name, description, cover_art_key, created_at`,
+		`INSERT INTO playlists (id, user_id, name, description, cover_art_key) VALUES ($1, $2, $3, $4, $5) RETURNING id, user_id, name, description, cover_art_key, is_public, 0 AS track_count, created_at`,
 		p.ID, p.UserID, p.Name, p.Description, p.CoverArtKey)
 	return scanPlaylist(row)
 }
 
 func (s *Store) GetPlaylistByID(ctx context.Context, id string) (Playlist, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, user_id, name, description, cover_art_key, created_at FROM playlists WHERE id = $1`,
+		`SELECT id, user_id, name, description, cover_art_key, is_public,
+		        (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = playlists.id)::int AS track_count,
+		        created_at FROM playlists WHERE id = $1`,
 		id)
 	return scanPlaylist(row)
 }
@@ -382,8 +386,8 @@ ORDER BY pt.position ASC`,
 
 func (s *Store) UpdatePlaylist(ctx context.Context, p UpdatePlaylistParams) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE playlists SET name = $2, description = $3, cover_art_key = $4, updated_at = now() WHERE id = $1`,
-		p.ID, p.Name, p.Description, p.CoverArtKey)
+		`UPDATE playlists SET name = $2, description = $3, cover_art_key = $4, is_public = $5, updated_at = now() WHERE id = $1`,
+		p.ID, p.Name, p.Description, p.CoverArtKey, p.IsPublic)
 	return err
 }
 
@@ -496,7 +500,7 @@ func scanPlaylist(row pgx.Row) (Playlist, error) {
 	var pl Playlist
 	var desc, coverArtKey sql.NullString
 	var createdAt time.Time
-	if err := row.Scan(&pl.ID, &pl.UserID, &pl.Name, &desc, &coverArtKey, &createdAt); err != nil {
+	if err := row.Scan(&pl.ID, &pl.UserID, &pl.Name, &desc, &coverArtKey, &pl.IsPublic, &pl.TrackCount, &createdAt); err != nil {
 		return Playlist{}, err
 	}
 	if desc.Valid {
@@ -515,7 +519,7 @@ func scanPlaylists(rows pgx.Rows) ([]Playlist, error) {
 		var pl Playlist
 		var desc, coverArtKey sql.NullString
 		var createdAt time.Time
-		if err := rows.Scan(&pl.ID, &pl.UserID, &pl.Name, &desc, &coverArtKey, &createdAt); err != nil {
+		if err := rows.Scan(&pl.ID, &pl.UserID, &pl.Name, &desc, &coverArtKey, &pl.IsPublic, &pl.TrackCount, &createdAt); err != nil {
 			return nil, err
 		}
 		if desc.Valid {

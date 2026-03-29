@@ -64,6 +64,8 @@ type Playlist struct {
 	Name        string  `json:"name"`
 	Description string  `json:"description,omitempty"`
 	CoverArtKey *string `json:"cover_art_key,omitempty"`
+	IsPublic    bool    `json:"is_public"`
+	TrackCount  int     `json:"track_count"`
 	CreatedAt   string  `json:"created_at"`
 }
 
@@ -242,6 +244,7 @@ type UpdatePlaylistParams struct {
 	Name        string
 	Description string
 	CoverArtKey string
+	IsPublic    bool
 }
 
 // DeletePlaylistParams for deleting a playlist.

@@ -140,6 +140,8 @@ export interface Playlist {
 	name: string;
 	description?: string;
 	cover_art_key?: string;
+	is_public: boolean;
+	track_count?: number;
 	created_at: string;
 	updated_at: string;
 }

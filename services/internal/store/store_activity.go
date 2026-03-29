@@ -235,7 +235,9 @@ func (s *Store) GetPublicProfile(ctx context.Context, username string, requirePu
 // GetUserPublicPlaylists returns public playlists for a user.
 func (s *Store) GetUserPublicPlaylists(ctx context.Context, userID string) ([]Playlist, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, description, cover_art_key, created_at
+		SELECT id, user_id, name, description, cover_art_key, is_public,
+		       (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = playlists.id)::int AS track_count,
+		       created_at
 		FROM playlists
 		WHERE user_id = $1 AND is_public = TRUE
 		ORDER BY updated_at DESC`,

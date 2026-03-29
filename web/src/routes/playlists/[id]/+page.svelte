@@ -42,6 +42,13 @@
     playTrack(tracks[idx], tracks);
   }
 
+  async function togglePublic() {
+    if (!playlist) return;
+    const newVal = !playlist.is_public;
+    playlist = { ...playlist, is_public: newVal };
+    await playlistApi.update(String($page.params.id), { is_public: newVal });
+  }
+
   let downloading = false;
   $: dlDoneCount = tracks.filter(t => $downloads.get(t.id)?.status === 'done').length;
   $: allDownloaded = tracks.length > 0 && dlDoneCount === tracks.length;
@@ -67,7 +74,7 @@
         <div class="grid">
           {#each Array(4) as _, i}
             {#if coverGrid[i]}
-              <img src={coverGrid[i]} alt="cover" class="grid-img" />
+              <img src={coverGrid[i]} alt="cover" class="grid-img" on:error={(e) => { (e.currentTarget as HTMLImageElement).style.display='none'; }} />
             {:else}
               <span class="grid-fallback">♪</span>
             {/if}
@@ -92,6 +99,20 @@
             <line x1="4" y1="4" x2="9" y2="9"/>
           </svg>
           Shuffle
+        </button>
+        <button class="btn-visibility" on:click={togglePublic} title={playlist.is_public ? 'Make private' : 'Make public'}>
+          {#if playlist.is_public}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            Public
+          {:else}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            Private
+          {/if}
         </button>
         <button class="btn-download" on:click={downloadAll} disabled={(tracks?.length ?? 0) === 0 || allDownloaded || downloading} title="Download all tracks for offline playback">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -187,6 +208,20 @@
   }
   .btn-shuffle:hover { color: var(--text); border-color: var(--text); }
   .btn-shuffle:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-visibility {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 7px 16px;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-visibility:hover { color: var(--text); border-color: var(--text); }
   .btn-download {
     display: flex;
     align-items: center;

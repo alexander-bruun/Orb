@@ -437,12 +437,11 @@ func (s *Service) PlaylistCoverComposite(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Collect up to 4 cover URLs (without .jpg extension)
+	// Collect up to 4 cover paths (relative to the API, e.g. /covers/{albumID})
 	var coverURLs []string
-	baseURL := "/api/covers/"
 	for _, t := range tracks {
 		if t.AlbumID != nil {
-			coverURLs = append(coverURLs, baseURL+url.PathEscape(*t.AlbumID))
+			coverURLs = append(coverURLs, "/covers/"+url.PathEscape(*t.AlbumID))
 		}
 		if len(coverURLs) == 4 {
 			break
