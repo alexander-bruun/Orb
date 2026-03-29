@@ -55,6 +55,14 @@
       seekToChapter(ch);
     }
   }
+
+  // Match browser thumb-centering: thumb doesn't overflow track ends,
+  // so center = thumbR + progress/100 × (trackWidth − 2×thumbR).
+  const THUMB_R = 6;
+  let seekWrapWidth = 0;
+  $: abFillPx = seekWrapWidth > 2 * THUMB_R
+    ? THUMB_R + ($abProgress / 100) * (seekWrapWidth - 2 * THUMB_R)
+    : seekWrapWidth * $abProgress / 100;
 </script>
 
 
@@ -192,7 +200,7 @@
     <div class="ab-center">
       <div class="ab-seek-row">
         <span class="time">{$abFormattedPosition}</span>
-        <div class="ab-seek-wrap">
+        <div class="ab-seek-wrap" bind:clientWidth={seekWrapWidth}>
           <!-- Chapter tick marks -->
           {#if $currentAudiobook?.chapters?.length}
             {#each $currentAudiobook.chapters.slice(1) as ch (ch.id)}
@@ -210,7 +218,7 @@
             {/each}
           {/if}
           <div class="seek-track">
-            <div class="seek-fill" style="width: {$abProgress}%"></div>
+            <div class="seek-fill" style="width: {abFillPx}px"></div>
           </div>
           <input
             type="range"
