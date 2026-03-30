@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/alexander-bruun/orb/services/internal/activity"
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/store"
@@ -13,13 +14,17 @@ import (
 
 // Service handles playlist collaboration HTTP routes.
 type Service struct {
-	db *store.Store
+	db      *store.Store
+	emitter *activity.Emitter
 }
 
 // New returns a new collaboration Service.
 func New(db *store.Store) *Service {
 	return &Service{db: db}
 }
+
+// SetEmitter attaches an activity emitter.
+func (s *Service) SetEmitter(e *activity.Emitter) { s.emitter = e }
 
 // Routes registers collaboration endpoints.
 // Mount under /playlists/{id}/collaborators and /playlists/invite/{token}.
@@ -177,6 +182,13 @@ func (s *Service) redeemInvite(w http.ResponseWriter, r *http.Request) {
 			httputil.WriteErr(w, http.StatusBadRequest, err.Error())
 		}
 		return
+	}
+	if s.emitter != nil {
+		meta := map[string]any{"playlist_id": inv.PlaylistID}
+		if pl, err := s.db.GetPlaylistByID(r.Context(), inv.PlaylistID); err == nil {
+			meta["playlist_name"] = pl.Name
+		}
+		s.emitter.Record(r.Context(), userID, "playlist_follow", "playlist", inv.PlaylistID, meta)
 	}
 	httputil.WriteOK(w, redeemResp{PlaylistID: inv.PlaylistID, Role: inv.Role})
 }

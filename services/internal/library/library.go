@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/activity"
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
@@ -97,6 +98,7 @@ type Service struct {
 	db         *store.Store
 	mb         *musicbrainz.Client
 	dispatcher *webhook.Dispatcher
+	emitter    *activity.Emitter
 }
 
 // New returns a new library Service.
@@ -106,6 +108,9 @@ func New(db *store.Store, mb *musicbrainz.Client) *Service {
 
 // SetDispatcher attaches a webhook dispatcher for track play events.
 func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
+
+// SetEmitter attaches an activity emitter.
+func (s *Service) SetEmitter(e *activity.Emitter) { s.emitter = e }
 
 // Routes registers library endpoints.
 func (s *Service) Routes(r chi.Router) {
@@ -579,6 +584,13 @@ func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
 			"duration_played_ms": body.DurationPlayedMs,
 		})
 	}
+	if s.emitter != nil {
+		meta := map[string]any{"track_id": body.TrackID}
+		if t, err := s.db.GetTrackByID(r.Context(), body.TrackID); err == nil {
+			meta["track_name"] = t.Title
+		}
+		s.emitter.Record(r.Context(), userID, "play", "track", body.TrackID, meta)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -614,6 +626,13 @@ func (s *Service) addFavorite(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.emitter != nil {
+		meta := map[string]any{"track_id": trackID}
+		if t, err := s.db.GetTrackByID(r.Context(), trackID); err == nil {
+			meta["track_name"] = t.Title
+		}
+		s.emitter.Record(r.Context(), userID, "favorite", "track", trackID, meta)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

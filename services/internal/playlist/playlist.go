@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/alexander-bruun/orb/services/internal/activity"
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/store"
@@ -14,13 +15,17 @@ import (
 
 // Service handles playlist HTTP routes.
 type Service struct {
-	db *store.Store
+	db      *store.Store
+	emitter *activity.Emitter
 }
 
 // New returns a new playlist Service.
 func New(db *store.Store) *Service {
 	return &Service{db: db}
 }
+
+// SetEmitter attaches an activity emitter.
+func (s *Service) SetEmitter(e *activity.Emitter) { s.emitter = e }
 
 // Routes registers playlist endpoints.
 func (s *Service) Routes(r chi.Router) {
@@ -70,6 +75,11 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.emitter != nil {
+		s.emitter.Record(r.Context(), userID, "playlist_create", "playlist", pl.ID, map[string]any{
+			"playlist_name": pl.Name,
+		})
 	}
 	httputil.WriteJSON(w, http.StatusCreated, pl)
 }

@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/activity"
 	"github.com/alexander-bruun/orb/services/internal/admin"
 	audiobookpkg "github.com/alexander-bruun/orb/services/internal/audiobook"
 	"github.com/alexander-bruun/orb/services/internal/auth"
@@ -153,9 +154,11 @@ func registerRoutes(
 		r.Use(jwtMW)
 
 		webhookDispatcher := webhook.New(db)
+		activityEmitter := activity.New(db)
 
 		libSvc := library.New(db, musicbrainz.New())
 		libSvc.SetDispatcher(webhookDispatcher)
+		libSvc.SetEmitter(activityEmitter)
 		r.Route("/library", libSvc.Routes)
 
 		r.Get("/stream/{track_id}", streamSvc.Stream)
@@ -164,10 +167,12 @@ func registerRoutes(
 		r.Get("/stream/audiobook/chapter/{chapter_id}", streamSvc.AudiobookChapterStream)
 
 		plSvc := playlist.New(db)
+		plSvc.SetEmitter(activityEmitter)
 		r.Route("/playlists", plSvc.Routes)
 
 		// Collaboration (sub-routes under /playlists and /playlists/invite)
 		collabSvc := collaboration.New(db)
+		collabSvc.SetEmitter(activityEmitter)
 		collabSvc.Routes(r)
 
 		// Social: feed, follow, profiles, avatar upload
