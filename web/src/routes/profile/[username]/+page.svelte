@@ -4,6 +4,7 @@
   import { authStore } from '$lib/stores/auth';
   import { social } from '$lib/api/social';
   import { getApiBase } from '$lib/api/base';
+  import { getPlaylistCoverGrid } from '$lib/api/playlists';
   import type { PublicProfile, ActivityRow, UserStats } from '$lib/api/social';
   import type { Playlist } from '$lib/types';
   import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -14,6 +15,7 @@
   let profile: PublicProfile | null = null;
   let isFollowing = false;
   let playlists: Playlist[] = [];
+  let coverGrids: Record<string, string[]> = {};
   let activity: ActivityRow[] = [];
   let stats: UserStats | null = null;
   let activeTab: 'activity' | 'playlists' | 'stats' = 'activity';
@@ -75,6 +77,13 @@
     if (!profile) return;
     if (tab === 'playlists' && playlists.length === 0) {
       playlists = await social.getProfilePlaylists(username).catch(() => []);
+      await Promise.all(playlists.map(async (pl) => {
+        try {
+          coverGrids[pl.id] = await getPlaylistCoverGrid(pl.id);
+        } catch {
+          coverGrids[pl.id] = [];
+        }
+      }));
     }
     if (tab === 'activity' && activity.length === 0) {
       activity = await social.getProfileActivity(username).catch(() => []);
@@ -215,9 +224,24 @@
               <li>
                 <a href="/playlists/{pl.id}" class="playlist-item">
                   <div class="playlist-art">
-                    <img src="{getApiBase()}/covers/playlist/{pl.id}" alt="" on:error={(e) => (e.currentTarget as HTMLImageElement).style.display='none'} />
+                    {#if coverGrids[pl.id] && coverGrids[pl.id].length > 0}
+                      <div class="art-grid">
+                        {#each Array(4) as _, i}
+                          {#if coverGrids[pl.id][i]}
+                            <img src={coverGrids[pl.id][i]} alt="" class="art-grid-img" loading="lazy" />
+                          {:else}
+                            <span class="art-grid-fallback">♪</span>
+                          {/if}
+                        {/each}
+                      </div>
+                    {:else}
+                      <img src="{getApiBase()}/covers/playlist/{pl.id}" alt="" on:error={(e) => (e.currentTarget as HTMLImageElement).style.display='none'} />
+                    {/if}
                   </div>
-                  <span class="playlist-name">{pl.name}</span>
+                  <div class="playlist-name-row">
+                    <span class="playlist-name">{pl.name}</span>
+                    {#if pl.track_count != null}<span class="playlist-count">{pl.track_count}</span>{/if}
+                  </div>
                 </a>
               </li>
             {/each}
@@ -421,7 +445,12 @@
   .playlist-item { display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: var(--text); }
   .playlist-art { aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
   .playlist-art img { width: 100%; height: 100%; object-fit: cover; }
-  .playlist-name { font-size: 0.875rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .art-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; width: 100%; height: 100%; gap: 0; }
+  .art-grid-img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 0; }
+  .art-grid-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: var(--text-muted); background: var(--bg-elevated); }
+  .playlist-name-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  .playlist-name { font-size: 0.875rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .playlist-count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
 
   /* Stats */
   .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
