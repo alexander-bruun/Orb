@@ -2,7 +2,7 @@
   import type { Track } from '$lib/types';
   import { playTrack, currentTrack, playbackState } from '$lib/stores/player';
   import { openContextMenu } from '$lib/stores/ui/contextMenu';
-  import { downloads } from '$lib/stores/offline/downloads';
+  import { downloads, deleteDownload } from '$lib/stores/offline/downloads';
   import { onMount } from 'svelte';
   import { getArtistName, preloadArtists } from '$lib/stores/library/artists';
   import { favorites } from '$lib/stores/library/favorites';
@@ -117,15 +117,6 @@
       </span>
     {/if}
   </div>
-  {#if dlStatus === 'done'}
-    <span class="dl-icon" title="Downloaded">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
-    </span>
-  {:else if dlStatus === 'downloading'}
-    <span class="dl-icon dl-progress" title="Downloading">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
-    </span>
-  {/if}
   {#if track.bpm}
     <span class="bpm" title="BPM">{Math.round(track.bpm)}</span>
   {/if}
@@ -143,6 +134,21 @@
     </button>
     <StarRating trackId={track.id} size={13} />
   </span>
+  {#if dlStatus === 'done'}
+    <button
+      class="dl-icon dl-done-btn"
+      title="Remove download"
+      on:click|stopPropagation={() => deleteDownload(track.id)}
+      aria-label="Remove download"
+    >
+      <svg class="dl-dl-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
+      <svg class="dl-x-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+    </button>
+  {:else if dlStatus === 'downloading'}
+    <span class="dl-icon dl-progress" title="Downloading">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z"/></svg>
+    </span>
+  {/if}
   <span class="duration">{formatDuration(track.duration_ms)}</span>
 </div>
 
@@ -185,7 +191,7 @@
   }
   .feat-sep, .comma { color: var(--text-muted); }
   .bpm { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; opacity: 0.7; }
-  .duration { font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; }
+  .duration { font-size: 0.8rem; color: var(--text-muted); flex-shrink: 0; width: 3.5rem; text-align: right; }
   .row-actions {
     flex-shrink: 0;
     display: flex;
@@ -216,6 +222,11 @@
   .fav-btn:hover { color: var(--text); }
   .fav-btn.fav-active { color: #e05; }
   .dl-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--accent); opacity: 0.8; }
+  .dl-done-btn { background: none; border: none; padding: 0; cursor: pointer; }
+  .dl-done-btn .dl-x-icon { display: none; color: var(--text-muted); }
+  .dl-done-btn:hover .dl-dl-icon { display: none; }
+  .dl-done-btn:hover .dl-x-icon { display: block; }
+  .dl-done-btn:hover { opacity: 1; }
   .dl-progress { opacity: 0.45; animation: dl-pulse 1.5s ease-in-out infinite; }
   @keyframes dl-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
 </style>

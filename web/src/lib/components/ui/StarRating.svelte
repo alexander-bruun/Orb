@@ -105,8 +105,7 @@
   .star-popover {
     position: absolute;
     bottom: calc(100% + 6px);
-    left: 50%;
-    transform: translateX(-50%);
+    right: 0;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -120,8 +119,8 @@
   }
 
   @keyframes pop-in {
-    from { opacity: 0; transform: translateX(-50%) scale(0.85); }
-    to   { opacity: 1; transform: translateX(-50%) scale(1); }
+    from { opacity: 0; transform: scale(0.85); transform-origin: bottom right; }
+    to   { opacity: 1; transform: scale(1); transform-origin: bottom right; }
   }
 
   .star-pick {

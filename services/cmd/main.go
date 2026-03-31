@@ -359,6 +359,7 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 		Workers:           workers,
 		ComputeSimilarity: config.Env("INGEST_SIMILARITY", "true") == "true",
 		Enrich:            config.Env("INGEST_ENRICH", "true") == "true",
+		DiscogsToken:      config.Env("DISCOGS_TOKEN", ""),
 		GenerateWaveforms: config.Env("INGEST_WAVEFORM", "true") == "true",
 		FetchLyrics:       config.Env("INGEST_LYRICS", "true") == "true",
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),

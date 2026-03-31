@@ -514,28 +514,100 @@ func (s *Store) BatchUpsertIngestState(ctx context.Context, rows []IngestStateRo
 	return err
 }
 
+// IngestStatePath pairs a filesystem path with its associated track ID.
+type IngestStatePath struct {
+	Path    string
+	TrackID string
+}
+
 // DeleteIngestStateForAlbum removes ingest_state rows for all tracks belonging
-// to the given album and returns the filesystem paths that were deleted.
+// to the given album and returns the path/trackID pairs that were deleted.
 // Call this before a targeted rescan so the files are not skipped by upToDate.
-func (s *Store) DeleteIngestStateForAlbum(ctx context.Context, albumID string) ([]string, error) {
+func (s *Store) DeleteIngestStateForAlbum(ctx context.Context, albumID string) ([]IngestStatePath, error) {
 	rows, err := s.pool.Query(ctx,
 		`DELETE FROM ingest_state
 		 WHERE track_id IN (SELECT id FROM tracks WHERE album_id = $1)
-		 RETURNING path`,
+		 RETURNING path, track_id`,
 		albumID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var paths []string
+	var result []IngestStatePath
 	for rows.Next() {
-		var p string
-		if err := rows.Scan(&p); err != nil {
+		var r IngestStatePath
+		if err := rows.Scan(&r.Path, &r.TrackID); err != nil {
 			return nil, err
 		}
-		paths = append(paths, p)
+		result = append(result, r)
 	}
-	return paths, rows.Err()
+	return result, rows.Err()
+}
+
+// DeleteTracksAndCleanup removes the given tracks by ID and cascades to clean
+// up any albums and artists that become empty as a result. Returns object-store
+// keys (track file_key + album cover_art_key + artist image_key) for callers
+// to delete from the object store.
+func (s *Store) DeleteTracksAndCleanup(ctx context.Context, trackIDs []string) ([]string, error) {
+	if len(trackIDs) == 0 {
+		return nil, nil
+	}
+
+	var objKeys []string
+
+	// Collect file keys before deletion.
+	fkRows, err := s.pool.Query(ctx, `SELECT file_key FROM tracks WHERE id = ANY($1)`, trackIDs)
+	if err == nil {
+		for fkRows.Next() {
+			var k string
+			if fkRows.Scan(&k) == nil && k != "" {
+				objKeys = append(objKeys, k)
+			}
+		}
+		fkRows.Close()
+	}
+
+	if _, err := s.pool.Exec(ctx, `DELETE FROM tracks WHERE id = ANY($1)`, trackIDs); err != nil {
+		return nil, fmt.Errorf("delete tracks: %w", err)
+	}
+
+	// Remove albums that have no remaining tracks.
+	albumRows, err := s.pool.Query(ctx,
+		`DELETE FROM albums
+		 WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL)
+		 RETURNING cover_art_key`)
+	if err == nil {
+		for albumRows.Next() {
+			var k sql.NullString
+			if albumRows.Scan(&k) == nil && k.Valid && k.String != "" {
+				objKeys = append(objKeys, k.String)
+			}
+		}
+		albumRows.Close()
+	}
+
+	// Remove artists with no remaining tracks, albums, or audiobooks.
+	artistRows, err := s.pool.Query(ctx,
+		`DELETE FROM artists
+		 WHERE id NOT IN (
+		     SELECT DISTINCT artist_id FROM tracks     WHERE artist_id IS NOT NULL
+		     UNION
+		     SELECT DISTINCT artist_id FROM albums     WHERE artist_id IS NOT NULL
+		     UNION
+		     SELECT DISTINCT author_id  FROM audiobooks WHERE author_id IS NOT NULL
+		 )
+		 RETURNING image_key`)
+	if err == nil {
+		for artistRows.Next() {
+			var k sql.NullString
+			if artistRows.Scan(&k) == nil && k.Valid && k.String != "" {
+				objKeys = append(objKeys, k.String)
+			}
+		}
+		artistRows.Close()
+	}
+
+	return objKeys, nil
 }
 
 // PruneOrphanedTracks removes tracks whose source files are no longer present

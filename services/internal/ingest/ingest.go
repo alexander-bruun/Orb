@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/discogs"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
@@ -257,6 +258,7 @@ type Config struct {
 	Workers           int
 	ComputeSimilarity bool
 	Enrich            bool
+	DiscogsToken      string // optional Discogs personal access token for combined enrichment
 	GenerateWaveforms bool
 	FetchLyrics       bool
 	PollInterval      time.Duration
@@ -296,6 +298,7 @@ type Ingester struct {
 	coveredAlbums  sync.Map
 
 	mb              *musicbrainz.Client
+	dc              *discogs.Client
 	enrichedArtists sync.Map
 	enrichedAlbums  sync.Map
 
@@ -316,6 +319,9 @@ func New(db *store.Store, obj objstore.ObjectStore, cfg Config, kv *redis.Client
 	}
 	if cfg.Enrich {
 		g.mb = musicbrainz.New()
+		if cfg.DiscogsToken != "" {
+			g.dc = discogs.New(cfg.DiscogsToken)
+		}
 	}
 	return g
 }
@@ -556,34 +562,42 @@ func (g *Ingester) Scan(ctx context.Context) (newTrackIDs []string, skipped, err
 
 // ReingestAlbum clears the ingest state for all tracks belonging to albumID,
 // then re-processes only those files. Unlike Scan, it does not walk all dirs.
+// Files that no longer exist on disk are pruned from the database.
 func (g *Ingester) ReingestAlbum(ctx context.Context, albumID string) (newTrackIDs []string, skipped, errs int) {
-	paths, err := g.db.DeleteIngestStateForAlbum(ctx, albumID)
+	entries, err := g.db.DeleteIngestStateForAlbum(ctx, albumID)
 	if err != nil {
 		slog.Error("reingest album: delete ingest state", "album_id", albumID, "err", err)
 		return nil, 0, 1
 	}
-	if len(paths) == 0 {
+	if len(entries) == 0 {
 		slog.Info("reingest album: no ingest state found, nothing to do", "album_id", albumID)
 		return nil, 0, 0
 	}
 
 	// Remove paths from in-memory state so upToDate returns false.
 	g.stateMu.Lock()
-	for _, p := range paths {
-		delete(g.state, p)
+	for _, e := range entries {
+		delete(g.state, e.Path)
 	}
 	g.stateMu.Unlock()
 
 	var mu sync.Mutex
 	var ids []string
-	for _, p := range paths {
-		id, err := g.process(ctx, p, nil)
+	var missingTrackIDs []string
+	for _, e := range entries {
+		id, err := g.process(ctx, e.Path, nil)
 		switch {
 		case errors.Is(err, ErrSkipped):
 			skipped++
 		case err != nil:
-			slog.Error("reingest album: process failed", "path", p, "err", err)
-			errs++
+			if os.IsNotExist(err) {
+				// File was deleted from disk — prune it from the database.
+				slog.Info("reingest album: file missing, pruning track", "path", e.Path, "track_id", e.TrackID)
+				missingTrackIDs = append(missingTrackIDs, e.TrackID)
+			} else {
+				slog.Error("reingest album: process failed", "path", e.Path, "err", err)
+				errs++
+			}
 		default:
 			if id != "" {
 				mu.Lock()
@@ -592,6 +606,20 @@ func (g *Ingester) ReingestAlbum(ctx context.Context, albumID string) (newTrackI
 			}
 		}
 	}
+
+	if len(missingTrackIDs) > 0 {
+		objKeys, err := g.db.DeleteTracksAndCleanup(ctx, missingTrackIDs)
+		if err != nil {
+			slog.Error("reingest album: prune missing tracks", "err", err)
+		} else {
+			for _, k := range objKeys {
+				if err := g.obj.Delete(ctx, k); err != nil {
+					slog.Warn("reingest album: delete orphaned object", "key", k, "err", err)
+				}
+			}
+		}
+	}
+
 	return ids, skipped, errs
 }
 
@@ -667,6 +695,23 @@ func (g *Ingester) Run(ctx context.Context) error {
 	pollTicker := time.NewTicker(g.cfg.PollInterval)
 	defer pollTicker.Stop()
 
+	// removeScanTimer fires a pruning scan shortly after the last Remove event,
+	// coalescing rapid deletions (e.g. an entire album directory) into one scan.
+	const removeDebounceDur = 2 * time.Second
+	removeScanTimer := time.NewTimer(removeDebounceDur)
+	removeScanTimer.Stop()
+	defer removeScanTimer.Stop()
+
+	triggerRemoveScan := func() {
+		if !removeScanTimer.Stop() {
+			select {
+			case <-removeScanTimer.C:
+			default:
+			}
+		}
+		removeScanTimer.Reset(removeDebounceDur)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -674,6 +719,13 @@ func (g *Ingester) Run(ctx context.Context) error {
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return nil
+			}
+			if ev.Op&fsnotify.Remove != 0 {
+				// Audio file or directory removed — schedule a pruning scan.
+				if isAudioFile(ev.Name) || filepath.Ext(ev.Name) == "" {
+					triggerRemoveScan()
+				}
+				continue
 			}
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) == 0 {
 				continue
@@ -722,6 +774,16 @@ func (g *Ingester) Run(ctx context.Context) error {
 				return nil
 			}
 			slog.Warn("watcher error", "err", err)
+		case <-removeScanTimer.C:
+			// One or more files/dirs were removed — run a full scan to prune DB records.
+			go func() {
+				newIDs, _, _ := g.Scan(ctx)
+				if len(newIDs) > 0 && g.cfg.ComputeSimilarity {
+					if err := g.runSimilarity(ctx, newIDs); err != nil {
+						slog.Error("similarity computation failed", "err", err)
+					}
+				}
+			}()
 		case <-pollTicker.C:
 			// Periodic safety-net scan: catches new files on filesystems where
 			// fsnotify succeeds without error but silently delivers no events
@@ -1089,34 +1151,63 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 
 func (g *Ingester) enrichAfterIngest(ctx context.Context, artistID, artistName, albumID, albumTitle string, missingCoverArt bool) {
 	if _, done := g.enrichedArtists.LoadOrStore(artistID, struct{}{}); !done {
-		result, err := g.mb.EnrichArtist(ctx, artistName)
+		mbResult, err := g.mb.EnrichArtist(ctx, artistName)
 		if err != nil {
-			slog.Warn("enrich artist failed", "artist", artistName, "err", err)
-		} else if result != nil {
+			slog.Warn("enrich artist failed (musicbrainz)", "artist", artistName, "err", err)
+		}
+
+		var dcResult *discogs.ArtistEnrichment
+		if g.dc != nil {
+			dcResult, err = g.dc.EnrichArtist(ctx, artistName)
+			if err != nil {
+				slog.Warn("enrich artist failed (discogs)", "artist", artistName, "err", err)
+			}
+		}
+
+		if mbResult != nil || dcResult != nil {
+			// Merge: MusicBrainz fields take precedence; Discogs fills gaps.
+			merged := mergeArtistEnrichment(mbResult, dcResult)
+
+			// Fetch artist image: prefer MusicBrainz (Wikidata), fall back to Discogs.
 			var imageKeyPtr *string
-			if imgData, imgErr := g.mb.FetchArtistImage(ctx, result.URLRelations); imgErr != nil {
-				slog.Warn("fetch artist image failed", "artist", artistName, "err", imgErr)
-			} else if imgData != nil {
-				imageKey := fmt.Sprintf("artists/%s.jpg", artistID)
-				if err := storeCoverArt(ctx, g.obj, imageKey, imgData); err != nil {
-					slog.Warn("store artist image failed", "artist", artistName, "err", err)
-				} else {
-					imageKeyPtr = &imageKey
+			if mbResult != nil {
+				if imgData, imgErr := g.mb.FetchArtistImage(ctx, mbResult.URLRelations); imgErr != nil {
+					slog.Warn("fetch artist image failed (musicbrainz)", "artist", artistName, "err", imgErr)
+				} else if imgData != nil {
+					imageKey := fmt.Sprintf("artists/%s.jpg", artistID)
+					if err := storeCoverArt(ctx, g.obj, imageKey, imgData); err != nil {
+						slog.Warn("store artist image failed", "artist", artistName, "err", err)
+					} else {
+						imageKeyPtr = &imageKey
+					}
 				}
 			}
+			if imageKeyPtr == nil && dcResult != nil && dcResult.ImageURI != "" {
+				if imgData, imgErr := g.dc.FetchImage(ctx, dcResult.ImageURI); imgErr != nil {
+					slog.Warn("fetch artist image failed (discogs)", "artist", artistName, "err", imgErr)
+				} else if imgData != nil {
+					imageKey := fmt.Sprintf("artists/%s.jpg", artistID)
+					if err := storeCoverArt(ctx, g.obj, imageKey, imgData); err != nil {
+						slog.Warn("store artist image failed (discogs)", "artist", artistName, "err", err)
+					} else {
+						imageKeyPtr = &imageKey
+					}
+				}
+			}
+
 			if err := g.db.UpdateArtistEnrichment(ctx, store.UpdateArtistEnrichmentParams{
 				ID:             artistID,
-				Mbid:           strPtr(result.Mbid),
-				ArtistType:     strPtr(result.ArtistType),
-				Country:        strPtr(result.Country),
-				BeginDate:      strPtr(result.BeginDate),
-				EndDate:        strPtr(result.EndDate),
-				Disambiguation: strPtr(result.Disambiguation),
+				Mbid:           strPtr(merged.Mbid),
+				ArtistType:     strPtr(merged.ArtistType),
+				Country:        strPtr(merged.Country),
+				BeginDate:      strPtr(merged.BeginDate),
+				EndDate:        strPtr(merged.EndDate),
+				Disambiguation: strPtr(merged.Disambiguation),
 				ImageKey:       imageKeyPtr,
 			}); err != nil {
 				slog.Warn("update artist enrichment failed", "artist", artistName, "err", err)
 			}
-			g.persistGenres(ctx, result.Genres, func(ids []string) {
+			g.persistGenres(ctx, merged.Genres, func(ids []string) {
 				if err := g.db.SetArtistGenres(ctx, artistID, ids); err != nil {
 					slog.Warn("set artist genres failed", "artist", artistName, "err", err)
 				}
@@ -1128,42 +1219,162 @@ func (g *Ingester) enrichAfterIngest(ctx context.Context, artistID, artistName, 
 		return
 	}
 	if _, done := g.enrichedAlbums.LoadOrStore(albumID, struct{}{}); !done {
-		result, err := g.mb.EnrichAlbum(ctx, albumTitle, artistName)
+		mbResult, err := g.mb.EnrichAlbum(ctx, albumTitle, artistName)
 		if err != nil {
-			slog.Warn("enrich album failed", "album", albumTitle, "err", err)
-		} else if result != nil {
+			slog.Warn("enrich album failed (musicbrainz)", "album", albumTitle, "err", err)
+		}
+
+		var dcResult *discogs.AlbumEnrichment
+		if g.dc != nil {
+			dcResult, err = g.dc.EnrichAlbum(ctx, albumTitle, artistName)
+			if err != nil {
+				slog.Warn("enrich album failed (discogs)", "album", albumTitle, "err", err)
+			}
+		}
+
+		if mbResult != nil || dcResult != nil {
+			merged := mergeAlbumEnrichment(mbResult, dcResult)
+
 			if err := g.db.UpdateAlbumEnrichment(ctx, store.UpdateAlbumEnrichmentParams{
 				ID:               albumID,
-				Mbid:             strPtr(result.ReleaseGroupMbid),
-				Label:            strPtr(result.Label),
-				AlbumType:        strPtr(result.AlbumType),
-				ReleaseDate:      strPtr(result.ReleaseDate),
-				ReleaseGroupMbid: strPtr(result.ReleaseGroupMbid),
+				Mbid:             strPtr(merged.ReleaseGroupMbid),
+				Label:            strPtr(merged.Label),
+				AlbumType:        strPtr(merged.AlbumType),
+				ReleaseDate:      strPtr(merged.ReleaseDate),
+				ReleaseGroupMbid: strPtr(merged.ReleaseGroupMbid),
 			}); err != nil {
 				slog.Warn("update album enrichment failed", "album", albumTitle, "err", err)
 			}
-			g.persistGenres(ctx, result.Genres, func(ids []string) {
+			g.persistGenres(ctx, merged.Genres, func(ids []string) {
 				if err := g.db.SetAlbumGenres(ctx, albumID, ids); err != nil {
 					slog.Warn("set album genres failed", "album", albumTitle, "err", err)
 				}
 			})
-			if missingCoverArt && result.ReleaseGroupMbid != "" {
-				if imgData, imgErr := g.mb.FetchAlbumCoverArt(ctx, result.ReleaseGroupMbid); imgErr != nil {
-					slog.Warn("fetch album cover art failed", "album", albumTitle, "err", imgErr)
-				} else if imgData != nil {
-					coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
-					if err := storeCoverArt(ctx, g.obj, coverKey, imgData); err != nil {
-						slog.Warn("store album cover art failed", "album", albumTitle, "err", err)
-					} else {
-						g.coveredAlbums.Store(albumID, struct{}{})
-						if err := g.db.UpdateAlbumCoverArt(ctx, albumID, coverKey); err != nil {
-							slog.Warn("update album cover art key failed", "album", albumTitle, "err", err)
+
+			// Fetch cover art: prefer local → MusicBrainz → Discogs.
+			if missingCoverArt {
+				var coverFetched bool
+				if mbResult != nil && mbResult.ReleaseGroupMbid != "" {
+					if imgData, imgErr := g.mb.FetchAlbumCoverArt(ctx, mbResult.ReleaseGroupMbid); imgErr != nil {
+						slog.Warn("fetch album cover art failed (musicbrainz)", "album", albumTitle, "err", imgErr)
+					} else if imgData != nil {
+						coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
+						if err := storeCoverArt(ctx, g.obj, coverKey, imgData); err != nil {
+							slog.Warn("store album cover art failed", "album", albumTitle, "err", err)
+						} else {
+							g.coveredAlbums.Store(albumID, struct{}{})
+							if err := g.db.UpdateAlbumCoverArt(ctx, albumID, coverKey); err != nil {
+								slog.Warn("update album cover art key failed", "album", albumTitle, "err", err)
+							}
+							coverFetched = true
+						}
+					}
+				}
+				if !coverFetched && dcResult != nil && dcResult.CoverImage != "" {
+					if imgData, imgErr := g.dc.FetchImage(ctx, dcResult.CoverImage); imgErr != nil {
+						slog.Warn("fetch album cover art failed (discogs)", "album", albumTitle, "err", imgErr)
+					} else if imgData != nil {
+						coverKey := fmt.Sprintf("covers/%s.jpg", albumID)
+						if err := storeCoverArt(ctx, g.obj, coverKey, imgData); err != nil {
+							slog.Warn("store album cover art failed (discogs)", "album", albumTitle, "err", err)
+						} else {
+							g.coveredAlbums.Store(albumID, struct{}{})
+							if err := g.db.UpdateAlbumCoverArt(ctx, albumID, coverKey); err != nil {
+								slog.Warn("update album cover art key failed (discogs)", "album", albumTitle, "err", err)
+							}
 						}
 					}
 				}
 			}
 		}
 	}
+}
+
+// mergedArtistFields is the combined output of MusicBrainz + Discogs artist enrichment.
+type mergedArtistFields struct {
+	Mbid           string
+	ArtistType     string
+	Country        string
+	BeginDate      string
+	EndDate        string
+	Disambiguation string
+	Genres         []string
+}
+
+// mergeArtistEnrichment combines MusicBrainz and Discogs artist results.
+// MusicBrainz values take precedence; Discogs fills any gaps.
+func mergeArtistEnrichment(mb *musicbrainz.ArtistEnrichment, dc *discogs.ArtistEnrichment) mergedArtistFields {
+	var m mergedArtistFields
+	if mb != nil {
+		m.Mbid = mb.Mbid
+		m.ArtistType = mb.ArtistType
+		m.Country = mb.Country
+		m.BeginDate = mb.BeginDate
+		m.EndDate = mb.EndDate
+		m.Disambiguation = mb.Disambiguation
+		m.Genres = mb.Genres
+	}
+	// Discogs has no MBID/dates/disambiguation — only fill Country and genres.
+	if dc != nil {
+		// Genres: union of both sets.
+		m.Genres = unionStrings(m.Genres, dc.Genres)
+	}
+	return m
+}
+
+// mergedAlbumFields is the combined output of MusicBrainz + Discogs album enrichment.
+type mergedAlbumFields struct {
+	ReleaseGroupMbid string
+	AlbumType        string
+	Label            string
+	ReleaseDate      string
+	Genres           []string
+}
+
+// mergeAlbumEnrichment combines MusicBrainz and Discogs album results.
+// MusicBrainz values take precedence; Discogs fills gaps and contributes styles as genres.
+func mergeAlbumEnrichment(mb *musicbrainz.AlbumEnrichment, dc *discogs.AlbumEnrichment) mergedAlbumFields {
+	var m mergedAlbumFields
+	if mb != nil {
+		m.ReleaseGroupMbid = mb.ReleaseGroupMbid
+		m.AlbumType = mb.AlbumType
+		m.Label = mb.Label
+		m.ReleaseDate = mb.ReleaseDate
+		m.Genres = mb.Genres
+	}
+	if dc != nil {
+		if m.Label == "" {
+			m.Label = dc.Label
+		}
+		if m.ReleaseDate == "" && dc.Year != "" {
+			m.ReleaseDate = dc.Year
+		}
+		// Union of MB genres + Discogs genres + Discogs styles (styles are more specific genres).
+		m.Genres = unionStrings(m.Genres, dc.Genres)
+		m.Genres = unionStrings(m.Genres, dc.Styles)
+	}
+	return m
+}
+
+// unionStrings returns a deduplicated union of two string slices (case-insensitive dedup).
+func unionStrings(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, s := range a {
+		key := strings.ToLower(s)
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, s)
+		}
+	}
+	for _, s := range b {
+		key := strings.ToLower(s)
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (g *Ingester) persistGenres(ctx context.Context, names []string, setFn func([]string)) {
@@ -1612,6 +1823,23 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 	pollTicker := time.NewTicker(g.cfg.PollInterval)
 	defer pollTicker.Stop()
 
+	// removeScanTimer fires a pruning scan shortly after the last Remove event,
+	// coalescing rapid deletions (e.g. an entire album directory) into one scan.
+	const removeDebounceDur = 2 * time.Second
+	removeScanTimer := time.NewTimer(removeDebounceDur)
+	removeScanTimer.Stop()
+	defer removeScanTimer.Stop()
+
+	triggerRemoveScan := func() {
+		if !removeScanTimer.Stop() {
+			select {
+			case <-removeScanTimer.C:
+			default:
+			}
+		}
+		removeScanTimer.Reset(removeDebounceDur)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1619,6 +1847,13 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 		case ev, ok := <-watcher.Events:
 			if !ok {
 				return nil
+			}
+			if ev.Op&fsnotify.Remove != 0 {
+				// Audio file or directory removed — schedule a pruning scan.
+				if isAudioFile(ev.Name) || filepath.Ext(ev.Name) == "" {
+					triggerRemoveScan()
+				}
+				continue
 			}
 			if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Rename) == 0 {
 				continue
@@ -1660,6 +1895,15 @@ func (g *Ingester) RunLeader(ctx context.Context, kv *redis.Client) error {
 				return nil
 			}
 			slog.Warn("watcher error", "err", err)
+		case <-removeScanTimer.C:
+			// One or more files/dirs were removed — run a full scan to prune DB records.
+			go func() {
+				if n, err := g.ScanAndEnqueue(ctx, kv); err != nil {
+					slog.Error("ingest leader: remove scan failed", "err", err)
+				} else if n > 0 {
+					slog.Info("ingest leader: remove scan enqueued", "count", n)
+				}
+			}()
 		case <-pollTicker.C:
 			// Periodic safety-net scan: catches new files on filesystems where
 			// fsnotify succeeds without error but silently delivers no events

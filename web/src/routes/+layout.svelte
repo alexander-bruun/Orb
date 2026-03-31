@@ -62,6 +62,7 @@
   import { lpPanelOpen, lpRole } from "$lib/stores/social/listenParty";
   import { lyricsOpen } from "$lib/stores/player/lyrics";
   import KeyboardShortcuts from "$lib/components/ui/KeyboardShortcuts.svelte";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   let shortcutsOpen = $state(false);
@@ -363,9 +364,13 @@
     <!-- Public page: render without shell or auth guards -->
     {@render children()}
   {:else if $setupRequired === null && !$isOffline}
-    <!-- Checking setup status; render nothing to avoid a flash of wrong content.
+    <!-- Checking setup status; show a spinner to avoid a flash of wrong content.
          When offline, $isOffline is true immediately (from navigator.onLine) so we
          skip this blank-screen guard and fall through to the authenticated shell. -->
+    <div class="checking-connection">
+      <Spinner size={36} />
+      <span>Checking connection…</span>
+    </div>
   {:else if $setupRequired && $page.url.pathname === "/setup"}
     {@render children()}
   {:else if !$setupRequired && $page.url.pathname === "/login"}
@@ -501,6 +506,18 @@
         64px + env(safe-area-inset-bottom, 0px) + /* mini player height */ 66px
       );
     }
+  }
+
+  /* ── Checking connection state ───────────────────────────────────────── */
+  .checking-connection {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    height: 100dvh;
+    color: var(--fg-muted);
+    font-size: 0.875rem;
   }
 
   /* ── Tauri frameless window border overlay ────────────────────────────── */
