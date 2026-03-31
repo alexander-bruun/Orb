@@ -66,6 +66,31 @@ export const replayGainEnabled = writable(false);
 /** Tracks played in this session; used by smart shuffle to de-prioritise repeats. */
 const recentlyPlayedIds = new Set<string>();
 
+// ── Scrobble threshold timer ──────────────────────────────────────────────────
+// Fires when >50% of a track (or >4 min) has elapsed and the same track is
+// still playing, submitting a scrobble to Last.fm / ListenBrainz via the API.
+
+let _scrobbleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleScrobble(track: Track) {
+	if (_scrobbleTimer) clearTimeout(_scrobbleTimer);
+	const startedAt = Date.now();
+	const delayMs = Math.min((track.duration_ms ?? 300_000) / 2, 4 * 60_000);
+	_scrobbleTimer = setTimeout(() => {
+		_scrobbleTimer = null;
+		if (get(currentTrack)?.id === track.id && get(playbackState) === 'playing') {
+			libraryApi.scrobble(track.id, startedAt).catch(() => {});
+		}
+	}, delayMs);
+}
+
+function cancelScrobble() {
+	if (_scrobbleTimer) {
+		clearTimeout(_scrobbleTimer);
+		_scrobbleTimer = null;
+	}
+}
+
 // ── Shuffle helpers ──────────────────────────────────────────────────────────
 
 /** Fisher-Yates in-place shuffle of an array. */
@@ -225,6 +250,7 @@ async function setupCrossfade(track: Track): Promise<void> {
 			advanceQueueState();
 
 			libraryApi.recordPlay(nextTrack.id, nextTrack.duration_ms ?? 0).catch(() => {});
+			scheduleScrobble(nextTrack);
 			sendHeartbeat().catch(() => {});
 
 			setupCrossfade(nextTrack).catch(() => {});
@@ -325,6 +351,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 		sendHeartbeat().catch(() => {});
 		recentlyPlayedIds.add(track.id);
 		libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => {});
+		scheduleScrobble(track);
 	} catch (err) {
 		console.error('playTrack error', err);
 		playbackState.set('idle');
@@ -339,6 +366,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
  */
 export function pauseLocal() {
 	engine.pause();
+	cancelScrobble();
 	const state = get(playbackState);
 	if (state === 'playing' || state === 'loading') {
 		playbackState.set('paused');
@@ -354,6 +382,7 @@ export function togglePlayPause() {
 	const state = get(playbackState);
 	if (state === 'playing') {
 		engine.pause();
+		cancelScrobble();
 		playbackState.set('paused');
 		sendHeartbeat().catch(() => {});
 	} else if (state === 'paused') {

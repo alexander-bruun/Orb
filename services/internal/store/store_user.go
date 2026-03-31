@@ -523,6 +523,89 @@ func (s *Store) SetSubsonicPassword(ctx context.Context, userID, password string
 	return err
 }
 
+// ── Scrobble settings ─────────────────────────────────────────────────────────
+
+// GetScrobbleSettings returns the scrobble settings for a user.
+// If no row exists, returns a zero-value struct (all disabled, no credentials).
+func (s *Store) GetScrobbleSettings(ctx context.Context, userID string) (ScrobbleSettings, error) {
+	var out ScrobbleSettings
+	out.UserID = userID
+	var sk, lbTok sql.NullString
+	var lbUN sql.NullString
+	err := s.pool.QueryRow(ctx,
+		`SELECT lastfm_enabled, lastfm_session_key, lastfm_username,
+		        lb_enabled, lb_token, updated_at
+		   FROM user_scrobble_settings WHERE user_id = $1`, userID).
+		Scan(&out.LastFMEnabled, &sk, &lbUN, &out.LBEnabled, &lbTok, &out.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, nil
+	}
+	if err != nil {
+		return out, err
+	}
+	if sk.Valid {
+		out.lastFMSessionKey = sk.String
+		out.LastFMConnected = sk.String != ""
+	}
+	if lbUN.Valid {
+		out.LastFMUsername = lbUN.String
+	}
+	if lbTok.Valid {
+		out.lbToken = lbTok.String
+		out.LBConnected = lbTok.String != ""
+	}
+	return out, nil
+}
+
+// UpsertScrobbleLBToken stores a ListenBrainz token and optionally updates the enabled flag.
+func (s *Store) UpsertScrobbleLBToken(ctx context.Context, userID, token string, enabled bool) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_scrobble_settings (user_id, lb_token, lb_enabled)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		   lb_token   = EXCLUDED.lb_token,
+		   lb_enabled = EXCLUDED.lb_enabled,
+		   updated_at = now()`,
+		userID, token, enabled)
+	return err
+}
+
+// SetScrobbleLastFMSession stores a Last.fm session key + username for a user.
+func (s *Store) SetScrobbleLastFMSession(ctx context.Context, userID, sessionKey, username string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_scrobble_settings (user_id, lastfm_session_key, lastfm_username, lastfm_enabled)
+		 VALUES ($1, $2, $3, TRUE)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		   lastfm_session_key = EXCLUDED.lastfm_session_key,
+		   lastfm_username    = EXCLUDED.lastfm_username,
+		   lastfm_enabled     = TRUE,
+		   updated_at         = now()`,
+		userID, sessionKey, username)
+	return err
+}
+
+// ClearScrobbleLastFM removes the Last.fm session key and disables scrobbling for a user.
+func (s *Store) ClearScrobbleLastFM(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE user_scrobble_settings
+		    SET lastfm_session_key = NULL, lastfm_username = NULL, lastfm_enabled = FALSE, updated_at = now()
+		  WHERE user_id = $1`, userID)
+	return err
+}
+
+// SetScrobbleEnabled updates the enabled flags for Last.fm and/or ListenBrainz.
+func (s *Store) SetScrobbleEnabled(ctx context.Context, userID string, lastfmEnabled, lbEnabled bool) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO user_scrobble_settings (user_id, lastfm_enabled, lb_enabled)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id) DO UPDATE SET
+		   lastfm_enabled = EXCLUDED.lastfm_enabled,
+		   lb_enabled     = EXCLUDED.lb_enabled,
+		   updated_at     = now()`,
+		userID, lastfmEnabled, lbEnabled)
+	return err
+}
+
 // GetGenreEQProfile returns the EQ profile mapped to a genre for a user, or nil.
 func (s *Store) GetGenreEQProfile(ctx context.Context, userID, genreID string) (*EQProfile, error) {
 	var profileID string

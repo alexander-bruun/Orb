@@ -58,6 +58,12 @@ export const library = {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ track_id: trackId, duration_played_ms: durationPlayedMs })
 		}),
+	scrobble: (trackId: string, startedAt: number) =>
+		apiFetch('/library/scrobble', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ track_id: trackId, started_at: startedAt })
+		}),
 	favorites: () => apiFetch<Track[]>('/library/favorites'),
 	favoriteIDs: () => apiFetch<string[]>('/library/favorites/ids'),
 	addFavorite: (id: string) => apiFetch(`/library/favorites/${id}`, { method: 'POST' }),

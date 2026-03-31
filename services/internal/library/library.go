@@ -20,6 +20,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
+	"github.com/alexander-bruun/orb/services/internal/scrobble"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
@@ -99,6 +100,7 @@ type Service struct {
 	mb         *musicbrainz.Client
 	dispatcher *webhook.Dispatcher
 	emitter    *activity.Emitter
+	scrobbler  *scrobble.Scrobbler
 }
 
 // New returns a new library Service.
@@ -111,6 +113,9 @@ func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
 
 // SetEmitter attaches an activity emitter.
 func (s *Service) SetEmitter(e *activity.Emitter) { s.emitter = e }
+
+// SetScrobbler attaches a scrobbler for Last.fm/ListenBrainz.
+func (s *Service) SetScrobbler(sc *scrobble.Scrobbler) { s.scrobbler = sc }
 
 // Routes registers library endpoints.
 func (s *Service) Routes(r chi.Router) {
@@ -130,6 +135,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/most-played", s.mostPlayed)
 	r.Get("/recently-added/albums", s.recentlyAddedAlbums)
 	r.Post("/history", s.recordPlay)
+	r.Post("/scrobble", s.scrobbleTrack)
 	r.Get("/favorites", s.listFavorites)
 	r.Get("/favorites/ids", s.listFavoriteIDs)
 	r.Post("/favorites/{track_id}", s.addFavorite)
@@ -584,14 +590,69 @@ func (s *Service) recordPlay(w http.ResponseWriter, r *http.Request) {
 			"duration_played_ms": body.DurationPlayedMs,
 		})
 	}
+	// Fetch track for emitter and now-playing notification.
+	var trackTitle string
+	ti, tiErr := s.loadTrackInfo(r.Context(), body.TrackID)
+	if tiErr == nil {
+		trackTitle = ti.Title
+	}
 	if s.emitter != nil {
-		meta := map[string]any{"track_id": body.TrackID}
-		if t, err := s.db.GetTrackByID(r.Context(), body.TrackID); err == nil {
-			meta["track_name"] = t.Title
-		}
+		meta := map[string]any{"track_id": body.TrackID, "track_name": trackTitle}
 		s.emitter.Record(r.Context(), userID, "play", "track", body.TrackID, meta)
 	}
+	if s.scrobbler != nil && tiErr == nil {
+		s.scrobbler.NowPlaying(userID, *ti)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// scrobbleTrack is called by the frontend when the 50%/4-min threshold is met.
+func (s *Service) scrobbleTrack(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		TrackID   string `json:"track_id"`
+		StartedAt int64  `json:"started_at"` // Unix ms timestamp when playback began
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.TrackID == "" {
+		httputil.WriteErr(w, http.StatusBadRequest, "track_id required")
+		return
+	}
+	if s.scrobbler == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	ti, err := s.loadTrackInfo(r.Context(), body.TrackID)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent) // not a fatal error for the client
+		return
+	}
+	startedAt := time.Unix(body.StartedAt/1000, (body.StartedAt%1000)*int64(time.Millisecond))
+	if body.StartedAt == 0 {
+		startedAt = time.Now().Add(-time.Duration(ti.DurationMs) * time.Millisecond / 2)
+	}
+	s.scrobbler.Scrobble(userID, *ti, startedAt)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// loadTrackInfo fetches a track and resolves its artist/album names for scrobbling.
+func (s *Service) loadTrackInfo(ctx context.Context, trackID string) (*scrobble.TrackInfo, error) {
+	t, err := s.db.GetTrackByID(ctx, trackID)
+	if err != nil {
+		return nil, err
+	}
+	ti := &scrobble.TrackInfo{
+		Title:      t.Title,
+		DurationMs: t.DurationMs,
+	}
+	if t.ArtistID != nil && *t.ArtistID != "" {
+		names, _ := s.db.GetArtistNamesByIDs(ctx, []string{*t.ArtistID})
+		ti.Artist = names[*t.ArtistID]
+	}
+	if t.AlbumID != nil && *t.AlbumID != "" {
+		titles, _ := s.db.GetAlbumTitlesByIDs(ctx, []string{*t.AlbumID})
+		ti.Album = titles[*t.AlbumID]
+	}
+	return ti, nil
 }
 
 func (s *Service) listFavorites(w http.ResponseWriter, r *http.Request) {
@@ -627,12 +688,14 @@ func (s *Service) addFavorite(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s.emitter != nil {
-		meta := map[string]any{"track_id": trackID}
-		if t, err := s.db.GetTrackByID(r.Context(), trackID); err == nil {
-			meta["track_name"] = t.Title
+	if ti, err := s.loadTrackInfo(r.Context(), trackID); err == nil {
+		if s.emitter != nil {
+			s.emitter.Record(r.Context(), userID, "favorite", "track", trackID,
+				map[string]any{"track_id": trackID, "track_name": ti.Title})
 		}
-		s.emitter.Record(r.Context(), userID, "favorite", "track", trackID, meta)
+		if s.scrobbler != nil {
+			s.scrobbler.LoveTrack(userID, *ti, true)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -646,6 +709,11 @@ func (s *Service) removeFavorite(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.scrobbler != nil {
+		if ti, err := s.loadTrackInfo(r.Context(), trackID); err == nil {
+			s.scrobbler.LoveTrack(userID, *ti, false)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

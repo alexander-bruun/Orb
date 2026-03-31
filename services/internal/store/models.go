@@ -918,3 +918,25 @@ type InsertActivityParams struct {
 	EntityID   string
 	Metadata   map[string]any
 }
+
+// ScrobbleSettings holds per-user Last.fm and ListenBrainz credentials.
+// Sensitive fields (session key, token) are stored but never serialised to JSON.
+type ScrobbleSettings struct {
+	UserID           string    `json:"user_id"`
+	LastFMEnabled    bool      `json:"lastfm_enabled"`
+	LastFMConnected  bool      `json:"lastfm_connected"`  // true when a session key is stored
+	LastFMUsername   string    `json:"lastfm_username,omitempty"`
+	LBEnabled        bool      `json:"lb_enabled"`
+	LBConnected      bool      `json:"lb_connected"`      // true when a token is stored
+	UpdatedAt        time.Time `json:"updated_at"`
+	// Internal fields – populated by store but never marshalled.
+	lastFMSessionKey string
+	lbToken          string
+}
+
+// LastFMSessionKey returns the stored Last.fm session key (not exported via JSON).
+func (s *ScrobbleSettings) LastFMSessionKey() string { return s.lastFMSessionKey }
+
+// LBToken returns the stored ListenBrainz token (not exported via JSON).
+func (s *ScrobbleSettings) LBToken() string { return s.lbToken }
+

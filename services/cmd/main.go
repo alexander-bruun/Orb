@@ -35,6 +35,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/playlist"
 	"github.com/alexander-bruun/orb/services/internal/queue"
 	"github.com/alexander-bruun/orb/services/internal/recommend"
+	"github.com/alexander-bruun/orb/services/internal/scrobble"
 	"github.com/alexander-bruun/orb/services/internal/share"
 	"github.com/alexander-bruun/orb/services/internal/smartplaylist"
 	"github.com/alexander-bruun/orb/services/internal/social"
@@ -157,9 +158,17 @@ func registerRoutes(
 		webhookDispatcher := webhook.New(db)
 		activityEmitter := activity.New(db)
 
+		// Scrobbler: enabled when LASTFM_API_KEY + LASTFM_API_SECRET are set.
+		var lfmClient *scrobble.LastFMClient
+		if lfmKey := config.Env("LASTFM_API_KEY", ""); lfmKey != "" {
+			lfmClient = scrobble.NewLastFMClient(lfmKey, config.Env("LASTFM_API_SECRET", ""))
+		}
+		scrobbler := scrobble.New(db, lfmClient)
+
 		libSvc := library.New(db, musicbrainz.New())
 		libSvc.SetDispatcher(webhookDispatcher)
 		libSvc.SetEmitter(activityEmitter)
+		libSvc.SetScrobbler(scrobbler)
 		r.Route("/library", libSvc.Routes)
 
 		r.Get("/stream/{track_id}", streamSvc.Stream)
@@ -193,6 +202,7 @@ func registerRoutes(
 		r.Route("/audiobooks", abSvc.Routes)
 
 		userSvc := user.New(db, kv)
+		userSvc.SetScrobbler(scrobbler)
 		deviceSvc := device.New(kv)
 		r.Route("/user", func(r chi.Router) {
 			userSvc.Routes(r)

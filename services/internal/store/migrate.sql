@@ -552,3 +552,14 @@ CREATE TABLE IF NOT EXISTS playlist_invite_tokens (
   expires_at  TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '7 days',
   used_at     TIMESTAMPTZ
 );
+
+-- ── Scrobbling: Last.fm and ListenBrainz per-user settings ───────────────────
+CREATE TABLE IF NOT EXISTS user_scrobble_settings (
+  user_id          TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  lastfm_enabled   BOOLEAN     NOT NULL DEFAULT FALSE,
+  lastfm_session_key TEXT,                -- obtained via auth.getMobileSession; never returned to client
+  lastfm_username  TEXT,                  -- display only
+  lb_enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
+  lb_token         TEXT,                  -- ListenBrainz user token; never returned to client
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);

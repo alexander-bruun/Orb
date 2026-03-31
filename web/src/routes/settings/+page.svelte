@@ -549,6 +549,113 @@
   let allGenres: Genre[] = [];
   library.genres().then(g => { allGenres = g; }).catch(() => {});
 
+  // ── Scrobbling ────────────────────────────────────────────
+  type ScrobbleSettings = {
+    lastfm_enabled: boolean;
+    lastfm_connected: boolean;
+    lastfm_username?: string;
+    lb_enabled: boolean;
+    lb_connected: boolean;
+    lastfm_available: boolean;
+  };
+
+  let scrobble: ScrobbleSettings = {
+    lastfm_enabled: false, lastfm_connected: false,
+    lb_enabled: false, lb_connected: false, lastfm_available: false
+  };
+  let scrobbleLoaded = false;
+  let lfmUser = '';
+  let lfmPass = '';
+  let lfmLoading = false;
+  let lfmError = '';
+  let lbToken = '';
+  let lbSaving = false;
+  let lbError = '';
+  let lbSuccess = false;
+  let scrobbleToggleSaving = false;
+
+  async function loadScrobbleSettings() {
+    try {
+      scrobble = await apiFetch<ScrobbleSettings>('/user/scrobble-settings');
+      lbToken = ''; // never pre-fill token
+    } catch {}
+    scrobbleLoaded = true;
+  }
+  loadScrobbleSettings();
+
+  async function connectLastFM() {
+    if (!lfmUser || !lfmPass) { lfmError = 'Username and password required.'; return; }
+    lfmError = '';
+    lfmLoading = true;
+    try {
+      const res = await apiFetch<{ username: string }>('/user/scrobble-settings/lastfm/connect', {
+        method: 'POST', body: JSON.stringify({ username: lfmUser, password: lfmPass })
+      });
+      scrobble = { ...scrobble, lastfm_connected: true, lastfm_username: res.username, lastfm_enabled: true };
+      lfmUser = ''; lfmPass = '';
+    } catch (err: any) {
+      lfmError = err?.message ?? 'Connection failed. Check your credentials.';
+    } finally {
+      lfmLoading = false;
+    }
+  }
+
+  async function disconnectLastFM() {
+    lfmError = '';
+    try {
+      await apiFetch('/user/scrobble-settings/lastfm', { method: 'DELETE' });
+      scrobble = { ...scrobble, lastfm_connected: false, lastfm_username: undefined, lastfm_enabled: false };
+    } catch (err: any) {
+      lfmError = err?.message ?? 'Failed to disconnect.';
+    }
+  }
+
+  async function saveLBToken() {
+    if (!lbToken.trim()) { lbError = 'Token is required.'; return; }
+    lbError = '';
+    lbSuccess = false;
+    lbSaving = true;
+    try {
+      await apiFetch('/user/scrobble-settings', {
+        method: 'PUT',
+        body: JSON.stringify({ lb_token: lbToken.trim(), lb_enabled: true })
+      });
+      scrobble = { ...scrobble, lb_connected: true, lb_enabled: true };
+      lbToken = '';
+      lbSuccess = true;
+    } catch (err: any) {
+      lbError = err?.message ?? 'Failed to save token.';
+    } finally {
+      lbSaving = false;
+    }
+  }
+
+  async function toggleScrobble(service: 'lastfm' | 'lb', enabled: boolean) {
+    scrobbleToggleSaving = true;
+    try {
+      const body = service === 'lastfm'
+        ? { lastfm_enabled: enabled }
+        : { lb_enabled: enabled };
+      await apiFetch('/user/scrobble-settings', { method: 'PUT', body: JSON.stringify(body) });
+      if (service === 'lastfm') scrobble = { ...scrobble, lastfm_enabled: enabled };
+      else scrobble = { ...scrobble, lb_enabled: enabled };
+    } catch {}
+    scrobbleToggleSaving = false;
+  }
+
+  async function disconnectLB() {
+    lbError = '';
+    try {
+      await apiFetch('/user/scrobble-settings', {
+        method: 'PUT',
+        body: JSON.stringify({ lb_token: '', lb_enabled: false })
+      });
+      scrobble = { ...scrobble, lb_connected: false, lb_enabled: false };
+    } catch (err: any) {
+      lbError = err?.message ?? 'Failed to disconnect.';
+    }
+  }
+
   // ── Downloads ─────────────────────────────────────────────
   let storageEst: StorageEstimate | null = null;
   getStorageEstimate().then(e => { storageEst = e; }).catch(() => {});
@@ -732,6 +839,7 @@
     <a class="settings-nav-link" class:active={activeSection === 'streaming'} href="#streaming">Streaming</a>
     <a class="settings-nav-link" class:active={activeSection === 'eq'} href="#eq">Equalizer</a>
     <a class="settings-nav-link" class:active={activeSection === 'playback'} href="#playback">Playback</a>
+    <a class="settings-nav-link" class:active={activeSection === 'scrobbling'} href="#scrobbling">Scrobbling</a>
     <a class="settings-nav-link" class:active={activeSection === 'devices'} href="#devices">Devices</a>
     <a class="settings-nav-link" class:active={activeSection === 'appearance'} href="#appearance">Appearance</a>
     <a class="settings-nav-link" class:active={activeSection === 'downloads'} href="#downloads">Downloads</a>
@@ -1676,6 +1784,115 @@
     {/if}
   </section>
 
+  <!-- ── Scrobbling ───────────────────────────────────────── -->
+  <section id="scrobbling" class="card">
+    <h2 class="section-title">Scrobbling</h2>
+
+    {#if scrobbleLoaded}
+      <!-- Last.fm -->
+      <div class="subsection-head" style="margin-bottom:8px">
+        <span class="setting-name" style="font-size:14px">Last.fm</span>
+      </div>
+
+      {#if !scrobble.lastfm_available}
+        <p class="setting-desc" style="margin:0 0 16px">
+          Last.fm is not configured on this server. Ask your admin to set
+          <code>LASTFM_API_KEY</code> and <code>LASTFM_API_SECRET</code>.
+        </p>
+      {:else if scrobble.lastfm_connected}
+        <div class="setting-row" style="border-top:none;padding-top:0">
+          <div class="setting-info">
+            <span class="setting-name">Connected as <strong>{scrobble.lastfm_username}</strong></span>
+            <span class="setting-desc">Scrobbles and now-playing notifications will be sent to Last.fm.</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <button
+              class="toggle-btn"
+              class:on={scrobble.lastfm_enabled}
+              role="switch"
+              aria-checked={scrobble.lastfm_enabled}
+              disabled={scrobbleToggleSaving}
+              on:click={() => toggleScrobble('lastfm', !scrobble.lastfm_enabled)}
+              title={scrobble.lastfm_enabled ? 'Disable Last.fm scrobbling' : 'Enable Last.fm scrobbling'}
+            ><span class="toggle-knob"></span></button>
+            <button class="btn-secondary" style="font-size:12px;padding:4px 10px" on:click={disconnectLastFM}>
+              Disconnect
+            </button>
+          </div>
+        </div>
+      {:else}
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+          <input
+            class="form-input"
+            type="text"
+            placeholder="Last.fm username"
+            autocomplete="off"
+            bind:value={lfmUser}
+          />
+          <input
+            class="form-input"
+            type="password"
+            placeholder="Last.fm password"
+            autocomplete="new-password"
+            bind:value={lfmPass}
+            on:keydown={(e) => { if (e.key === 'Enter') connectLastFM(); }}
+          />
+          {#if lfmError}<p class="msg msg--error">{lfmError}</p>{/if}
+          <button class="btn-primary" style="align-self:flex-start" disabled={lfmLoading} on:click={connectLastFM}>
+            {lfmLoading ? 'Connecting…' : 'Connect Last.fm'}
+          </button>
+        </div>
+      {/if}
+
+      <!-- ListenBrainz -->
+      <div class="subsection-head" style="margin-top:16px;margin-bottom:8px">
+        <span class="setting-name" style="font-size:14px">ListenBrainz</span>
+      </div>
+
+      {#if scrobble.lb_connected}
+        <div class="setting-row" style="border-top:none;padding-top:0">
+          <div class="setting-info">
+            <span class="setting-name">Token saved</span>
+            <span class="setting-desc">Listens and now-playing notifications will be sent to ListenBrainz.</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <button
+              class="toggle-btn"
+              class:on={scrobble.lb_enabled}
+              role="switch"
+              aria-checked={scrobble.lb_enabled}
+              disabled={scrobbleToggleSaving}
+              on:click={() => toggleScrobble('lb', !scrobble.lb_enabled)}
+              title={scrobble.lb_enabled ? 'Disable ListenBrainz scrobbling' : 'Enable ListenBrainz scrobbling'}
+            ><span class="toggle-knob"></span></button>
+            <button class="btn-secondary" style="font-size:12px;padding:4px 10px" on:click={disconnectLB}>
+              Disconnect
+            </button>
+          </div>
+        </div>
+      {:else}
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
+          <input
+            class="form-input"
+            type="password"
+            placeholder="ListenBrainz user token"
+            autocomplete="new-password"
+            bind:value={lbToken}
+            on:keydown={(e) => { if (e.key === 'Enter') saveLBToken(); }}
+          />
+          <p class="setting-desc" style="margin:0">
+            Find your token at <a href="https://listenbrainz.org/profile/" target="_blank" rel="noopener">listenbrainz.org/profile</a>.
+          </p>
+          {#if lbError}<p class="msg msg--error">{lbError}</p>{/if}
+          {#if lbSuccess}<p class="msg msg--ok">ListenBrainz token saved.</p>{/if}
+          <button class="btn-primary" style="align-self:flex-start" disabled={lbSaving} on:click={saveLBToken}>
+            {lbSaving ? 'Saving…' : 'Save token'}
+          </button>
+        </div>
+      {/if}
+    {/if}
+  </section>
+
   <!-- ── Devices ────────────────────────────────────────── -->
   <section id="devices" class="card">
     <h2 class="section-title">Devices</h2>
@@ -2439,6 +2656,31 @@
     transition: color 0.15s, border-color 0.15s;
   }
   .btn-ghost:hover { color: var(--text); border-color: var(--accent); }
+
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg-2, rgba(255,255,255,0.06));
+    color: var(--text);
+    transition: opacity 0.15s;
+  }
+  .btn-secondary:hover:not(:disabled) { opacity: 0.75; }
+  .btn-secondary:disabled { opacity: 0.5; cursor: default; }
+
+  .subsection-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
 
   .btn-danger {
     padding: 7px 16px;

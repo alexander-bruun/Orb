@@ -8,6 +8,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
+	"github.com/alexander-bruun/orb/services/internal/scrobble"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,14 +17,18 @@ import (
 
 // Service handles user preference routes.
 type Service struct {
-	db *store.Store
-	kv *redis.Client
+	db        *store.Store
+	kv        *redis.Client
+	scrobbler *scrobble.Scrobbler
 }
 
 // New returns a new user Service.
 func New(db *store.Store, kv *redis.Client) *Service {
 	return &Service{db: db, kv: kv}
 }
+
+// SetScrobbler attaches a scrobbler (required for Last.fm/LB settings routes).
+func (s *Service) SetScrobbler(sc *scrobble.Scrobbler) { s.scrobbler = sc }
 
 // Routes registers user endpoints on the given router (requires JWT middleware).
 func (s *Service) Routes(r chi.Router) {
@@ -48,6 +53,12 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/subsonic-password", s.getSubsonicPassword)
 	r.Put("/subsonic-password", s.putSubsonicPassword)
 	r.Delete("/subsonic-password", s.deleteSubsonicPassword)
+
+	// Scrobbling: Last.fm and ListenBrainz
+	r.Get("/scrobble-settings", s.getScrobbleSettings)
+	r.Put("/scrobble-settings", s.putScrobbleSettings)
+	r.Post("/scrobble-settings/lastfm/connect", s.connectLastFM)
+	r.Delete("/scrobble-settings/lastfm", s.disconnectLastFM)
 }
 
 // getStreamingPrefs returns the authenticated user's streaming preferences.
@@ -419,6 +430,136 @@ func (s *Service) deleteSubsonicPassword(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.db.SetSubsonicPassword(r.Context(), userID, ""); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Scrobble settings ──────────────────────────────────────────────────────────
+
+// getScrobbleSettings returns the authenticated user's scrobble settings (no secrets).
+func (s *Service) getScrobbleSettings(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	settings, err := s.db.GetScrobbleSettings(r.Context(), userID)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	type resp struct {
+		LastFMEnabled   bool   `json:"lastfm_enabled"`
+		LastFMConnected bool   `json:"lastfm_connected"`
+		LastFMUsername  string `json:"lastfm_username,omitempty"`
+		LBEnabled       bool   `json:"lb_enabled"`
+		LBConnected     bool   `json:"lb_connected"`
+		LastFMAvailable bool   `json:"lastfm_available"` // server has API credentials
+	}
+	httputil.WriteJSON(w, http.StatusOK, resp{
+		LastFMEnabled:   settings.LastFMEnabled,
+		LastFMConnected: settings.LastFMConnected,
+		LastFMUsername:  settings.LastFMUsername,
+		LBEnabled:       settings.LBEnabled,
+		LBConnected:     settings.LBConnected,
+		LastFMAvailable: s.scrobbler != nil && s.scrobbler.LastFMConfigured(),
+	})
+}
+
+// putScrobbleSettings updates enabled flags and/or the ListenBrainz token.
+func (s *Service) putScrobbleSettings(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	var body struct {
+		LastFMEnabled *bool   `json:"lastfm_enabled"`
+		LBEnabled     *bool   `json:"lb_enabled"`
+		LBToken       *string `json:"lb_token"` // omit to leave unchanged; "" to clear
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	// Update LB token if provided.
+	if body.LBToken != nil {
+		enabled := body.LBEnabled != nil && *body.LBEnabled
+		if err := s.db.UpsertScrobbleLBToken(r.Context(), userID, *body.LBToken, enabled); err != nil {
+			httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Otherwise just update the enabled flags.
+	if body.LastFMEnabled == nil && body.LBEnabled == nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "nothing to update")
+		return
+	}
+	existing, err := s.db.GetScrobbleSettings(r.Context(), userID)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	lfmEnabled := existing.LastFMEnabled
+	lbEnabled := existing.LBEnabled
+	if body.LastFMEnabled != nil {
+		lfmEnabled = *body.LastFMEnabled
+	}
+	if body.LBEnabled != nil {
+		lbEnabled = *body.LBEnabled
+	}
+	if err := s.db.SetScrobbleEnabled(r.Context(), userID, lfmEnabled, lbEnabled); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// connectLastFM authenticates with Last.fm using username+password and stores the session key.
+func (s *Service) connectLastFM(w http.ResponseWriter, r *http.Request) {
+	if s.scrobbler == nil || !s.scrobbler.LastFMConfigured() {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "Last.fm not configured on this server")
+		return
+	}
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Username == "" || body.Password == "" {
+		httputil.WriteErr(w, http.StatusBadRequest, "username and password required")
+		return
+	}
+	sessionKey, err := s.scrobbler.GetMobileSession(body.Username, body.Password)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if err := s.db.SetScrobbleLastFMSession(r.Context(), userID, sessionKey, body.Username); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"username": body.Username})
+}
+
+// disconnectLastFM clears the Last.fm session key for the authenticated user.
+func (s *Service) disconnectLastFM(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if err := s.db.ClearScrobbleLastFM(r.Context(), userID); err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}
