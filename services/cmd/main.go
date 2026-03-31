@@ -40,6 +40,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/social"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/stream"
+	"github.com/alexander-bruun/orb/services/internal/subsonic"
 	"github.com/alexander-bruun/orb/services/internal/user"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
@@ -232,6 +233,10 @@ func registerRoutes(
 	castBaseURL := config.Env("CAST_BASE_URL", fmt.Sprintf("http://%s:%s", detectLANIP(), port))
 	castSvc := castproxy.New(db, obj, castBaseURL)
 	castSvc.Routes(r)
+
+	// Subsonic / OpenSubsonic API (auth handled per-request inside the service)
+	subsonicSvc := subsonic.New(db, obj)
+	r.Route("/rest", subsonicSvc.Routes)
 
 	return r
 }

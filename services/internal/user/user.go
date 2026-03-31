@@ -43,6 +43,11 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/genre-eq", s.listGenreEQ)
 	r.Put("/genre-eq/{genre_id}", s.setGenreEQ)
 	r.Delete("/genre-eq/{genre_id}", s.deleteGenreEQ)
+
+	// Subsonic API password (plaintext, used for token-based auth)
+	r.Get("/subsonic-password", s.getSubsonicPassword)
+	r.Put("/subsonic-password", s.putSubsonicPassword)
+	r.Delete("/subsonic-password", s.deleteSubsonicPassword)
 }
 
 // getStreamingPrefs returns the authenticated user's streaming preferences.
@@ -361,6 +366,59 @@ func (s *Service) deleteGenreEQ(w http.ResponseWriter, r *http.Request) {
 	}
 	genreID := chi.URLParam(r, "genre_id")
 	if err := s.db.DeleteGenreEQMapping(r.Context(), userID, genreID); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Subsonic password ──────────────────────────────────────────────────────────
+
+// getSubsonicPassword returns whether a Subsonic password is set (never returns the value).
+func (s *Service) getSubsonicPassword(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	pw, err := s.db.GetSubsonicPassword(r.Context(), userID)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"set": pw != ""})
+}
+
+// putSubsonicPassword sets the Subsonic password for the authenticated user.
+func (s *Service) putSubsonicPassword(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Password == "" {
+		httputil.WriteErr(w, http.StatusBadRequest, "password required")
+		return
+	}
+	if err := s.db.SetSubsonicPassword(r.Context(), userID, body.Password); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// deleteSubsonicPassword clears the Subsonic password for the authenticated user.
+func (s *Service) deleteSubsonicPassword(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromCtx(r.Context())
+	if userID == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if err := s.db.SetSubsonicPassword(r.Context(), userID, ""); err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "db error")
 		return
 	}

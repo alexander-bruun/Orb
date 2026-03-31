@@ -527,6 +527,11 @@ CREATE INDEX IF NOT EXISTS user_activity_created      ON user_activity(created_a
 ALTER TABLE playlists ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE playlist_tracks ADD COLUMN IF NOT EXISTS added_by TEXT REFERENCES users(id);
 
+-- ── Subsonic API compatibility ────────────────────────────────────────────────
+-- Plaintext password stored for Subsonic token auth (MD5 challenge).
+-- Users who never set this will use plain-password auth instead.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subsonic_password TEXT;
+
 CREATE TABLE IF NOT EXISTS playlist_collaborators (
   playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

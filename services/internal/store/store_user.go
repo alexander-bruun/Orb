@@ -482,6 +482,47 @@ func (s *Store) DeleteGenreEQMapping(ctx context.Context, userID, genreID string
 	return err
 }
 
+// GetUserByUsername returns a user by username (case-insensitive).
+func (s *Store) GetUserByUsername(ctx context.Context, username string) (User, error) {
+	var u User
+	row := s.pool.QueryRow(ctx, `SELECT id, username, email, password_hash, created_at, last_login_at, totp_secret, totp_enabled, totp_backup_codes, is_admin, is_active, email_verified FROM users WHERE LOWER(username) = LOWER($1)`, username)
+	var lastLoginAt sql.NullTime
+	var totpSecret, totpBackupCodes sql.NullString
+	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.CreatedAt, &lastLoginAt, &totpSecret, &u.TOTPEnabled, &totpBackupCodes, &u.IsAdmin, &u.IsActive, &u.EmailVerified)
+	if lastLoginAt.Valid {
+		u.LastLoginAt = &lastLoginAt.Time
+	}
+	if totpSecret.Valid {
+		u.TOTPSecret = &totpSecret.String
+	}
+	if totpBackupCodes.Valid {
+		u.TOTPBackupCodes = &totpBackupCodes.String
+	}
+	return u, err
+}
+
+// GetSubsonicPassword returns the plaintext Subsonic password for a user, or
+// ("", nil) if no Subsonic password has been set.
+func (s *Store) GetSubsonicPassword(ctx context.Context, userID string) (string, error) {
+	var pw sql.NullString
+	err := s.pool.QueryRow(ctx, `SELECT subsonic_password FROM users WHERE id = $1`, userID).Scan(&pw)
+	if err != nil {
+		return "", err
+	}
+	return pw.String, nil
+}
+
+// SetSubsonicPassword sets (or clears) the plaintext Subsonic password for a user.
+// Pass an empty string to clear it.
+func (s *Store) SetSubsonicPassword(ctx context.Context, userID, password string) error {
+	var val interface{}
+	if password != "" {
+		val = password
+	}
+	_, err := s.pool.Exec(ctx, `UPDATE users SET subsonic_password = $2 WHERE id = $1`, userID, val)
+	return err
+}
+
 // GetGenreEQProfile returns the EQ profile mapped to a genre for a user, or nil.
 func (s *Store) GetGenreEQProfile(ctx context.Context, userID, genreID string) (*EQProfile, error) {
 	var profileID string
