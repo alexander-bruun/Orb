@@ -32,6 +32,12 @@ export {
 	startRadio, stopRadio,
 } from './musicPlayer';
 
+export {
+	MUSIC_SLEEP_PRESETS,
+	musicSleepPreset, musicSleepMsRemaining, musicSleepFading,
+	setMusicSleepTimer, clearMusicSleepTimer,
+} from './musicSleepTimer';
+
 // ── Imports for orchestration ────────────────────────────────────────────────
 
 import { get } from 'svelte/store';

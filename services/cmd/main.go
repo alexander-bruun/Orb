@@ -39,6 +39,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/share"
 	"github.com/alexander-bruun/orb/services/internal/smartplaylist"
 	"github.com/alexander-bruun/orb/services/internal/social"
+	"github.com/alexander-bruun/orb/services/internal/spotify"
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/stream"
 	"github.com/alexander-bruun/orb/services/internal/subsonic"
@@ -137,7 +138,12 @@ func registerRoutes(
 
 	// Auth (no JWT required)
 	authSvc := auth.New(db, kv, jwtSecret)
-	r.Route("/auth", authSvc.Routes)
+	r.Route("/auth", func(r chi.Router) {
+		authSvc.Routes(r)
+		if spotifySvc := spotify.New(kv); spotifySvc.Enabled() {
+			spotifySvc.Routes(r)
+		}
+	})
 
 	// Stream service (covers are public; streaming requires JWT)
 	streamSvc := stream.New(db, obj, kv)

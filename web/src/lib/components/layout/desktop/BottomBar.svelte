@@ -21,6 +21,12 @@
     toggleRepeat,
     toggleShuffle,
     autoplayEnabled,
+    MUSIC_SLEEP_PRESETS,
+    musicSleepPreset,
+    musicSleepMsRemaining,
+    musicSleepFading,
+    setMusicSleepTimer,
+    clearMusicSleepTimer,
   } from '$lib/stores/player';
 
   $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
@@ -105,6 +111,18 @@
   })();
   import DesktopDevicePicker from './DesktopDevicePicker.svelte';
 
+  // ── Sleep timer ───────────────────────────────────────────────────────────────
+  let sleepMenuOpen = false;
+
+  function formatSleepRemaining(ms: number): string {
+    if (ms < 0) return 'EOT';
+    const totalSecs = Math.ceil(ms / 1000);
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    if (m > 0) return `${m}:${s.toString().padStart(2, '0')}`;
+    return `0:${s.toString().padStart(2, '0')}`;
+  }
+
   const currentAlbum = writable<{ id: string; title: string } | null>(null);
   import { getApiBase } from '$lib/api/base';
 
@@ -129,6 +147,13 @@
   }
 
 </script>
+
+<svelte:window on:click={(e) => {
+  if (sleepMenuOpen) {
+    const wrap = (e.target as HTMLElement).closest?.('.sleep-timer-wrap');
+    if (!wrap) sleepMenuOpen = false;
+  }
+}} />
 
 <footer class="bottom-bar">
   <!-- Left section: fixed width matching sidebar — content truncates at edge -->
@@ -396,6 +421,52 @@
           </svg>
         </button>
       {/if}
+
+      <!-- Sleep timer -->
+      <div class="sleep-timer-wrap">
+        <button
+          class="ctrl-btn icon-btn sleep-btn"
+          class:active={$musicSleepPreset !== null}
+          class:fading={$musicSleepFading}
+          on:click={() => sleepMenuOpen = !sleepMenuOpen}
+          aria-label="Sleep timer"
+          title={$musicSleepPreset !== null ? `Sleep timer: ${formatSleepRemaining($musicSleepMsRemaining)}` : 'Sleep timer'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          {#if $musicSleepPreset !== null && $musicSleepMsRemaining !== 0}
+            <span class="sleep-badge">{formatSleepRemaining($musicSleepMsRemaining)}</span>
+          {/if}
+        </button>
+
+        {#if sleepMenuOpen}
+          <div class="sleep-menu" role="menu">
+            {#each MUSIC_SLEEP_PRESETS as preset}
+              <button
+                class="sleep-item"
+                class:selected={$musicSleepPreset === preset}
+                role="menuitem"
+                on:click={() => {
+                  if ($musicSleepPreset === preset) {
+                    clearMusicSleepTimer();
+                  } else {
+                    setMusicSleepTimer(preset);
+                  }
+                  sleepMenuOpen = false;
+                }}
+              >
+                {preset === 'end_of_track' ? 'End of track' : `${preset} min`}
+              </button>
+            {/each}
+            {#if $musicSleepPreset !== null}
+              <button class="sleep-item sleep-cancel" role="menuitem" on:click={() => { clearMusicSleepTimer(); sleepMenuOpen = false; }}>
+                Cancel timer
+              </button>
+            {/if}
+          </div>
+        {/if}
+      </div>
 
       <DesktopDevicePicker />
     </div>
@@ -706,6 +777,69 @@
     line-height: 1;
     color: var(--accent);
     pointer-events: none;
+  }
+
+  /* ── Sleep timer ─────────────────────────────────────────── */
+  .sleep-timer-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .sleep-btn {
+    position: relative;
+    padding: 6px;
+  }
+  .sleep-btn.fading {
+    animation: sleep-pulse 1s ease-in-out infinite alternate;
+  }
+  @keyframes sleep-pulse {
+    from { opacity: 0.5; }
+    to   { opacity: 1; }
+  }
+  .sleep-badge {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .sleep-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 130px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .sleep-item {
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .sleep-item:hover { background: var(--bg-hover); color: var(--text); }
+  .sleep-item.selected { color: var(--accent); }
+  .sleep-cancel {
+    margin-top: 2px;
+    border-top: 1px solid var(--border);
+    border-radius: 0 0 5px 5px;
+    padding-top: 8px;
   }
 
   /* ── Mobile: replaced entirely by MobilePlayer component ── */

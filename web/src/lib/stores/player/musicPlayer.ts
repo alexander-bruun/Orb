@@ -28,6 +28,7 @@ import { selectedAudioOutputId, sinkIdSupported } from './casting';
 import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
 import * as engine from './engine';
 import type { MusicContentProvider, ControlPayload, RemoteState } from './engine';
+import { notifyTrackEnd as sleepTimerNotifyTrackEnd } from './musicSleepTimer';
 
 // ── Playback state ────────────────────────────────────────────────────────────
 
@@ -745,6 +746,7 @@ export function stopRadio() {
 
 const musicContentProvider: MusicContentProvider = {
 	onTrackEnd() {
+		sleepTimerNotifyTrackEnd();
 		next();
 	},
 	onPositionUpdate(ms: number) {
