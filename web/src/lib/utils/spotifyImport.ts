@@ -15,6 +15,7 @@
 import type { Track } from '$lib/types';
 import { library } from '$lib/api/library';
 import { apiFetch } from '$lib/api/client';
+import { getApiBase } from '$lib/api/base';
 
 const TOKEN_KEY = 'spotify_access_token';
 
@@ -47,7 +48,7 @@ export function clearSpotifySession(): void {
 
 /** Redirect the browser to the server's Spotify auth endpoint. */
 export function startSpotifyLogin(): void {
-	window.location.href = '/auth/spotify';
+	window.location.href = `${getApiBase()}/auth/spotify`;
 }
 
 /**

@@ -47,6 +47,7 @@ type spotifyCreds struct {
 	clientID     string
 	clientSecret string
 	frontendBase string
+	redirectURI  string // explicit override; empty → derive from request
 }
 
 // creds resolves credentials: env vars take priority, then DB.
@@ -54,19 +55,24 @@ func (s *Service) creds(ctx context.Context) spotifyCreds {
 	id := os.Getenv("SPOTIFY_CLIENT_ID")
 	secret := os.Getenv("SPOTIFY_CLIENT_SECRET")
 	frontend := os.Getenv("SPOTIFY_FRONTEND_URL")
+	redirectURI := os.Getenv("SPOTIFY_REDIRECT_URI")
 
 	if id == "" && s.db != nil {
 		vals, _ := s.db.GetSiteSettings(ctx, []string{
-			"spotify_client_id", "spotify_client_secret", "spotify_frontend_url",
+			"spotify_client_id", "spotify_client_secret", "spotify_frontend_url", "spotify_redirect_uri",
 		})
 		id = vals["spotify_client_id"]
 		secret = vals["spotify_client_secret"]
 		frontend = vals["spotify_frontend_url"]
+		if redirectURI == "" {
+			redirectURI = vals["spotify_redirect_uri"]
+		}
 	}
 	return spotifyCreds{
 		clientID:     id,
 		clientSecret: secret,
 		frontendBase: strings.TrimRight(frontend, "/"),
+		redirectURI:  redirectURI,
 	}
 }
 
@@ -101,11 +107,15 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cbURI := c.redirectURI
+	if cbURI == "" {
+		cbURI = callbackURI(r)
+	}
 	params := url.Values{
 		"response_type": {"code"},
 		"client_id":     {c.clientID},
 		"scope":         {spotifyScope},
-		"redirect_uri":  {callbackURI(r)},
+		"redirect_uri":  {cbURI},
 		"state":         {state},
 	}
 	http.Redirect(w, r, authURL+"?"+params.Encode(), http.StatusFound)
@@ -132,7 +142,11 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := exchangeCode(ctx, c.clientID, c.clientSecret, code, callbackURI(r))
+	cbURI := c.redirectURI
+	if cbURI == "" {
+		cbURI = callbackURI(r)
+	}
+	token, err := exchangeCode(ctx, c.clientID, c.clientSecret, code, cbURI)
 	if err != nil {
 		redirectFrontend(w, r, c.frontendBase, "", err.Error())
 		return
