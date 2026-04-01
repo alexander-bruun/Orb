@@ -27,6 +27,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/config"
 	"github.com/alexander-bruun/orb/services/internal/device"
 	"github.com/alexander-bruun/orb/services/internal/discovery"
+	"github.com/alexander-bruun/orb/services/internal/dlna"
 	"github.com/alexander-bruun/orb/services/internal/ingest"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/library"
@@ -125,6 +126,7 @@ func registerRoutes(
 	logPath string,
 	ingestSvc *ingest.Service,
 	audiobookIngestSvc *ingest.AudiobookIngestService,
+	dlnaSvc *dlna.Server,
 ) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RealIP)
@@ -269,6 +271,11 @@ func registerRoutes(
 	subsonicSvc := subsonic.New(db, obj)
 	r.Route("/rest", subsonicSvc.Routes)
 
+	// DLNA/UPnP routes (public — DLNA control points cannot authenticate)
+	if dlnaSvc != nil {
+		dlnaSvc.Routes(r)
+	}
+
 	return r
 }
 
@@ -323,8 +330,21 @@ func run(ctx context.Context) error {
 	// --- Audiobook ingest service (optional, requires AUDIOBOOK_DIRS) ---
 	audiobookIngestSvc := buildAudiobookIngestService(ctx, db, obj)
 
+	// --- DLNA/UPnP server ---
+	var dlnaSvc *dlna.Server
+	if config.Env("DLNA_ENABLED", "true") == "true" {
+		dlnaBaseURL := config.Env("DLNA_BASE_URL", fmt.Sprintf("http://%s:%s", detectLANIP(), port))
+		dlnaSvc = dlna.New(db, obj, dlnaBaseURL, config.Env("SERVER_NAME", ""))
+		if err := dlnaSvc.Start(ctx); err != nil {
+			slog.Warn("dlna failed to start", "err", err)
+			dlnaSvc = nil
+		} else {
+			defer dlnaSvc.Shutdown()
+		}
+	}
+
 	// --- Router ---
-	r := registerRoutes(db, kv, obj, jwtSecret, port, dbURL, storeRoot, logPath, ingestSvc, audiobookIngestSvc)
+	r := registerRoutes(db, kv, obj, jwtSecret, port, dbURL, storeRoot, logPath, ingestSvc, audiobookIngestSvc, dlnaSvc)
 
 	// --- Background ingest watcher (leader-elected, no-op if Watch=false) ---
 	if ingestSvc != nil {

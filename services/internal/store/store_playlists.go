@@ -339,6 +339,19 @@ func sqlOp(op string) string {
 
 // ── Regular playlist CRUD ──────────────────────────────────────────────────
 
+// ListPublicPlaylists returns all playlists marked as public, ordered by most recently updated.
+func (s *Store) ListPublicPlaylists(ctx context.Context) ([]Playlist, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, user_id, name, description, cover_art_key, is_public,
+		        (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = playlists.id)::int AS track_count,
+		        created_at FROM playlists WHERE is_public = TRUE ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanPlaylists(rows)
+}
+
 func (s *Store) ListPlaylistsByUser(ctx context.Context, userID string) ([]Playlist, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, user_id, name, description, cover_art_key, is_public,
