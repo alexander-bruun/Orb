@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { Track, Album, Artist, Genre, RelatedArtist, SearchFilters } from '$lib/types';
+import type { Track, Album, Artist, Genre, RelatedArtist, SearchFilters, ArtistEvent } from '$lib/types';
 
 export const library = {
 	tracks: (limit = 50, offset = 0) =>
@@ -11,6 +11,7 @@ export const library = {
 	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist; genres?: Genre[]; variants?: Album[] }>(`/library/albums/${id}`),
 	artist: (id: string) => apiFetch<{ artist: Artist; albums: Album[]; genres?: Genre[]; related_artists?: RelatedArtist[]; appears_on?: Album[] }>(`/library/artists/${id}`),
 	artistBio: (id: string) => apiFetch<{ bio: string; bio_url: string }>(`/library/artists/${id}/bio`),
+	artistEvents: (id: string) => apiFetch<ArtistEvent[]>(`/library/artists/${id}/events`),
 	track: (id: string) => apiFetch<{ track: Track; genres?: Genre[] }>(`/library/tracks/${id}`),
 	trackWaveform: (id: string) => apiFetch<{ peaks: number[] }>(`/library/tracks/${id}/waveform`),
 	genres: () => apiFetch<Genre[]>('/library/genres'),

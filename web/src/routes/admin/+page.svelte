@@ -97,6 +97,17 @@
   let smtpTestError = '';
   let smtpTestLoading = false;
 
+  // Integration settings
+  let tmKey = '';
+  let tmSaving = false;
+  let tmSaved = false;
+
+  let spotifyClientID = '';
+  let spotifyClientSecret = '';
+  let spotifyFrontendURL = '';
+  let spotifySaving = false;
+  let spotifySaved = false;
+
   // Audit log
   let auditLogs: AuditLog[] = [];
   let auditTotal = 0;
@@ -174,6 +185,10 @@
     if (tab === 'settings' && !smtpSettings.smtp_host) {
       smtpSettings = await adminApi.getSettings().catch(() => ({}));
       smtpTestTo = $authStore.user?.email ?? '';
+      tmKey = smtpSettings.ticketmaster_api_key ? '••••••••' : '';
+      spotifyClientID = smtpSettings.spotify_client_id ?? '';
+      spotifyClientSecret = smtpSettings.spotify_client_secret ? '••••••••' : '';
+      spotifyFrontendURL = smtpSettings.spotify_frontend_url ?? '';
       // Auto-fill site_base_url from the current origin if not yet configured.
       if (!smtpSettings.site_base_url) {
         smtpSettings = { ...smtpSettings, site_base_url: effectiveSiteURL() };
@@ -387,6 +402,33 @@
       noSeriesAudiobooks = r.audiobooks ?? []; noSeriesTotal = r.total;
     } catch { noSeriesAudiobooks = []; }
     finally { noSeriesLoading = false; }
+  }
+
+  async function saveIntegrations() {
+    if (!tmKey || tmKey === '••••••••') return;
+    tmSaving = true; tmSaved = false;
+    try {
+      await adminApi.updateIntegrationSettings({ ticketmaster_api_key: tmKey });
+      tmSaved = true;
+      tmKey = '••••••••';
+      setTimeout(() => { tmSaved = false; }, 3000);
+    } catch (e: unknown) { alert((e as Error).message); }
+    finally { tmSaving = false; }
+  }
+
+  async function saveSpotify() {
+    spotifySaving = true; spotifySaved = false;
+    try {
+      await adminApi.updateIntegrationSettings({
+        spotify_client_id: spotifyClientID,
+        spotify_client_secret: spotifyClientSecret === '••••••••' ? '' : spotifyClientSecret,
+        spotify_frontend_url: spotifyFrontendURL,
+      });
+      spotifySaved = true;
+      if (spotifyClientSecret && spotifyClientSecret !== '••••••••') spotifyClientSecret = '••••••••';
+      setTimeout(() => { spotifySaved = false; }, 3000);
+    } catch (e: unknown) { alert((e as Error).message); }
+    finally { spotifySaving = false; }
   }
 
   async function saveSmtp() {
@@ -1001,6 +1043,51 @@
     </section>
 
   {:else if activeTab === 'settings'}
+    <section class="panel">
+      <h2>Integrations</h2>
+      <p class="muted" style="font-size:0.8rem;margin-bottom:1rem">API keys set here are stored in the database. An environment variable takes priority if both are set.</p>
+      <div style="max-width:500px">
+        <h3 style="margin-bottom:0.6rem">Ticketmaster</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:0.75rem">Powers upcoming concert dates on artist pages. Get a free key at <a href="https://developer-acct.ticketmaster.com" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">developer-acct.ticketmaster.com</a>. Env var: <code>TICKETMASTER_API_KEY</code></p>
+        <div class="form-row">
+          <label for="tm-key">API Key</label>
+          <input id="tm-key" type="password" bind:value={tmKey} placeholder="Paste your Ticketmaster API key" autocomplete="off" />
+        </div>
+        <div style="padding-top:0.5rem;display:flex;align-items:center;gap:1rem">
+          <button class="btn-accent" on:click={saveIntegrations} disabled={tmSaving || !tmKey || tmKey === '••••••••'}>
+            {tmSaving ? 'Saving…' : 'Save'}
+          </button>
+          {#if tmSaved}<span class="success" style="font-size:0.8rem">Saved!</span>{/if}
+        </div>
+
+        <h3 style="margin:1.5rem 0 0.6rem">Spotify</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:0.75rem">Enables playlist import from Spotify. Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">developer.spotify.com</a> and add <code>{spotifyFrontendURL || window?.location?.origin || ''}/auth/spotify/callback</code> as a redirect URI. Env vars: <code>SPOTIFY_CLIENT_ID</code>, <code>SPOTIFY_CLIENT_SECRET</code>, <code>SPOTIFY_FRONTEND_URL</code></p>
+        <form class="settings-form" on:submit|preventDefault={saveSpotify}>
+          <div class="form-row">
+            <label for="sp-id">Client ID</label>
+            <input id="sp-id" bind:value={spotifyClientID} placeholder="Your Spotify app client ID" autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="sp-secret">Client Secret</label>
+            <input id="sp-secret" type="password" bind:value={spotifyClientSecret} placeholder="••••••••" autocomplete="off" />
+          </div>
+          <div class="form-row">
+            <label for="sp-url">Frontend URL</label>
+            <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+              <input id="sp-url" bind:value={spotifyFrontendURL} placeholder="https://music.example.com" />
+              <span style="font-size:0.72rem;color:var(--text-muted)">Where users are redirected after connecting. Leave blank to use same origin as the API.</span>
+            </div>
+          </div>
+          <div style="padding-top:0.25rem;display:flex;align-items:center;gap:1rem">
+            <button class="btn-accent" type="submit" disabled={spotifySaving}>
+              {spotifySaving ? 'Saving…' : 'Save'}
+            </button>
+            {#if spotifySaved}<span class="success" style="font-size:0.8rem">Saved!</span>{/if}
+          </div>
+        </form>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>SMTP / Email</h2>
       <form class="settings-form" on:submit|preventDefault={saveSmtp}>

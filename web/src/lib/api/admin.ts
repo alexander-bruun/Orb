@@ -277,6 +277,13 @@ export const admin = {
 		apiFetch('/admin/settings/smtp', { method: 'PUT', body: JSON.stringify(cfg) }),
 	testSmtp: (to: string): Promise<void> =>
 		apiFetch('/admin/settings/smtp/test', { method: 'POST', body: JSON.stringify({ to }) }),
+	updateIntegrationSettings: (cfg: {
+		ticketmaster_api_key?: string;
+		spotify_client_id?: string;
+		spotify_client_secret?: string;
+		spotify_frontend_url?: string;
+	}): Promise<void> =>
+		apiFetch('/admin/settings/integrations', { method: 'PUT', body: JSON.stringify(cfg) }),
 
 	// Webhooks
 	listWebhookEvents: (): Promise<string[]> => apiFetch('/admin/webhooks/events'),

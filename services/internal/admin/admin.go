@@ -132,6 +132,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/settings", s.getSettings)
 	r.Put("/settings/smtp", s.updateSmtpSettings)
 	r.Post("/settings/smtp/test", s.testSmtp)
+	r.Put("/settings/integrations", s.updateIntegrationSettings)
 
 	// Webhooks
 	r.Get("/webhooks", s.listWebhooks)
@@ -966,18 +967,69 @@ var smtpSettingKeys = []string{
 	"smtp_from_address", "smtp_from_name", "smtp_tls", "site_base_url",
 }
 
+var integrationSettingKeys = []string{
+	"ticketmaster_api_key",
+	"spotify_client_id", "spotify_client_secret", "spotify_frontend_url",
+}
+
 // GET /admin/settings
 func (s *Service) getSettings(w http.ResponseWriter, r *http.Request) {
-	vals, err := s.db.GetSiteSettings(r.Context(), smtpSettingKeys)
+	allKeys := append(smtpSettingKeys, integrationSettingKeys...)
+	vals, err := s.db.GetSiteSettings(r.Context(), allKeys)
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Never return the password to the client.
-	if _, ok := vals["smtp_password"]; ok {
-		vals["smtp_password"] = "••••••••"
+	// Never return secrets to the client — send a placeholder instead.
+	for _, secretKey := range []string{"smtp_password", "ticketmaster_api_key", "spotify_client_secret"} {
+		if _, ok := vals[secretKey]; ok {
+			vals[secretKey] = "••••••••"
+		}
 	}
 	httputil.WriteOK(w, vals)
+}
+
+// PUT /admin/settings/integrations
+func (s *Service) updateIntegrationSettings(w http.ResponseWriter, r *http.Request) {
+	actorID := auth.UserIDFromCtx(r.Context())
+	var body struct {
+		TicketmasterAPIKey  string `json:"ticketmaster_api_key"`
+		SpotifyClientID     string `json:"spotify_client_id"`
+		SpotifyClientSecret string `json:"spotify_client_secret"`
+		SpotifyFrontendURL  string `json:"spotify_frontend_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	// Plain string fields — save unconditionally (empty string clears the setting).
+	plain := map[string]string{
+		"spotify_client_id":    body.SpotifyClientID,
+		"spotify_frontend_url": body.SpotifyFrontendURL,
+	}
+	for k, v := range plain {
+		if err := s.db.SetSiteSetting(r.Context(), k, v); err != nil {
+			httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	// Secret fields — only overwrite when a real value (not the placeholder) is sent.
+	secrets := map[string]string{
+		"ticketmaster_api_key": body.TicketmasterAPIKey,
+		"spotify_client_secret": body.SpotifyClientSecret,
+	}
+	for k, v := range secrets {
+		if v != "" && v != "••••••••" {
+			if err := s.db.SetSiteSetting(r.Context(), k, v); err != nil {
+				httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+	}
+	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_integration_settings", "settings", "", nil); err != nil {
+		slog.Warn("audit log failed", "action", "update_integration_settings", "err", err)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // PUT /admin/settings/smtp

@@ -21,6 +21,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/admin"
 	audiobookpkg "github.com/alexander-bruun/orb/services/internal/audiobook"
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/ticketmaster"
 	"github.com/alexander-bruun/orb/services/internal/castproxy"
 	"github.com/alexander-bruun/orb/services/internal/collaboration"
 	"github.com/alexander-bruun/orb/services/internal/config"
@@ -140,9 +141,7 @@ func registerRoutes(
 	authSvc := auth.New(db, kv, jwtSecret)
 	r.Route("/auth", func(r chi.Router) {
 		authSvc.Routes(r)
-		if spotifySvc := spotify.New(kv); spotifySvc.Enabled() {
-			spotifySvc.Routes(r)
-		}
+		spotify.New(kv, db).Routes(r)
 	})
 
 	// Stream service (covers are public; streaming requires JWT)
@@ -175,6 +174,12 @@ func registerRoutes(
 		libSvc.SetDispatcher(webhookDispatcher)
 		libSvc.SetEmitter(activityEmitter)
 		libSvc.SetScrobbler(scrobbler)
+		if tmKey := config.Env("TICKETMASTER_API_KEY", ""); tmKey != "" {
+			libSvc.SetBandsintown(ticketmaster.New(tmKey))
+			slog.Info("ticketmaster: concert events enabled")
+		} else {
+			slog.Warn("ticketmaster: TICKETMASTER_API_KEY not set — artist concert events disabled")
+		}
 		r.Route("/library", libSvc.Routes)
 
 		r.Get("/stream/{track_id}", streamSvc.Stream)

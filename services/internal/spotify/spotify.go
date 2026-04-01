@@ -1,6 +1,7 @@
 // Package spotify provides the Spotify OAuth callback handler.
-// The server admin sets SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET once;
-// users just click "Connect Spotify" and log in through Spotify's own UI.
+// Credentials are read from env vars (SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET,
+// SPOTIFY_FRONTEND_URL) or from the site_settings DB table, whichever is set.
+// Env vars take priority over DB values.
 package spotify
 
 import (
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/httputil"
+	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -30,47 +32,65 @@ const (
 
 // Service handles the Spotify OAuth routes.
 type Service struct {
-	kv           *redis.Client
+	kv *redis.Client
+	db *store.Store
+}
+
+// New returns a Service. Routes are always mounted; the config endpoint
+// reports whether credentials are actually configured.
+func New(kv *redis.Client, db *store.Store) *Service {
+	return &Service{kv: kv, db: db}
+}
+
+// spotifyCreds holds resolved credentials for a single request.
+type spotifyCreds struct {
 	clientID     string
 	clientSecret string
-	// frontendBase is where the browser lands after the callback
-	// (e.g. "http://localhost:5173"). Falls back to same-origin if empty.
 	frontendBase string
 }
 
-// New returns a Service. Returns nil when SPOTIFY_CLIENT_ID is not set
-// so callers can skip mounting the routes entirely.
-func New(kv *redis.Client) *Service {
+// creds resolves credentials: env vars take priority, then DB.
+func (s *Service) creds(ctx context.Context) spotifyCreds {
 	id := os.Getenv("SPOTIFY_CLIENT_ID")
-	if id == "" {
-		return nil
+	secret := os.Getenv("SPOTIFY_CLIENT_SECRET")
+	frontend := os.Getenv("SPOTIFY_FRONTEND_URL")
+
+	if id == "" && s.db != nil {
+		vals, _ := s.db.GetSiteSettings(ctx, []string{
+			"spotify_client_id", "spotify_client_secret", "spotify_frontend_url",
+		})
+		id = vals["spotify_client_id"]
+		secret = vals["spotify_client_secret"]
+		frontend = vals["spotify_frontend_url"]
 	}
-	return &Service{
-		kv:           kv,
+	return spotifyCreds{
 		clientID:     id,
-		clientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"),
-		frontendBase: strings.TrimRight(os.Getenv("SPOTIFY_FRONTEND_URL"), "/"),
+		clientSecret: secret,
+		frontendBase: strings.TrimRight(frontend, "/"),
 	}
 }
 
-// Enabled reports whether Spotify OAuth is configured.
-func (s *Service) Enabled() bool { return s != nil && s.clientID != "" }
-
-// Routes mounts GET /auth/spotify and GET /auth/spotify/callback.
+// Routes mounts GET /auth/spotify, GET /auth/spotify/callback, GET /auth/spotify/config.
 func (s *Service) Routes(r chi.Router) {
 	r.Get("/spotify", s.begin)
 	r.Get("/spotify/callback", s.callback)
-	// Simple check endpoint so the frontend can show/hide the button.
 	r.Get("/spotify/config", s.config)
 }
 
-// config returns whether Spotify is configured.
-func (s *Service) config(w http.ResponseWriter, _ *http.Request) {
-	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"enabled": s.Enabled()})
+// config returns whether Spotify OAuth is currently configured.
+func (s *Service) config(w http.ResponseWriter, r *http.Request) {
+	c := s.creds(r.Context())
+	httputil.WriteJSON(w, http.StatusOK, map[string]bool{"enabled": c.clientID != ""})
 }
 
 // begin generates a state token, stores it in Redis, and redirects to Spotify.
 func (s *Service) begin(w http.ResponseWriter, r *http.Request) {
+	c := s.creds(r.Context())
+	if c.clientID == "" {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "Spotify not configured")
+		return
+	}
+
 	state, err := randomHex(16)
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "state generation failed")
@@ -83,9 +103,9 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request) {
 
 	params := url.Values{
 		"response_type": {"code"},
-		"client_id":     {s.clientID},
+		"client_id":     {c.clientID},
 		"scope":         {spotifyScope},
-		"redirect_uri":  {s.callbackURI(r)},
+		"redirect_uri":  {callbackURI(r)},
 		"state":         {state},
 	}
 	http.Redirect(w, r, authURL+"?"+params.Encode(), http.StatusFound)
@@ -94,43 +114,42 @@ func (s *Service) begin(w http.ResponseWriter, r *http.Request) {
 // callback exchanges the code for an access token and redirects the browser
 // to the frontend with the token in the URL fragment so it stays off logs.
 func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
+	c := s.creds(r.Context())
 	q := r.URL.Query()
 
 	if errMsg := q.Get("error"); errMsg != "" {
-		s.redirectFrontend(w, r, "", "Spotify: "+errMsg)
+		redirectFrontend(w, r, c.frontendBase, "", "Spotify: "+errMsg)
 		return
 	}
 
 	state := q.Get("state")
 	code := q.Get("code")
 
-	// Verify state
 	ctx := r.Context()
 	key := stateKeyPfx + state
 	if err := s.kv.GetDel(ctx, key).Err(); err != nil {
-		s.redirectFrontend(w, r, "", "invalid or expired state")
+		redirectFrontend(w, r, c.frontendBase, "", "invalid or expired state")
 		return
 	}
 
-	// Exchange code for token
-	token, err := s.exchangeCode(ctx, code, s.callbackURI(r))
+	token, err := exchangeCode(ctx, c.clientID, c.clientSecret, code, callbackURI(r))
 	if err != nil {
-		s.redirectFrontend(w, r, "", err.Error())
+		redirectFrontend(w, r, c.frontendBase, "", err.Error())
 		return
 	}
 
-	s.redirectFrontend(w, r, token, "")
+	redirectFrontend(w, r, c.frontendBase, token, "")
 }
 
 // exchangeCode performs the server-side token exchange.
-func (s *Service) exchangeCode(ctx context.Context, code, redirectURI string) (string, error) {
+func exchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI string) (string, error) {
 	body := url.Values{
 		"grant_type":   {"authorization_code"},
 		"code":         {code},
 		"redirect_uri": {redirectURI},
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(body.Encode()))
-	req.SetBasicAuth(s.clientID, s.clientSecret)
+	req.SetBasicAuth(clientID, clientSecret)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -154,22 +173,20 @@ func (s *Service) exchangeCode(ctx context.Context, code, redirectURI string) (s
 }
 
 // callbackURI builds the absolute redirect URI for this request.
-func (s *Service) callbackURI(r *http.Request) string {
+func callbackURI(r *http.Request) string {
 	scheme := "https"
 	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
 		scheme = "http"
 	}
-	host := r.Host
-	return fmt.Sprintf("%s://%s/auth/spotify/callback", scheme, host)
+	return fmt.Sprintf("%s://%s/auth/spotify/callback", scheme, r.Host)
 }
 
 // redirectFrontend sends the browser back to the SPA.
 // On success: /playlists#spotify_token=TOKEN
 // On error:   /playlists?spotify_error=MSG
-func (s *Service) redirectFrontend(w http.ResponseWriter, r *http.Request, token, errMsg string) {
-	base := s.frontendBase
+func redirectFrontend(w http.ResponseWriter, r *http.Request, frontendBase, token, errMsg string) {
+	base := frontendBase
 	if base == "" {
-		// Same origin as the API (single-origin deployment).
 		scheme := "https"
 		if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
 			scheme = "http"

@@ -4,7 +4,7 @@
   import { library as libApi } from '$lib/api/library';
   import { recommend } from '$lib/api/recommend';
   import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
-  import type { Artist, Album, Genre, RelatedArtist } from '$lib/types';
+  import type { Artist, Album, Genre, RelatedArtist, ArtistEvent } from '$lib/types';
   import { playTrack, shuffle, startRadio } from '$lib/stores/player';
 
   import { getApiBase } from '$lib/api/base';
@@ -20,6 +20,8 @@
   let appearsOnGrouped: Map<string, Album[]> = new Map();
   let appearsOnKeys: string[] = [];
   let similarArtists: SimilarArtist[] = [];
+  let events: ArtistEvent[] = [];
+  let eventsVisible = 5;
 
   // Discography timeline
   let timelineYears: string[] = [];
@@ -38,7 +40,7 @@
   export const snapshot = {
     capture: () => ({
       artist, albums, genres, relatedArtists, appearsOn, appearsOnGrouped, appearsOnKeys,
-      timelineYears, albumsByYear, bio, bioUrl, similarArtists
+      timelineYears, albumsByYear, bio, bioUrl, similarArtists, events
     }),
     restore: (value) => {
       artist = value.artist;
@@ -53,6 +55,7 @@
       bio = value.bio;
       bioUrl = value.bioUrl;
       similarArtists = value.similarArtists ?? [];
+      events = value.events ?? [];
       isRestoring = true;
       loading = false;
     }
@@ -67,7 +70,7 @@
     loading = true;
     artist = null; albums = []; genres = []; relatedArtists = []; appearsOn = [];
     appearsOnGrouped = new Map(); appearsOnKeys = []; timelineYears = []; albumsByYear = new Map();
-    bio = ''; bioUrl = ''; similarArtists = [];
+    bio = ''; bioUrl = ''; similarArtists = []; events = []; eventsVisible = 5;
 
     try {
       const res = await libApi.artist(id);
@@ -99,6 +102,11 @@
       loading = false;
       isRestoring = false;
     }
+
+    // Fetch concert events in the background (non-blocking)
+    libApi.artistEvents(id)
+      .then((ev) => { events = ev ?? []; })
+      .catch(() => {});
 
     // Fetch bio in the background (non-blocking)
     libApi.artistBio(id)
@@ -272,6 +280,43 @@
       {/each}
     </div>
   {/if}
+
+  {#if events.length > 0}
+    <h2 class="section" style="margin-top: 32px;">Upcoming Shows</h2>
+    <div class="events-list">
+      {#each events.slice(0, eventsVisible) as event (event.id)}
+        {@const date = new Date(event.datetime)}
+        {@const ticketOffer = event.offers?.find((o) => o.type === 'Tickets' && o.status === 'available')}
+        <div class="event-row">
+          <div class="event-date">
+            <span class="event-month">{date.toLocaleString('default', { month: 'short' }).toUpperCase()}</span>
+            <span class="event-day">{date.getDate()}</span>
+            <span class="event-year">{date.getFullYear()}</span>
+          </div>
+          <div class="event-info">
+            <span class="event-venue">{event.venue.name}</span>
+            <span class="event-location">
+              {[event.venue.city, event.venue.region, event.venue.country].filter(Boolean).join(', ')}
+            </span>
+            {#if event.lineup.length > 1}
+              <span class="event-lineup">with {event.lineup.filter((n) => n !== artist?.name).join(', ')}</span>
+            {/if}
+          </div>
+          <div class="event-actions">
+            {#if ticketOffer}
+              <a href={ticketOffer.url} target="_blank" rel="noopener noreferrer" class="btn-tickets">Tickets</a>
+            {/if}
+            <a href={event.url} target="_blank" rel="noopener noreferrer" class="btn-event-more">Details ↗</a>
+          </div>
+        </div>
+      {/each}
+    </div>
+    {#if eventsVisible < events.length}
+      <button class="btn-show-more" on:click={() => eventsVisible += 3}>
+        Show more ({events.length - eventsVisible} remaining)
+      </button>
+    {/if}
+  {/if}
 {/if}
 
 <svelte:head>
@@ -398,6 +443,63 @@
   .sim-photo { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.15s; }
   .sim-photo-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; color: var(--text-muted); background: var(--bg-hover); }
   .sim-name { font-size: 0.75rem; font-weight: 600; color: var(--text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+
+  /* ── Concert Events ─────────────────────────────────────── */
+  .events-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+  .event-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: border-color 0.15s;
+  }
+  .event-row:hover { border-color: var(--accent); }
+  .event-date {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 44px;
+    flex-shrink: 0;
+  }
+  .event-month { font-size: 0.65rem; font-weight: 700; color: var(--accent); letter-spacing: 0.05em; }
+  .event-day { font-size: 1.4rem; font-weight: 700; color: var(--text); line-height: 1; }
+  .event-year { font-size: 0.65rem; color: var(--text-muted); }
+  .event-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .event-venue { font-size: 0.875rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .event-location { font-size: 0.75rem; color: var(--text-muted); }
+  .event-lineup { font-size: 0.75rem; color: var(--text-muted); font-style: italic; }
+  .event-actions { display: flex; gap: 8px; flex-shrink: 0; align-items: center; }
+  .btn-tickets {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.15s;
+  }
+  .btn-tickets:hover { opacity: 0.85; }
+  .btn-event-more {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  .btn-event-more:hover { color: var(--text); }
+  .btn-show-more {
+    margin-top: 8px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 16px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .btn-show-more:hover { color: var(--text); border-color: var(--text); }
 
   /* ── Mobile ─────────────────────────────────────────────── */
   @media (max-width: 640px) {

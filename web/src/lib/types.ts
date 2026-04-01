@@ -1,3 +1,29 @@
+export interface ArtistEventVenue {
+	name: string;
+	city: string;
+	region: string;
+	country: string;
+	latitude: string;
+	longitude: string;
+}
+
+export interface ArtistEventOffer {
+	type: string;
+	url: string;
+	status: string;
+}
+
+export interface ArtistEvent {
+	id: string;
+	url: string;
+	datetime: string;
+	title: string;
+	description: string;
+	venue: ArtistEventVenue;
+	offers: ArtistEventOffer[];
+	lineup: string[];
+}
+
 export interface User {
 	id: string;
 	username: string;

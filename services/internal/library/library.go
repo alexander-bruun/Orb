@@ -17,6 +17,7 @@ import (
 
 	"github.com/alexander-bruun/orb/services/internal/activity"
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/ticketmaster"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
@@ -98,6 +99,7 @@ func (s *Service) enrichTracks(ctx context.Context, tracks []store.Track) []trac
 type Service struct {
 	db         *store.Store
 	mb         *musicbrainz.Client
+	bit        *ticketmaster.Client
 	dispatcher *webhook.Dispatcher
 	emitter    *activity.Emitter
 	scrobbler  *scrobble.Scrobbler
@@ -107,6 +109,9 @@ type Service struct {
 func New(db *store.Store, mb *musicbrainz.Client) *Service {
 	return &Service{db: db, mb: mb}
 }
+
+// SetBandsintown attaches a Bandsintown client for concert event lookups.
+func (s *Service) SetBandsintown(b *ticketmaster.Client) { s.bit = b }
 
 // SetDispatcher attaches a webhook dispatcher for track play events.
 func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
@@ -125,6 +130,7 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/albums/{id}", s.albumDetail)
 	r.Get("/artists/{id}", s.artistDetail)
 	r.Get("/artists/{id}/bio", s.artistBio)
+	r.Get("/artists/{id}/events", s.artistEvents)
 	r.Get("/tracks/{id}", s.trackDetail)
 	r.Get("/tracks/{id}/waveform", s.trackWaveform)
 	r.Post("/tracks/{id}", s.addTrack)
@@ -312,6 +318,40 @@ func (s *Service) artistBio(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("artistBio: wikipedia fetch failed", "url", wikiURL, "err", err)
 	}
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"bio": bio, "bio_url": wikiURL})
+}
+
+func (s *Service) artistEvents(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// Resolve the Ticketmaster client: env-var-configured client takes priority,
+	// then fall back to the key stored in site_settings by the admin UI.
+	client := s.bit
+	if client == nil {
+		settings, _ := s.db.GetSiteSettings(r.Context(), []string{"ticketmaster_api_key"})
+		if key := settings["ticketmaster_api_key"]; key != "" {
+			client = ticketmaster.New(key)
+		}
+	}
+	if client == nil {
+		httputil.WriteJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+
+	artist, err := s.db.GetArtistByID(r.Context(), id)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusNotFound, "artist not found")
+		return
+	}
+	events, err := client.GetArtistEvents(r.Context(), artist.Name)
+	if err != nil {
+		slog.Warn("artistEvents: ticketmaster fetch failed", "artist", artist.Name, "err", err)
+		httputil.WriteJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+	if events == nil {
+		events = []ticketmaster.Event{}
+	}
+	httputil.WriteJSON(w, http.StatusOK, events)
 }
 
 // fetchWikipediaBio fetches the article extract from the Wikipedia REST API.
