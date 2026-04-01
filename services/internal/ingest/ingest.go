@@ -1148,7 +1148,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		return "", fmt.Errorf("upsert album: %w", err)
 	}
 
-	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	ext = strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
 	if ext == "aiff" || ext == "aif" {
 		ext = "wav"
 	}

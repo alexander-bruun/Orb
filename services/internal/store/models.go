@@ -844,6 +844,95 @@ type ListAudiobooksParams struct {
 	SortBy string // "title" | "author" | "year"
 }
 
+// ── Podcast models ────────────────────────────────────────────────────────────
+
+// Podcast represents a subscribed RSS podcast feed.
+type Podcast struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description *string   `json:"description,omitempty"`
+	Author      *string   `json:"author,omitempty"`
+	RssUrl      string    `json:"rss_url"`
+	Link        *string   `json:"link,omitempty"`
+	CoverArtKey *string   `json:"cover_art_key,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// PodcastEpisode is a single item from a podcast feed.
+type PodcastEpisode struct {
+	ID          string     `json:"id"`
+	PodcastID   string     `json:"podcast_id"`
+	Title       string     `json:"title"`
+	Description *string    `json:"description,omitempty"`
+	PubDate     time.Time  `json:"pub_date"`
+	Guid        string     `json:"guid"`
+	Link        *string    `json:"link,omitempty"`
+	AudioUrl    string     `json:"audio_url"`
+	DurationMs  int64      `json:"duration_ms"`
+	FileKey     *string    `json:"file_key,omitempty"` // non-nil if downloaded to local store
+	FileSize    int64      `json:"file_size"`
+	Format      *string    `json:"format,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// PodcastSubscription represents a user's subscription to a podcast.
+type PodcastSubscription struct {
+	UserID    string    `json:"user_id"`
+	PodcastID string    `json:"podcast_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// PodcastEpisodeProgress tracks per-user playback position for an episode.
+type PodcastEpisodeProgress struct {
+	UserID     string    `json:"user_id"`
+	EpisodeID  string    `json:"episode_id"`
+	PositionMs int64     `json:"position_ms"`
+	Completed  bool      `json:"completed"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// PodcastWithProgress embeds a Podcast with summary progress info for listing.
+type PodcastWithProgress struct {
+	Podcast
+	UnplayedCount int `json:"unplayed_count"`
+}
+
+// CreatePodcastParams holds the fields for creating a new podcast.
+type CreatePodcastParams struct {
+	ID          string
+	Title       string
+	Description *string
+	Author      *string
+	RssUrl      string
+	Link        *string
+	CoverArtKey *string
+}
+
+// UpsertPodcastEpisodeParams holds fields for inserting/updating an episode.
+type UpsertPodcastEpisodeParams struct {
+	ID          string
+	PodcastID   string
+	Title       string
+	Description *string
+	PubDate     time.Time
+	Guid        string
+	Link        *string
+	AudioUrl    string
+	DurationMs  int64
+	FileKey     *string
+	FileSize    int64
+	Format      *string
+}
+
+// UpsertPodcastEpisodeProgressParams for updating per-user progress.
+type UpsertPodcastEpisodeProgressParams struct {
+	UserID     string
+	EpisodeID  string
+	PositionMs int64
+	Completed  bool
+}
+
 // ── Social models ────────────────────────────────────────────────────────────
 
 // CollaboratorRow is a row from playlist_collaborators with user info joined.

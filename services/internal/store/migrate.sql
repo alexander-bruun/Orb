@@ -118,7 +118,67 @@ CREATE INDEX IF NOT EXISTS user_library_user_id_idx   ON user_library(user_id);
 CREATE INDEX IF NOT EXISTS user_favorites_user_id_idx ON user_favorites(user_id);
 CREATE INDEX IF NOT EXISTS playlist_tracks_pl_idx     ON playlist_tracks(playlist_id, position);
 CREATE INDEX IF NOT EXISTS queue_entries_user_idx     ON queue_entries(user_id, position);
-CREATE INDEX IF NOT EXISTS play_history_user_idx      ON play_history(user_id, played_at DESC);
+CREATE INDEX IF NOT EXISTS play_history_user_idx ON play_history(user_id, played_at DESC);
+
+-- ── Podcasts ──────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS podcasts (
+    id            TEXT        PRIMARY KEY,
+    title         TEXT        NOT NULL,
+    description   TEXT,
+    author        TEXT,
+    rss_url       TEXT        NOT NULL UNIQUE,
+    link          TEXT,
+    cover_art_key TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id            TEXT        PRIMARY KEY,
+    podcast_id    TEXT        NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+    title         TEXT        NOT NULL,
+    description   TEXT,
+    pub_date      TIMESTAMPTZ NOT NULL,
+    guid          TEXT        NOT NULL,
+    link          TEXT,
+    audio_url     TEXT        NOT NULL,
+    duration_ms   BIGINT      NOT NULL DEFAULT 0,
+    file_key      TEXT,                    -- object-store key if downloaded
+    file_size     BIGINT      NOT NULL DEFAULT 0,
+    format        TEXT,                    -- mp3 | m4a | etc.
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (podcast_id, guid)
+);
+
+CREATE TABLE IF NOT EXISTS podcast_subscriptions (
+    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    podcast_id    TEXT        NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, podcast_id)
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episode_progress (
+    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    episode_id    TEXT        NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+    position_ms   BIGINT      NOT NULL DEFAULT 0,
+    completed     BOOLEAN     NOT NULL DEFAULT FALSE,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, episode_id)
+);
+
+CREATE INDEX IF NOT EXISTS podcast_episodes_podcast_id_idx ON podcast_episodes(podcast_id, pub_date DESC);
+CREATE INDEX IF NOT EXISTS podcast_subscriptions_user_idx ON podcast_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS podcast_episode_progress_user_idx ON podcast_episode_progress(user_id);
+
+ALTER TABLE podcasts ADD COLUMN IF NOT EXISTS search_vector tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(author, ''))) STORED;
+ALTER TABLE podcast_episodes ADD COLUMN IF NOT EXISTS search_vector tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED;
+
+CREATE INDEX IF NOT EXISTS podcasts_search_idx ON podcasts USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS podcast_episodes_search_idx ON podcast_episodes USING GIN(search_vector);
+
 
 -- Full-text search columns (ADD COLUMN IF NOT EXISTS skips silently when already present)
 ALTER TABLE tracks  ADD COLUMN IF NOT EXISTS search_vector tsvector

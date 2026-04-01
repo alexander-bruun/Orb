@@ -9,7 +9,7 @@ web/src-tauri/gen/
 docs/
 scripts/
 *.md
-mkdocs.yml
+zensical.yml
 cliff.toml
 Makefile
 

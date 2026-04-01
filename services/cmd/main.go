@@ -34,6 +34,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
 	"github.com/alexander-bruun/orb/services/internal/playlist"
+	"github.com/alexander-bruun/orb/services/internal/podcast"
 	"github.com/alexander-bruun/orb/services/internal/queue"
 	"github.com/alexander-bruun/orb/services/internal/recommend"
 	"github.com/alexander-bruun/orb/services/internal/scrobble"
@@ -152,6 +153,7 @@ func registerRoutes(
 	r.Get("/covers/playlist/{id}", streamSvc.PlaylistCover)
 	r.Get("/covers/playlist/{id}/composite", streamSvc.PlaylistCoverComposite)
 	r.Get("/covers/audiobook/{id}", streamSvc.AudiobookCover)
+	r.Get("/covers/podcast/{id}", streamSvc.PodcastCover)
 	// Public avatar endpoint (no auth — used by profile pages)
 	r.Get("/covers/avatar/{key}", streamSvc.AvatarImage)
 
@@ -186,6 +188,7 @@ func registerRoutes(
 		r.Get("/stream/{track_id}/index.m3u8", streamSvc.Manifest)
 		r.Get("/stream/audiobook/{id}", streamSvc.AudiobookStream)
 		r.Get("/stream/audiobook/chapter/{chapter_id}", streamSvc.AudiobookChapterStream)
+		r.Get("/stream/podcast/{episode_id}", streamSvc.PodcastEpisodeStream)
 
 		plSvc := playlist.New(db)
 		plSvc.SetEmitter(activityEmitter)
@@ -211,6 +214,13 @@ func registerRoutes(
 
 		abSvc := audiobookpkg.New(db, obj, audiobookIngestSvc)
 		r.Route("/audiobooks", abSvc.Routes)
+
+		podcastSvc := podcast.New(db, obj)
+		podcastHandler := podcast.NewHandler(podcastSvc, db)
+		r.Route("/podcasts", podcastHandler.Routes)
+
+		// Start podcast background worker
+		go podcastSvc.StartBackgroundWorker(context.Background(), 1*time.Hour)
 
 		userSvc := user.New(db, kv)
 		userSvc.SetScrobbler(scrobbler)

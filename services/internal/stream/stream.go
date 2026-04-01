@@ -839,11 +839,81 @@ func (s *Service) AudiobookChapterStream(w http.ResponseWriter, r *http.Request)
 	_, _ = io.Copy(w, rc)
 }
 
+// PodcastEpisodeStream serves a podcast episode audio file.
+// If downloaded, it serves from local storage with range support.
+// If not downloaded, it proxies the request to the original audio URL.
+func (s *Service) PodcastEpisodeStream(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "episode_id")
+	ep, err := s.db.GetPodcastEpisode(r.Context(), id)
+	if err != nil {
+		http.Error(w, "episode not found", http.StatusNotFound)
+		return
+	}
+
+	if ep.FileKey != nil {
+		// Serve from local storage
+		size := ep.FileSize
+		if size <= 0 {
+			size, _ = s.obj.Size(r.Context(), *ep.FileKey)
+		}
+		format := ""
+		if ep.Format != nil {
+			format = *ep.Format
+		}
+		s.serveAudio(w, r, *ep.FileKey, size, format, 0, 0)
+		return
+	}
+
+	// Proxy to original URL
+	s.proxyStream(w, r, ep.AudioUrl)
+}
+
+func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, audioURL string) {
+	req, err := http.NewRequestWithContext(r.Context(), "GET", audioURL, nil)
+	if err != nil {
+		http.Error(w, "proxy error", http.StatusInternalServerError)
+		return
+	}
+
+	// Pass through Range header if present
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "proxy error", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy headers
+	for k, vv := range resp.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 // AudiobookCover serves cover art for an audiobook.
 // Route: GET /covers/audiobook/{id}
 func (s *Service) AudiobookCover(w http.ResponseWriter, r *http.Request) {
 	audiobookID := chi.URLParam(r, "id")
 	s.ServeAudiobookCover(w, r, audiobookID)
+}
+
+// PodcastCover serves cover art for a podcast.
+// Route: GET /covers/podcast/{id}
+func (s *Service) PodcastCover(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.db.GetPodcast(r.Context(), id)
+	if err != nil || p.CoverArtKey == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveCover(w, r, *p.CoverArtKey)
 }
 
 // ServeAudiobookCover serves cover art for an audiobook by ID — intended for

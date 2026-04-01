@@ -28,6 +28,7 @@
     <a href="/" class:active={$page.url.pathname === '/'}>Home</a>
     <a href="/library" class:active={$page.url.pathname.startsWith('/library')}>Music</a>
     <a href="/audiobooks" class:active={$page.url.pathname.startsWith('/audiobooks')}>Audiobooks</a>
+    <a href="/podcasts" class:active={$page.url.pathname.startsWith('/podcasts')}>Podcasts</a>
     <a href="/playlists" class:active={$page.url.pathname.startsWith('/playlists') || $page.url.pathname.startsWith('/smart-playlists')}>Playlists</a>
     <a href="/favorites" class:active={$page.url.pathname === '/favorites'}>Favorites</a>
     <a href="/search" class:active={$page.url.pathname === '/search'}>Search</a>

@@ -40,6 +40,8 @@
   import AudiobookBottomBar from "$lib/components/layout/desktop/AudiobookBottomBar.svelte";
   import MobileAudiobookPlayer from "$lib/components/layout/mobile/MobileAudiobookPlayer.svelte";
   import { currentAudiobook, abPlaybackState } from "$lib/stores/player/audiobookPlayer";
+  import PodcastBottomBar from "$lib/components/layout/desktop/PodcastBottomBar.svelte";
+  import { currentEpisode, podcastPlaybackState } from "$lib/stores/player/podcastPlayer";
   import { activePlayer } from "$lib/stores/player/engine";
   // pauseLocal is no longer needed — engine.switchMode() handles mutual exclusion.
   import { scrollPositions } from "$lib/stores/ui/scroll";
@@ -387,6 +389,8 @@
       </main>
       {#if $currentAudiobook && $activePlayer === 'audiobook'}
         <AudiobookBottomBar />
+      {:else if $currentEpisode && $podcastPlaybackState !== 'idle'}
+        <PodcastBottomBar />
       {:else}
         <BottomBar />
       {/if}
