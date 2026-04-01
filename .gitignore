@@ -66,3 +66,4 @@ coverage/
 .DS_Store
 scripts/dev-keystore.jks
 orb
+site/

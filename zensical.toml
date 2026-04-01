@@ -1,0 +1,68 @@
+[project]
+site_name = "Orb"
+site_url = "https://alexander-bruun.github.io/orb/"
+site_author = "Alexander Bruun"
+site_description = "Orb is a self-hosted, lossless music streaming platform - a personal Spotify backed by your own audio library. Stream FLAC, WAV, and other lossless formats at full fidelity to a modern web client. Multi-user, playlists, and queue support."
+
+repo_name = "alexander-bruun/orb"
+repo_url = "https://github.com/alexander-bruun/orb"
+
+nav = [
+  {"Home" = "home.md"},
+  {"Getting started" = [
+    {"Installation" = "installation.md"},
+    {"Configuration" = "configuration.md"},
+    {"Library structure" = [
+      {"Music" = "library-music.md"},
+      {"Audiobook" = "library-audiobooks.md"},
+    ]},
+  ]},
+]
+
+[project.theme]
+variant = "modern"
+logo = "icon.png"
+favicon = "icon.png"
+features = [
+  "announce.dismiss",
+  "content.action.edit",
+  "content.action.view",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle = {icon = "lucide/sun-moon", name = "Switch to light mode"}
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "purple"
+toggle = {icon = "lucide/sun", name = "Switch to dark mode"}
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "black"
+accent = "purple"
+toggle = {icon = "lucide/moon-star", name = "Switch to system preference"}
+
+[project.theme.icon.tag]
+default = "lucide/hash"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/alexander-bruun"

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/web/static/logo.svg" alt="Orb" height="36" />
+  <img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/web/static/logo.svg" alt="Orb" width="160" />
   <p>Self-hosted, lossless music streaming. Your library, your server, full fidelity.</p>
   <img alt="GitHub Release" src="https://img.shields.io/github/v/release/alexander-bruun/orb">
   <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/alexander-bruun/orb">
@@ -22,11 +22,14 @@ Orb is a self-hosted music server built for audiophiles who want Spotify-level c
 
 ## Features
 
-- **Lossless streaming** — FLAC, WAV, AIFF, and more at up to 32-bit/192kHz via HTTP range requests and client-side WASM decoding
-- **Library management** — Automatic indexing, metadata extraction, MusicBrainz enrichment, and embedded album art
-- **Multi-user** — Individual libraries, playlists, and persistent queues per user
-- **Discovery** — Advanced search, favorites, recently played, similarity-based recommendations, and autoplay radio
+- **Lossless streaming** — FLAC, WAV, AIFF, DSD, and SACD at up to 32-bit/192kHz
+- **Library management** — Auto-indexing, MusicBrainz metadata enrichment, and embedded album art
+- **Podcasts** — Subscribe, sync, and stream podcast episodes alongside your music library
+- **Playlists** — Create, import, and export playlists per user
+- **Discovery** — Search, favorites, recently played, similarity-based recommendations, and autoplay radio
+- **Scrobbling** — Last.fm integration to track your listening history
 - **Listen Along** — Share a real-time listening session with guests via a shareable link
+- **Multi-user** — Individual libraries, queues, and settings per user
 - **Native apps** — Desktop (Linux, macOS, Windows) and mobile (Android, iOS) via Tauri v2
 - **PWA** — Installable from the browser on any device
 
