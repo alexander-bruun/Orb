@@ -80,11 +80,12 @@ export interface Track {
 	artist_id?: string;
 	title: string;
 	track_number?: number;
+	track_index?: number;
 	disc_number: number;
 	duration_ms: number;
 	file_key: string;
 	file_size: number;
-	format: 'flac' | 'wav' | 'mp3';
+	format: 'flac' | 'wav' | 'mp3' | 'dsf' | 'iso';
 	bit_depth?: number;
 	sample_rate: number;
 	channels: number;

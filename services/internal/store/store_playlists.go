@@ -370,7 +370,7 @@ func (s *Store) GetPlaylistByID(ctx context.Context, id string) (Playlist, error
 
 func (s *Store) ListPlaylistTracks(ctx context.Context, id string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.track_index, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
 FROM tracks t
 LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN playlist_tracks pt ON pt.track_id = t.id
@@ -426,7 +426,7 @@ func (s *Store) UpdatePlaylistTrackOrder(ctx context.Context, p UpdatePlaylistTr
 // ListPlaylistTopPlayedTracks returns the top 4 most played tracks in a playlist.
 func (s *Store) ListPlaylistTopPlayedTracks(ctx context.Context, playlistID string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
+		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.track_index, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm
 FROM tracks t
 LEFT JOIN track_features tf ON tf.track_id = t.id
 JOIN playlist_tracks pt ON pt.track_id = t.id

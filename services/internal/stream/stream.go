@@ -110,6 +110,7 @@ type trackMeta struct {
 	FileKey    string `json:"file_key"`
 	FileSize   int64  `json:"file_size"`
 	Format     string `json:"format"`
+	TrackIndex *int   `json:"track_index,omitempty"`
 	BitDepth   int32  `json:"bit_depth"`
 	SampleRate int32  `json:"sample_rate"`
 	Channels   int32  `json:"channels"`
@@ -163,10 +164,10 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 		length = fileSize
 	}
 
-	// When a transcode format is configured, pipe through ffmpeg instead of
-	// serving the raw file. Range requests are not supported for transcoded
-	// streams (output size is unknown), so we serve from the beginning.
-	if prefs.TranscodeFormat != nil {
+	// When a transcode format is configured, or for multi-track files like ISO,
+	// pipe through ffmpeg instead of serving the raw file. Range requests
+	// are not supported for transcoded streams (output size is unknown).
+	if prefs.TranscodeFormat != nil || meta.Format == "iso" {
 		if netType != "" {
 			w.Header().Set("X-Orb-Network-Tier", netType)
 		}
@@ -238,14 +239,22 @@ func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 // because the output size is unknown; Accept-Ranges is omitted so clients
 // don't attempt byte-range seeks on the transcoded stream.
 func (s *Service) transcodeAndStream(w http.ResponseWriter, r *http.Request, meta *trackMeta, prefs networkPrefs) {
-	targetFmt := *prefs.TranscodeFormat
+	targetFmt := "mp3" // Default for ISO or bit-depth limit
+	if prefs.TranscodeFormat != nil && *prefs.TranscodeFormat != "" {
+		targetFmt = *prefs.TranscodeFormat
+	}
 
 	// Build ffmpeg argument list.
 	args := []string{
 		"-hide_banner", "-loglevel", "error",
 		"-i", "pipe:0",
-		"-vn", // strip embedded cover art / video
 	}
+
+	if meta.TrackIndex != nil {
+		args = append(args, "-map", fmt.Sprintf("0:%d", *meta.TrackIndex))
+	}
+
+	args = append(args, "-vn") // strip embedded cover art / video
 
 	// Downsample if the source exceeds the configured ceiling.
 	if prefs.MaxSampleRate != nil && int(meta.SampleRate) > *prefs.MaxSampleRate {
@@ -548,6 +557,7 @@ func (s *Service) resolveMeta(r *http.Request, trackID string) (*trackMeta, erro
 		FileKey:    track.FileKey,
 		FileSize:   track.FileSize,
 		Format:     track.Format,
+		TrackIndex: track.TrackIndex,
 		SampleRate: int32(track.SampleRate),
 		Channels:   int32(track.Channels),
 		DurationMs: int32(track.DurationMs),
@@ -701,6 +711,10 @@ func mimeForFormat(format string) string {
 		return "audio/aiff"
 	case "m4b", "m4a":
 		return "audio/mp4"
+	case "dsf":
+		return "audio/x-dsf"
+	case "iso":
+		return "application/x-sacd-iso"
 	}
 	return "application/octet-stream"
 }

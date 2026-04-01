@@ -360,6 +360,8 @@ CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(
 -- Smart playlists: saved filter rules that evaluate to a dynamic track list.
 -- rules is a JSONB array of {field, op, value} objects.
 -- rule_match: 'all' (AND) | 'any' (OR).
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS track_index INT;
+
 CREATE TABLE IF NOT EXISTS smart_playlists (
     id            TEXT        PRIMARY KEY,
     user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,

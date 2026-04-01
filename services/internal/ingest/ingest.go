@@ -848,7 +848,150 @@ func (g *Ingester) watchWithPolling(ctx context.Context) error {
 	}
 }
 
+func (g *Ingester) ingestISO(ctx context.Context, path string, fi os.FileInfo) (string, error) {
+	fingerprint, err := fileFingerprint(path)
+	if err != nil {
+		return "", err
+	}
+
+	res, err := ffprobeMetadata(path)
+	if err != nil {
+		return "", fmt.Errorf("ffprobe metadata: %w", err)
+	}
+
+	// Filter for audio streams.
+	var audioStreams []ffprobeStream
+	for _, s := range res.Streams {
+		if s.CodecType == "audio" {
+			audioStreams = append(audioStreams, s)
+		}
+	}
+
+	if len(audioStreams) == 0 {
+		return "", errors.New("no audio streams found in ISO")
+	}
+
+	albumArtistName := coalesce(res.Format.Tags["album_artist"], res.Format.Tags["artist"], "Unknown Artist")
+	albumArtistID := deterministicID("artist:" + strings.ToLower(albumArtistName))
+	if _, err = g.db.UpsertArtist(ctx, store.UpsertArtistParams{
+		ID:       albumArtistID,
+		Name:     albumArtistName,
+		SortName: sortName(albumArtistName),
+	}); err != nil {
+		return "", fmt.Errorf("upsert artist: %w", err)
+	}
+
+	albumTitle := coalesce(res.Format.Tags["album"], "Unknown Album")
+	albumBase := strings.ToLower(albumArtistName) + ":" + strings.ToLower(albumTitle)
+	albumGroupID := deterministicID("album:" + albumBase)
+	albumDir := filepath.Dir(path)
+	albumID := deterministicID("album:" + albumBase + ":" + albumDir)
+
+	releaseYear := 0
+	if yStr := res.Format.Tags["date"]; yStr != "" {
+		if y, err := strconv.Atoi(yStr[:4]); err == nil {
+			releaseYear = y
+		}
+	}
+	var releaseYearPtr *int
+	if releaseYear > 0 {
+		releaseYearPtr = &releaseYear
+	}
+
+	if _, err = g.db.UpsertAlbum(ctx, store.UpsertAlbumParams{
+		ID:           albumID,
+		ArtistID:     &albumArtistID,
+		Title:        albumTitle,
+		ReleaseYear:  releaseYearPtr,
+		AlbumGroupID: &albumGroupID,
+	}); err != nil {
+		return "", fmt.Errorf("upsert album: %w", err)
+	}
+
+	fileKey := fmt.Sprintf("audio/%s/%s/%s.iso", albumArtistID, albumID, deterministicID(fingerprint))
+	if exists, _ := g.obj.Exists(ctx, fileKey); !exists {
+		f, err := os.Open(path)
+		if err != nil {
+			return "", err
+		}
+		if err := g.obj.Put(ctx, fileKey, f, fi.Size()); err != nil {
+			_ = f.Close()
+			return "", fmt.Errorf("store iso: %w", err)
+		}
+		_ = f.Close()
+	}
+
+	var firstTrackID string
+	for i, s := range audioStreams {
+		trackID := deterministicUUID(fingerprint + ":" + strconv.Itoa(s.Index))
+		if i == 0 {
+			firstTrackID = trackID
+		}
+
+		title := s.Tags["title"]
+		if title == "" {
+			title = fmt.Sprintf("Track %d", i+1)
+		}
+
+		trackArtistName := coalesce(s.Tags["artist"], albumArtistName)
+		trackArtistID := albumArtistID
+		if !strings.EqualFold(trackArtistName, albumArtistName) {
+			trackArtistID = deterministicID("artist:" + strings.ToLower(trackArtistName))
+			if _, err = g.db.UpsertArtist(ctx, store.UpsertArtistParams{
+				ID:       trackArtistID,
+				Name:     trackArtistName,
+				SortName: sortName(trackArtistName),
+			}); err != nil {
+				return "", fmt.Errorf("upsert track artist: %w", err)
+			}
+		}
+
+		trackNum := i + 1
+		if tnStr := s.Tags["track"]; tnStr != "" {
+			if tn, err := strconv.Atoi(strings.Split(tnStr, "/")[0]); err == nil {
+				trackNum = tn
+			}
+		}
+
+		sampleRate, _ := strconv.Atoi(s.SampleRate)
+		bitDepth, _ := strconv.Atoi(s.BitsPerRaw)
+		dur, _ := strconv.ParseFloat(s.Duration, 64)
+		if dur == 0 {
+			dur, _ = strconv.ParseFloat(res.Format.Duration, 64)
+		}
+
+		index := s.Index
+		_, err = g.db.UpsertTrack(ctx, store.UpsertTrackParams{
+			ID:          trackID,
+			AlbumID:     &albumID,
+			ArtistID:    &trackArtistID,
+			Title:       title,
+			TrackNumber: &trackNum,
+			TrackIndex:  &index,
+			DiscNumber:  1,
+			DurationMs:  int(dur * 1000),
+			FileKey:     fileKey,
+			FileSize:    fi.Size(),
+			Format:      "iso",
+			BitDepth:    &bitDepth,
+			SampleRate:  sampleRate,
+			Channels:    s.Channels,
+			Fingerprint: fingerprint,
+		})
+		if err != nil {
+			return "", fmt.Errorf("upsert track %d: %w", i, err)
+		}
+	}
+
+	return firstTrackID, nil
+}
+
 func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, existingTrackID string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".iso" {
+		return g.ingestISO(ctx, path, fi)
+	}
+
 	f, err := openAudioFile(path)
 	if err != nil {
 		return "", err
@@ -1024,6 +1167,21 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 
 	bitDepth, sampleRate, durationMs := readFLACInfoFromBytes(buf, ext)
 	if sampleRate == 0 {
+		bitDepth, sampleRate, durationMs = readDSFInfoFromBytes(buf, ext)
+	}
+	if sampleRate == 0 {
+		// Fallback for formats without custom header parsers: try ffprobe for duration
+		if res, err := ffprobeMetadata(path); err == nil && len(res.Streams) > 0 {
+			sampleRate, _ = strconv.Atoi(res.Streams[0].SampleRate)
+			bitDepth, _ = strconv.Atoi(res.Streams[0].BitsPerRaw)
+			dur, _ := strconv.ParseFloat(res.Format.Duration, 64)
+			if dur == 0 && res.Streams[0].Duration != "" {
+				dur, _ = strconv.ParseFloat(res.Streams[0].Duration, 64)
+			}
+			durationMs = int64(dur * 1000)
+		}
+	}
+	if sampleRate == 0 {
 		sampleRate = 44100
 	}
 	var bitDepthPtr *int
@@ -1046,6 +1204,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		ArtistID:    &trackArtistID,
 		Title:       cleanTitle,
 		TrackNumber: trackNumPtr,
+		TrackIndex:  nil,
 		DiscNumber:  discNum,
 		DurationMs:  int(durationMs),
 		FileKey:     fileKey,
@@ -1534,7 +1693,7 @@ func (g *Ingester) collectPaths() []pathEntry {
 
 func isAudioFile(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".flac", ".wav", ".mp3", ".aiff", ".aif":
+	case ".flac", ".wav", ".mp3", ".aiff", ".aif", ".dsf", ".iso":
 		return true
 	}
 	return false
@@ -1640,6 +1799,26 @@ func readFLACInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, d
 		int64(si[16])<<8 | int64(si[17])
 	if sampleRate > 0 && totalSamples > 0 {
 		durationMs = totalSamples * 1000 / int64(sampleRate)
+	}
+	return
+}
+
+func readDSFInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, durationMs int64) {
+	if ext != "dsf" || len(data) < 80 {
+		return
+	}
+	if string(data[0:4]) != "DSD " {
+		return
+	}
+	// 'fmt ' chunk expected at offset 28
+	if string(data[28:32]) != "fmt " {
+		return
+	}
+	sampleRate = int(binary.LittleEndian.Uint32(data[56:60]))
+	bitDepth = int(binary.LittleEndian.Uint32(data[60:64]))
+	sampleCount := int64(binary.LittleEndian.Uint64(data[64:72]))
+	if sampleRate > 0 && sampleCount > 0 {
+		durationMs = sampleCount * 1000 / int64(sampleRate)
 	}
 	return
 }
@@ -2078,3 +2257,39 @@ func generateWaveformPeaks(path string) []float32 {
 	}
 	return peaks
 }
+
+type ffprobeStream struct {
+	Index      int               `json:"index"`
+	CodecType  string            `json:"codec_type"`
+	SampleRate string            `json:"sample_rate"`
+	Channels   int               `json:"channels"`
+	BitsPerRaw string            `json:"bits_per_raw_sample"`
+	Duration   string            `json:"duration"`
+	Tags       map[string]string `json:"tags"`
+}
+
+type ffprobeOutput struct {
+	Streams []ffprobeStream `json:"streams"`
+	Format  struct {
+		Duration string            `json:"duration"`
+		Tags     map[string]string `json:"tags"`
+	} `json:"format"`
+}
+
+func ffprobeMetadata(path string) (*ffprobeOutput, error) {
+	out, err := exec.Command("ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration:format_tags:stream=index,codec_type,sample_rate,channels,bits_per_raw_sample,duration:stream_tags",
+		"-of", "json",
+		path,
+	).Output()
+	if err != nil {
+		return nil, err
+	}
+	var res ffprobeOutput
+	if err := json.Unmarshal(out, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+

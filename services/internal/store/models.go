@@ -129,6 +129,7 @@ type Track struct {
 	ArtistID    *string    `json:"artist_id,omitempty"`
 	Title       string     `json:"title"`
 	TrackNumber *int       `json:"track_number,omitempty"`
+	TrackIndex  *int       `json:"track_index,omitempty"`
 	DiscNumber  int        `json:"disc_number"`
 	DurationMs  int        `json:"duration_ms"`
 	FileKey     string     `json:"file_key"`
@@ -182,6 +183,7 @@ type UpsertTrackParams struct {
 	ArtistID    *string
 	Title       string
 	TrackNumber *int
+	TrackIndex  *int
 	DiscNumber  int
 	DurationMs  int
 	FileKey     string
