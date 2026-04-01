@@ -61,7 +61,7 @@ func (s *Store) ListAlbums(ctx context.Context, p ListAlbumsParams) ([]Album, er
 	// that have cover art; otherwise pick the earliest-created one).
 	rows, err := s.pool.Query(ctx,
 		`WITH ranked AS (
-			SELECT al.id, al.artist_id, ar.name AS ar_name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) AS track_count,
+			SELECT al.id, al.artist_id, ar.name AS ar_name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) AS track_count, COALESCE(MAX(t.channels), 2) AS max_channels,
 			       ROW_NUMBER() OVER (
 			           PARTITION BY COALESCE(al.album_group_id, al.id)
 			           ORDER BY (al.cover_art_key IS NULL) ASC, al.created_at ASC
@@ -71,7 +71,7 @@ func (s *Store) ListAlbums(ctx context.Context, p ListAlbumsParams) ([]Album, er
 			LEFT JOIN tracks t ON t.album_id = al.id
 			GROUP BY al.id, al.artist_id, ar.id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at
 		)
-		SELECT id, artist_id, ar_name, title, release_year, label, cover_art_key, mbid, created_at, track_count
+		SELECT id, artist_id, ar_name, title, release_year, label, cover_art_key, mbid, created_at, track_count, max_channels
 		FROM ranked
 		WHERE rn = 1
 		ORDER BY `+orderBy+` LIMIT $1 OFFSET $2`,
@@ -186,7 +186,7 @@ func (s *Store) SearchAlbums(ctx context.Context, p SearchAlbumsParams) ([]Album
 
 	args = append(args, p.Limit)
 	q := fmt.Sprintf(
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count, COALESCE(MAX(t.channels), 2) AS max_channels
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
 LEFT JOIN tracks t ON t.album_id = al.id%s
@@ -208,7 +208,7 @@ func (s *Store) ListRecentlyPlayedAlbums(ctx context.Context, p ListRecentlyPlay
 	rows, err := s.pool.Query(ctx,
 		`SELECT al.id, al.artist_id, ar.name AS artist_name, al.title, al.release_year,
 		        al.label, al.cover_art_key, al.mbid, al.created_at,
-		        COUNT(DISTINCT tr.id) AS track_count
+		        COUNT(DISTINCT tr.id) AS track_count, COALESCE(MAX(tr.channels), 2) AS max_channels
 		FROM (
 		  SELECT DISTINCT ON (t.album_id) t.album_id, ph.played_at
 		  FROM play_history ph
@@ -236,7 +236,7 @@ func (s *Store) ListRecentAlbums(ctx context.Context, p ListRecentAlbumsParams) 
 	rows, err := s.pool.Query(ctx,
 		`SELECT al.id, al.artist_id, ar.name AS artist_name, al.title, al.release_year,
 		        al.label, al.cover_art_key, al.mbid, al.created_at,
-		        COUNT(t.id) AS track_count
+		        COUNT(t.id) AS track_count, COALESCE(MAX(t.channels), 2) AS max_channels
 		FROM albums al
 		LEFT JOIN artists ar ON ar.id = al.artist_id
 		LEFT JOIN tracks t ON t.album_id = al.id
@@ -262,11 +262,11 @@ func (s *Store) CountAlbums(ctx context.Context) (int, error) {
 // GetAlbumByID returns an album by ID.
 func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 	var alb Album
-	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, album_type, release_date, release_group_mbid, enriched_at, album_group_id, edition, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count FROM albums WHERE id = $1`, id)
+	row := s.pool.QueryRow(ctx, `SELECT id, artist_id, title, release_year, label, cover_art_key, mbid, album_type, release_date, release_group_mbid, enriched_at, album_group_id, edition, created_at, (SELECT COUNT(*) FROM tracks WHERE album_id = $1) as track_count, COALESCE((SELECT MAX(channels) FROM tracks WHERE album_id = $1), 2) AS max_channels FROM albums WHERE id = $1`, id)
 	var artistID, label, coverArtKey, mbid, albumType, releaseDate, releaseGroupMbid, albumGroupID, edition sql.NullString
 	var releaseYear sql.NullInt64
 	var enrichedAt sql.NullTime
-	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &albumType, &releaseDate, &releaseGroupMbid, &enrichedAt, &albumGroupID, &edition, &alb.CreatedAt, &alb.TrackCount)
+	err := row.Scan(&alb.ID, &artistID, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &albumType, &releaseDate, &releaseGroupMbid, &enrichedAt, &albumGroupID, &edition, &alb.CreatedAt, &alb.TrackCount, &alb.MaxChannels)
 	if artistID.Valid {
 		alb.ArtistID = &artistID.String
 	}
@@ -308,7 +308,7 @@ func (s *Store) GetAlbumByID(ctx context.Context, id string) (Album, error) {
 func (s *Store) ListAlbumVariants(ctx context.Context, groupID string) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT al.id, al.title, al.edition, al.cover_art_key, al.created_at,
-		        COUNT(t.id) AS track_count
+		        COUNT(t.id) AS track_count, COALESCE(MAX(t.channels), 2) AS max_channels
 		 FROM albums al
 		 LEFT JOIN tracks t ON t.album_id = al.id
 		 WHERE al.album_group_id = $1
@@ -392,7 +392,7 @@ func (s *Store) ListUnenrichedAlbums(ctx context.Context, limit int, force bool)
 	if force {
 		whereClause = ""
 	}
-	q := fmt.Sprintf(`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
+	q := fmt.Sprintf(`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count, COALESCE(MAX(t.channels), 2) AS max_channels
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
 LEFT JOIN tracks t ON t.album_id = al.id
@@ -410,7 +410,7 @@ ORDER BY al.title LIMIT $1`, whereClause)
 // ListAlbumsByGenre returns albums that have a given genre.
 func (s *Store) ListAlbumsByGenre(ctx context.Context, genreID string, limit, offset int) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t.id) as track_count, COALESCE(MAX(t.channels), 2) AS max_channels
 FROM albums al
 JOIN album_genres ag ON ag.album_id = al.id
 LEFT JOIN artists ar ON ar.id = al.artist_id
@@ -434,7 +434,8 @@ func scanAlbums(rows pgx.Rows) ([]Album, error) {
 		var alb Album
 		var artistID, artistName, label, coverArtKey, mbid sql.NullString
 		var releaseYear sql.NullInt64
-		if err := rows.Scan(&alb.ID, &artistID, &artistName, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt, &alb.TrackCount); err != nil {
+		var maxChannels sql.NullInt64
+		if err := rows.Scan(&alb.ID, &artistID, &artistName, &alb.Title, &releaseYear, &label, &coverArtKey, &mbid, &alb.CreatedAt, &alb.TrackCount, &maxChannels); err != nil {
 			return nil, err
 		}
 		if artistID.Valid {
@@ -455,6 +456,11 @@ func scanAlbums(rows pgx.Rows) ([]Album, error) {
 		}
 		if mbid.Valid {
 			alb.Mbid = &mbid.String
+		}
+		if maxChannels.Valid && maxChannels.Int64 > 2 {
+			alb.MaxChannels = int(maxChannels.Int64)
+		} else {
+			alb.MaxChannels = 2
 		}
 		out = append(out, alb)
 	}

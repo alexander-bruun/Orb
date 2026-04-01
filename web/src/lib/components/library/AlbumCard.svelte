@@ -69,6 +69,9 @@
     {#if album.track_count === 1}
       <span class="badge-single">Single</span>
     {/if}
+    {#if (album.max_channels ?? 2) >= 6}
+      <span class="badge-channels">{album.max_channels === 8 ? '7.1' : '5.1'}</span>
+    {/if}
     <svg class="wave-ring" class:wave-visible={isPlaying} viewBox="-5 -5 210 210" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={wavePath} pathLength="1000" fill="none"
             stroke="var(--accent)" stroke-width="2" stroke-linecap="round"
@@ -177,6 +180,21 @@
     padding: 2px 6px;
     border-radius: 3px;
     pointer-events: none;
+  }
+  .badge-channels {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 2px 5px;
+    border-radius: 3px;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
   }
 
   .info { display: flex; flex-direction: column; gap: 2px; }

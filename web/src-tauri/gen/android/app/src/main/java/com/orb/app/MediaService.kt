@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.audiofx.Equalizer
@@ -545,6 +546,41 @@ class MediaService : MediaSessionService() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             svc.startActivity(intent)
+        }
+
+        /**
+         * Query the connected audio output devices and return the highest supported
+         * channel count. Used to register device audio capabilities with the server
+         * so the format selection engine can pick the right stream (e.g. 5.1 over eARC).
+         *
+         * Returns 2 (stereo) if no multi-channel output is detected.
+         */
+        @JvmStatic
+        fun getAudioOutputMaxChannels(): Int {
+            val svc = instance ?: return 2
+            val am = svc.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val outputs = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            // Device types that can carry multi-channel PCM audio.
+            val multiChannelTypes = mutableSetOf(
+                AudioDeviceInfo.TYPE_HDMI,
+                AudioDeviceInfo.TYPE_HDMI_ARC,
+                AudioDeviceInfo.TYPE_USB_DEVICE,
+                AudioDeviceInfo.TYPE_USB_HEADSET,
+            )
+            // TYPE_HDMI_EARC = 29, added in API 33.
+            if (Build.VERSION.SDK_INT >= 33) {
+                multiChannelTypes.add(29)
+            }
+            var maxChannels = 2
+            for (device in outputs) {
+                if (device.type in multiChannelTypes) {
+                    val counts = device.channelCounts
+                    if (counts.isNotEmpty()) {
+                        maxChannels = maxOf(maxChannels, counts.max())
+                    }
+                }
+            }
+            return maxChannels
         }
     }
 

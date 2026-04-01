@@ -642,3 +642,15 @@ pub fn open_bluetooth_settings() -> Result<(), String> {
         Ok(())
     })
 }
+
+/// Query the connected audio output devices and return the max supported channel count.
+/// Returns 2 (stereo) if no multi-channel output is detected.
+#[cfg(target_os = "android")]
+pub fn get_audio_output_max_channels() -> Result<i32, String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        Ok(env
+            .call_static_method(cls, jni_str!("getAudioOutputMaxChannels"), jni_sig!("()I"), &[])?
+            .i()? as i32)
+    })
+}

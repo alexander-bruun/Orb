@@ -176,11 +176,46 @@ export const isAndroidNative = typeof window !== 'undefined' && nativePlatform()
 
 // ── Derived stores ───────────────────────────────────────────────────────────
 
+/** Returns the maximum output channel count the browser's audio hardware supports. */
+function browserMaxChannels(): number {
+	try {
+		const ctx = new AudioContext();
+		const n = ctx.destination.maxChannelCount;
+		ctx.close();
+		return n;
+	} catch {
+		return 2;
+	}
+}
+
+/** Converts a raw channel count to a layout label: "5.1", "7.1", or e.g. "4ch". */
+function channelLayoutLabel(channels: number): string {
+	if (channels <= 2) return '';
+	if (channels === 6) return '5.1';
+	if (channels === 8) return '7.1';
+	return `${channels}ch`;
+}
+
 export const formattedFormat = derived(currentTrack, ($t) => {
 	if (!$t) return '';
 	const bd = $t.bit_depth ? `${$t.bit_depth}bit` : '';
 	const sr = `${($t.sample_rate / 1000).toFixed(1)}kHz`;
-	return [bd, sr].filter(Boolean).join(' · ');
+
+	let ch = '';
+	const srcChannels = $t.channels ?? 2;
+	if (srcChannels > 2) {
+		const srcLabel = channelLayoutLabel(srcChannels);
+		const outChannels = browserMaxChannels();
+		if (outChannels >= srcChannels) {
+			ch = srcLabel;
+		} else {
+			// Browser hardware can't render all channels — it'll be downmixed.
+			const outLabel = outChannels === 2 ? 'Stereo' : channelLayoutLabel(outChannels);
+			ch = `${srcLabel} → ${outLabel}`;
+		}
+	}
+
+	return [bd, sr, ch].filter(Boolean).join(' · ');
 });
 
 export const formattedPosition = derived(positionMs, ($ms) => formatTime($ms));

@@ -119,7 +119,33 @@ type Album struct {
 	AlbumGroupID     *string    `json:"album_group_id,omitempty"`
 	Edition          *string    `json:"edition,omitempty"`
 	TrackCount       int        `json:"track_count"`
+	// MaxChannels is the highest channel count among this album's tracks.
+	// 2 = stereo, 6 = 5.1, 8 = 7.1. Used to drive the channel badge in the UI.
+	MaxChannels      int        `json:"max_channels"`
 	CreatedAt        time.Time  `json:"created_at"`
+}
+
+// AudioFormat describes one available audio encoding for a track
+// (e.g. stereo Opus, 5.1 FLAC, Atmos E-AC-3 passthrough).
+type AudioFormat struct {
+	// Type is the layout name: "stereo", "5.1", "7.1", "atmos"
+	Type        string `json:"type"`
+	Codec       string `json:"codec"`
+	Channels    int    `json:"channels"`
+	// Passthrough means the stream is not decoded server-side (Atmos, DTS-HD, etc.)
+	Passthrough bool   `json:"passthrough,omitempty"`
+	// FileKey is the object-store key for this encoding's audio file.
+	// Empty string means use the track's primary file_key (stereo fallback).
+	FileKey     string `json:"file_key,omitempty"`
+}
+
+// AudioCapabilities describes what a playback device can handle.
+type AudioCapabilities struct {
+	// MaxChannels is the maximum number of channels the device can render (2, 6, 8, …).
+	MaxChannels         int      `json:"max_channels"`
+	SupportsPassthrough bool     `json:"supports_passthrough"`
+	// PassthroughCodecs lists codecs that can be passed through unmolested (e.g. "eac3", "truehd").
+	PassthroughCodecs   []string `json:"passthrough_codecs,omitempty"`
 }
 
 // Track represents a track in the database.
@@ -153,6 +179,10 @@ type Track struct {
 	ArtistName  *string `json:"artist_name,omitempty"`
 	AlbumName   *string `json:"album_name,omitempty"`
 	CoverArtKey string  `json:"cover_art_key,omitempty"`
+	// Multi-channel audio fields (Phase 1)
+	AudioLayouts []string      `json:"audio_layouts,omitempty"`
+	HasAtmos     bool          `json:"has_atmos,omitempty"`
+	AudioFormats []AudioFormat `json:"audio_formats,omitempty"`
 }
 
 // UpsertArtistParams for upserting an artist.
@@ -178,23 +208,24 @@ type UpsertAlbumParams struct {
 
 // UpsertTrackParams for upserting a track.
 type UpsertTrackParams struct {
-	ID          string
-	AlbumID     *string
-	ArtistID    *string
-	Title       string
-	TrackNumber *int
-	TrackIndex  *int
-	DiscNumber  int
-	DurationMs  int
-	FileKey     string
-	FileSize    int64
-	Format      string
-	BitDepth    *int
-	SampleRate  int
-	Channels    int
-	BitrateKbps *int
-	SeekTable   []byte
-	Fingerprint string
+	ID           string
+	AlbumID      *string
+	ArtistID     *string
+	Title        string
+	TrackNumber  *int
+	TrackIndex   *int
+	DiscNumber   int
+	DurationMs   int
+	FileKey      string
+	FileSize     int64
+	Format       string
+	BitDepth     *int
+	SampleRate   int
+	Channels     int
+	AudioLayouts []string
+	BitrateKbps  *int
+	SeekTable    []byte
+	Fingerprint  string
 }
 
 // AddTrackToLibraryParams for adding a track to a user's library.

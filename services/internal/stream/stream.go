@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexander-bruun/orb/services/internal/audiofmt"
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/objstore"
@@ -130,8 +131,32 @@ func New(db *store.Store, obj objstore.ObjectStore, kv *redis.Client) *Service {
 }
 
 // Stream serves an audio file with full HTTP range request support.
+// If the request includes a ?device_id= query param, the best audio format
+// for that device's capabilities is selected (multi-channel / passthrough).
 func (s *Service) Stream(w http.ResponseWriter, r *http.Request) {
 	trackID := chi.URLParam(r, "track_id")
+
+	// Device-aware format selection: when device_id is supplied, look up the
+	// device's audio capabilities and pick the optimal format.
+	if deviceID := r.URL.Query().Get("device_id"); deviceID != "" {
+		userID := auth.UserIDFromCtx(r.Context())
+		if result, fileKey, ok := s.selectFormatForDevice(r, userID, deviceID, trackID); ok {
+			w.Header().Set("X-Orb-Audio-Layout", result.LayoutType)
+			w.Header().Set("X-Orb-Audio-Codec", result.Codec)
+			w.Header().Set("X-Orb-Audio-Channels", strconv.Itoa(result.Channels))
+			if result.Passthrough {
+				w.Header().Set("X-Orb-Audio-Passthrough", "1")
+			}
+			// Serve the selected file directly (bypasses trackMeta cache).
+			size, err := s.obj.Size(r.Context(), fileKey)
+			if err != nil {
+				http.Error(w, "storage error", http.StatusInternalServerError)
+				return
+			}
+			s.serveAudio(w, r, fileKey, size, result.Codec, 0, 0)
+			return
+		}
+	}
 
 	// Resolve track metadata (KeyVal first, then Postgres).
 	meta, err := s.resolveMeta(r, trackID)
@@ -536,6 +561,43 @@ func (s *Service) resolveUserPrefs(r *http.Request, userID string) (*cachedUserP
 		s.kv.Set(r.Context(), kvkeys.UserStreamingPrefs(userID), b, userPrefsTTL)
 	}
 	return out, nil
+}
+
+// deviceCaps is a minimal shape matching device.Device so we can unmarshal
+// from KV without importing the device package (which would create a cycle).
+type deviceCaps struct {
+	AudioCaps store.AudioCapabilities `json:"audio_caps"`
+}
+
+// selectFormatForDevice loads the device's audio capabilities from Redis,
+// fetches the full track from Postgres (including AudioFormats), and returns
+// the best FormatResult plus the resolved file key to stream.
+// Returns (result, fileKey, true) on success, or (_, _, false) when the device
+// is unknown or the track has no multi-channel formats (caller falls through to
+// the normal stereo path).
+func (s *Service) selectFormatForDevice(r *http.Request, userID, deviceID, trackID string) (audiofmt.FormatResult, string, bool) {
+	// Load device caps from Redis.
+	raw, err := s.kv.Get(r.Context(), kvkeys.UserDevice(userID, deviceID)).Result()
+	if err != nil {
+		return audiofmt.FormatResult{}, "", false
+	}
+	var dc deviceCaps
+	if err := json.Unmarshal([]byte(raw), &dc); err != nil {
+		return audiofmt.FormatResult{}, "", false
+	}
+
+	// Fetch full track (must include AudioFormats — not in the trackMeta cache).
+	track, err := s.db.GetTrackByID(r.Context(), trackID)
+	if err != nil {
+		return audiofmt.FormatResult{}, "", false
+	}
+
+	result := audiofmt.SelectFormat(dc.AudioCaps, track)
+	fileKey := result.FileKey
+	if fileKey == "" {
+		fileKey = track.FileKey
+	}
+	return result, fileKey, true
 }
 
 func (s *Service) resolveMeta(r *http.Request, trackID string) (*trackMeta, error) {

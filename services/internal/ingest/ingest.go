@@ -1165,15 +1165,19 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		discNum = d
 	}
 
-	bitDepth, sampleRate, durationMs := readFLACInfoFromBytes(buf, ext)
+	bitDepth, sampleRate, channels, durationMs := readFLACInfoFromBytes(buf, ext)
+	slog.Debug("FLAC header parser used", "path", path, "sample_rate", sampleRate, "bit_depth", bitDepth, "channels", channels, "duration_ms", durationMs)
 	if sampleRate == 0 {
-		bitDepth, sampleRate, durationMs = readDSFInfoFromBytes(buf, ext)
+		bitDepth, sampleRate, channels, durationMs = readDSFInfoFromBytes(buf, ext)
+		slog.Debug("DSF header parser used", "path", path, "sample_rate", sampleRate, "bit_depth", bitDepth, "channels", channels, "duration_ms", durationMs)
 	}
 	if sampleRate == 0 {
 		// Fallback for formats without custom header parsers: try ffprobe for duration
 		if res, err := ffprobeMetadata(path); err == nil && len(res.Streams) > 0 {
 			sampleRate, _ = strconv.Atoi(res.Streams[0].SampleRate)
 			bitDepth, _ = strconv.Atoi(res.Streams[0].BitsPerRaw)
+			channels = res.Streams[0].Channels
+			slog.Debug("ffprobe fallback used", "path", path, "sample_rate", sampleRate, "bit_depth", bitDepth, "channels", channels)
 			dur, _ := strconv.ParseFloat(res.Format.Duration, 64)
 			if dur == 0 && res.Streams[0].Duration != "" {
 				dur, _ = strconv.ParseFloat(res.Streams[0].Duration, 64)
@@ -1198,23 +1202,34 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 	}
 	featuredNames = dedupeArtistNames(featuredNames, trackArtistName, albumArtistName)
 
+	if channels < 1 {
+		channels = 2
+	}
+	audioLayouts := []string{"stereo"}
+	if channels == 6 {
+		audioLayouts = []string{"5.1"}
+	} else if channels >= 8 {
+		audioLayouts = []string{"7.1"}
+	}
+
 	_, err = g.db.UpsertTrack(ctx, store.UpsertTrackParams{
-		ID:          trackID,
-		AlbumID:     &albumID,
-		ArtistID:    &trackArtistID,
-		Title:       cleanTitle,
-		TrackNumber: trackNumPtr,
-		TrackIndex:  nil,
-		DiscNumber:  discNum,
-		DurationMs:  int(durationMs),
-		FileKey:     fileKey,
-		FileSize:    fi.Size(),
-		Format:      ext,
-		BitDepth:    bitDepthPtr,
-		SampleRate:  int(sampleRate),
-		Channels:    2,
-		SeekTable:   seekTableJSON,
-		Fingerprint: fingerprint,
+		ID:           trackID,
+		AlbumID:      &albumID,
+		ArtistID:     &trackArtistID,
+		Title:        cleanTitle,
+		TrackNumber:  trackNumPtr,
+		TrackIndex:   nil,
+		DiscNumber:   discNum,
+		DurationMs:   int(durationMs),
+		FileKey:      fileKey,
+		FileSize:     fi.Size(),
+		Format:       ext,
+		BitDepth:     bitDepthPtr,
+		SampleRate:   int(sampleRate),
+		Channels:     channels,
+		AudioLayouts: audioLayouts,
+		SeekTable:    seekTableJSON,
+		Fingerprint:  fingerprint,
 	})
 	if err != nil {
 		return "", fmt.Errorf("upsert track: %w", err)
@@ -1780,7 +1795,7 @@ func encodeImageToJPEG(ctx context.Context, data []byte) ([]byte, error) {
 	return out, nil
 }
 
-func readFLACInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, durationMs int64) {
+func readFLACInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate, channels int, durationMs int64) {
 	if ext != "flac" || len(data) < 42 {
 		return
 	}
@@ -1793,6 +1808,7 @@ func readFLACInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, d
 	}
 	si := buf[8:]
 	sampleRate = int(uint32(si[10])<<12 | uint32(si[11])<<4 | uint32(si[12])>>4)
+	channels = int((si[12]>>1)&0x07) + 1
 	bitDepth = int((si[12]&0x01)<<4|si[13]>>4) + 1
 	totalSamples := int64(si[13]&0x0F)<<32 |
 		int64(si[14])<<24 | int64(si[15])<<16 |
@@ -1803,7 +1819,7 @@ func readFLACInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, d
 	return
 }
 
-func readDSFInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, durationMs int64) {
+func readDSFInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate, channels int, durationMs int64) {
 	if ext != "dsf" || len(data) < 80 {
 		return
 	}
@@ -1814,6 +1830,7 @@ func readDSFInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate int, du
 	if string(data[28:32]) != "fmt " {
 		return
 	}
+	channels = int(binary.LittleEndian.Uint32(data[52:56]))
 	sampleRate = int(binary.LittleEndian.Uint32(data[56:60]))
 	bitDepth = int(binary.LittleEndian.Uint32(data[60:64]))
 	sampleCount := int64(binary.LittleEndian.Uint64(data[64:72]))
@@ -2292,4 +2309,3 @@ func ffprobeMetadata(path string) (*ffprobeOutput, error) {
 	}
 	return &res, nil
 }
-

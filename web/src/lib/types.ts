@@ -68,6 +68,8 @@ export interface Album {
 	artist_name?: string;
 	artist?: Artist;
 	track_count?: number;
+	/** Highest channel count among the album's tracks. 2=stereo, 6=5.1, 8=7.1. */
+	max_channels?: number;
 	album_type?: string;
 	release_date?: string;
 	album_group_id?: string;
@@ -102,6 +104,10 @@ export interface Track {
 	replay_gain_track?: number;
 	/** Track tempo in beats per minute. Undefined when unknown. */
 	bpm?: number;
+	/** Available audio layout types, e.g. ["stereo", "5.1", "7.1", "atmos"]. */
+	audio_layouts?: string[];
+	/** True when an Atmos passthrough stream is available. */
+	has_atmos?: boolean;
 }
 
 export interface AudiobookNarrator {

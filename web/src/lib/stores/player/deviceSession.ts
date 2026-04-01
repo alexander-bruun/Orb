@@ -172,8 +172,19 @@ export async function startSession() {
 		const settings = await devicesApi.getPlaybackSettings();
 		exclusiveMode.set(settings.exclusive_mode);
 
+		// On Android, query the hardware audio output capability (e.g. HDMI/eARC max channels)
+		// so the server can select the right stream format for this device.
+		let audioCaps: { max_channels: number } | undefined;
+		if (isTauri() && nativePlatform() === 'android') {
+			try {
+				const { invoke } = await import('@tauri-apps/api/core');
+				const maxChannels = await invoke<number>('get_audio_output_max_channels');
+				if (maxChannels > 0) audioCaps = { max_channels: maxChannels };
+			} catch { /* non-fatal — fall back to server default of 2 */ }
+		}
+
 		// Register this device.
-		await devicesApi.register(deviceId, name);
+		await devicesApi.register(deviceId, name, audioCaps);
 		deviceRegistered.set(true);
 
 		// Load current device list.

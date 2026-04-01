@@ -51,10 +51,10 @@ export interface DeviceEvent {
 export const devices = {
 	list: () => apiFetch<Device[]>('/user/devices'),
 
-	register: (device_id: string, name: string) =>
+	register: (device_id: string, name: string, audio_caps?: { max_channels: number }) =>
 		apiFetch<Device>('/user/devices', {
 			method: 'POST',
-			body: JSON.stringify({ device_id, name })
+			body: JSON.stringify({ device_id, name, ...(audio_caps ? { audio_caps } : {}) })
 		}),
 
 	heartbeat: (id: string, state: DeviceState) =>

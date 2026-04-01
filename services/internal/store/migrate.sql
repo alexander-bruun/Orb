@@ -625,3 +625,12 @@ CREATE TABLE IF NOT EXISTS user_scrobble_settings (
   lb_token         TEXT,                  -- ListenBrainz user token; never returned to client
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── Multi-channel audio (Phase 1) ─────────────────────────────────────────────
+-- audio_layouts: quick-filter array, e.g. '{"stereo","5.1","7.1","atmos"}'
+-- has_atmos:     true when an Atmos passthrough stream is available
+-- audio_formats: JSONB array of {type, codec, channels, passthrough, file_key}
+--                one entry per layout; file_key is NULL for the primary stereo file
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS audio_layouts TEXT[]    NOT NULL DEFAULT '{"stereo"}';
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS has_atmos     BOOLEAN   NOT NULL DEFAULT FALSE;
+ALTER TABLE tracks ADD COLUMN IF NOT EXISTS audio_formats JSONB;

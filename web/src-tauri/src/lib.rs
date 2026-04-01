@@ -177,6 +177,12 @@ fn open_bluetooth_settings() -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+fn get_audio_output_max_channels() -> Result<i32, String> {
+    android_bridge::get_audio_output_max_channels()
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn get_offline_file_path(track_id: String) -> Result<Option<String>, String> {
     android_bridge::get_offline_file_path(track_id)
 }
@@ -221,6 +227,7 @@ pub fn run() {
             set_gapless_enabled,
             open_bluetooth_settings,
             get_offline_file_path,
+            get_audio_output_max_channels,
         ])
         .setup(|app| {
             let _ = android_bridge::APP_HANDLE.set(app.handle().clone());

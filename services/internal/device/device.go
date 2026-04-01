@@ -20,6 +20,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/auth"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
+	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -52,11 +53,14 @@ type DeviceState struct {
 
 // Device represents a single registered client session.
 type Device struct {
-	ID       string      `json:"id"`
-	Name     string      `json:"name"`
-	State    DeviceState `json:"state"`
-	LastSeen time.Time   `json:"last_seen"`
-	IsActive bool        `json:"is_active"`
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	State     DeviceState       `json:"state"`
+	LastSeen  time.Time         `json:"last_seen"`
+	IsActive  bool              `json:"is_active"`
+	// AudioCaps describes what audio formats this device can render.
+	// Populated at registration; zero value = stereo-only, no passthrough.
+	AudioCaps store.AudioCapabilities `json:"audio_caps,omitempty"`
 }
 
 // eventMsg is the payload sent over a pub/sub channel and relayed via SSE.
@@ -116,8 +120,9 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 // ── register ─────────────────────────────────────────────────────────────────
 
 type registerReq struct {
-	DeviceID string `json:"device_id"` // client-generated UUID
-	Name     string `json:"name"`
+	DeviceID  string                  `json:"device_id"` // client-generated UUID
+	Name      string                  `json:"name"`
+	AudioCaps store.AudioCapabilities `json:"audio_caps"`
 }
 
 func (s *Service) register(w http.ResponseWriter, r *http.Request) {
@@ -127,11 +132,16 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusBadRequest, "device_id and name are required")
 		return
 	}
+	// Default to stereo if not specified.
+	if req.AudioCaps.MaxChannels == 0 {
+		req.AudioCaps.MaxChannels = 2
+	}
 
 	d := Device{
-		ID:       req.DeviceID,
-		Name:     req.Name,
-		LastSeen: time.Now().UTC(),
+		ID:        req.DeviceID,
+		Name:      req.Name,
+		LastSeen:  time.Now().UTC(),
+		AudioCaps: req.AudioCaps,
 	}
 	if err := s.saveDevice(r.Context(), userID, d); err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "redis error")
