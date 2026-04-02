@@ -71,6 +71,9 @@ export const STORAGE_KEYS = {
 	BOTTOM_BAR_SECONDARY: 'orb_bottom_bar_secondary',
 	LISTEN_ALONG_ENABLED: 'orb_listen_along_enabled',
 	AUTO_DOWNLOAD_FAVORITES: 'orb_auto_download_favorites',
+	SLEEP_TIMER_MUSIC_ENABLED: 'orb_sleep_timer_music_enabled',
+	SLEEP_TIMER_AUDIOBOOK_ENABLED: 'orb_sleep_timer_audiobook_enabled',
+	SLEEP_TIMER_PODCAST_ENABLED: 'orb_sleep_timer_podcast_enabled',
 } as const;
 
 // ── IndexedDB constants ──────────────────────────────────────────────────────

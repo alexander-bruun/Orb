@@ -11,7 +11,7 @@
   import Spinner from '$lib/components/ui/Spinner.svelte';
   import type { Genre } from '$lib/types';
   import { autoplayEnabled, discordEnabled, replayGainEnabled, smartShuffleEnabled } from '$lib/stores/player';
-  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled, autoDownloadFavorites } from '$lib/stores/settings/theme';
+  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled, autoDownloadFavorites, musicSleepTimerEnabled, audiobookSleepTimerEnabled, podcastSleepTimerEnabled } from '$lib/stores/settings/theme';
   import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
   import { exclusiveMode, activeDevices, deviceId, deviceName, refreshDevices } from '$lib/stores/player/deviceSession';
   import { devices as devicesApi } from '$lib/api/devices';
@@ -839,6 +839,7 @@
     <a class="settings-nav-link" class:active={activeSection === 'streaming'} href="#streaming">Streaming</a>
     <a class="settings-nav-link" class:active={activeSection === 'eq'} href="#eq">Equalizer</a>
     <a class="settings-nav-link" class:active={activeSection === 'playback'} href="#playback">Playback</a>
+    <a class="settings-nav-link" class:active={activeSection === 'sleep'} href="#sleep">Sleep Timer</a>
     <a class="settings-nav-link" class:active={activeSection === 'scrobbling'} href="#scrobbling">Scrobbling</a>
     <a class="settings-nav-link" class:active={activeSection === 'devices'} href="#devices">Devices</a>
     <a class="settings-nav-link" class:active={activeSection === 'appearance'} href="#appearance">Appearance</a>
@@ -1782,6 +1783,49 @@
       </button>
     </div>
     {/if}
+  </section>
+
+  <!-- ── Sleep Timer ──────────────────────────────────────── -->
+  <section id="sleep" class="card">
+    <h2 class="section-title">Sleep Timer</h2>
+    <p class="setting-desc" style="margin:0 0 16px">
+      Choose which player types show a sleep timer button in their playback bar.
+    </p>
+    <div class="sleep-grid">
+      <div class="sleep-card">
+        <span class="sleep-card-label">Music</span>
+        <button
+          class="toggle-btn"
+          class:on={$musicSleepTimerEnabled}
+          role="switch"
+          aria-checked={$musicSleepTimerEnabled}
+          on:click={() => musicSleepTimerEnabled.toggle()}
+          title={$musicSleepTimerEnabled ? 'Disable music sleep timer' : 'Enable music sleep timer'}
+        ><span class="toggle-knob"></span></button>
+      </div>
+      <div class="sleep-card">
+        <span class="sleep-card-label">Audiobooks</span>
+        <button
+          class="toggle-btn"
+          class:on={$audiobookSleepTimerEnabled}
+          role="switch"
+          aria-checked={$audiobookSleepTimerEnabled}
+          on:click={() => audiobookSleepTimerEnabled.toggle()}
+          title={$audiobookSleepTimerEnabled ? 'Disable audiobook sleep timer' : 'Enable audiobook sleep timer'}
+        ><span class="toggle-knob"></span></button>
+      </div>
+      <div class="sleep-card">
+        <span class="sleep-card-label">Podcasts</span>
+        <button
+          class="toggle-btn"
+          class:on={$podcastSleepTimerEnabled}
+          role="switch"
+          aria-checked={$podcastSleepTimerEnabled}
+          on:click={() => podcastSleepTimerEnabled.toggle()}
+          title={$podcastSleepTimerEnabled ? 'Disable podcast sleep timer' : 'Enable podcast sleep timer'}
+        ><span class="toggle-knob"></span></button>
+      </div>
+    </div>
   </section>
 
   <!-- ── Scrobbling ───────────────────────────────────────── -->
@@ -2736,6 +2780,33 @@
     word-break: break-all;
     color: var(--text);
     margin-top: 4px;
+  }
+
+  /* ── Sleep Timer grid ── */
+  .sleep-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .sleep-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 12px;
+    background: var(--bg-hover);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .sleep-card-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    text-align: center;
+  }
+  @media (max-width: 480px) {
+    .sleep-grid { grid-template-columns: 1fr; }
   }
 
   .backup-grid {

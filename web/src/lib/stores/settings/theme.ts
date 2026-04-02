@@ -232,3 +232,31 @@ function createAutoDownloadFavoritesStore() {
 }
 
 export const autoDownloadFavorites = createAutoDownloadFavoritesStore();
+
+// ── Sleep timer button visibility ─────────────────────────────────────────────
+
+function createSleepTimerEnabledStore(key: string, defaultOn = true) {
+	const initial = browser
+		? (localStorage.getItem(key) ?? (defaultOn ? 'true' : 'false')) !== 'false'
+		: defaultOn;
+	const { subscribe, set } = writable<boolean>(initial);
+	return {
+		subscribe,
+		set(value: boolean) {
+			if (browser) localStorage.setItem(key, String(value));
+			set(value);
+		},
+		toggle() {
+			const current = browser
+				? (localStorage.getItem(key) ?? (defaultOn ? 'true' : 'false')) !== 'false'
+				: defaultOn;
+			const next = !current;
+			if (browser) localStorage.setItem(key, String(next));
+			set(next);
+		}
+	};
+}
+
+export const musicSleepTimerEnabled     = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_MUSIC_ENABLED);
+export const audiobookSleepTimerEnabled = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_AUDIOBOOK_ENABLED);
+export const podcastSleepTimerEnabled   = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_PODCAST_ENABLED);

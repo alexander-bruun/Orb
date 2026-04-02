@@ -47,7 +47,7 @@
   import { visualizerStore } from '$lib/stores/player/visualizer';
   import Visualizer from '$lib/components/ui/Visualizer.svelte';
   import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
-  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled } from '$lib/stores/settings/theme';
+  import { seekBarMode, visualizerButtonEnabled, bottomBarSecondary, listenAlongEnabled, musicSleepTimerEnabled } from '$lib/stores/settings/theme';
   import { onMount } from 'svelte';
   import { waveformFailed } from '$lib/stores/player/waveformPeaks';
 
@@ -114,6 +114,10 @@
   // ── Sleep timer ───────────────────────────────────────────────────────────────
   let sleepMenuOpen = false;
 
+  // ── Narrow (≤800 px) overflow menu ───────────────────────────────────────────
+  let narrowMenuOpen = false;
+  let volumePopupOpen = false;
+
   function formatSleepRemaining(ms: number): string {
     if (ms < 0) return 'EOT';
     const totalSecs = Math.ceil(ms / 1000);
@@ -149,10 +153,10 @@
 </script>
 
 <svelte:window on:click={(e) => {
-  if (sleepMenuOpen) {
-    const wrap = (e.target as HTMLElement).closest?.('.sleep-timer-wrap');
-    if (!wrap) sleepMenuOpen = false;
-  }
+  const t = e.target as HTMLElement;
+  if (sleepMenuOpen && !t.closest?.('.sleep-timer-wrap')) sleepMenuOpen = false;
+  if (narrowMenuOpen && !t.closest?.('.narrow-menu-wrap')) narrowMenuOpen = false;
+  if (volumePopupOpen && !t.closest?.('.volume-popup-wrap')) volumePopupOpen = false;
 }} />
 
 <footer class="bottom-bar">
@@ -216,8 +220,83 @@
   <!-- Playback section: always starts at the sidebar edge, controls never shift -->
   <div class="playback-section">
     <div class="controls">
+      <!-- Narrow overflow menu (≤800 px): 3-dot button showing shuffle/repeat/autoplay -->
+      <div class="narrow-menu-wrap">
+        <button
+          class="ctrl-btn icon-btn narrow-dots-btn"
+          class:active={narrowMenuOpen}
+          on:click|stopPropagation={() => { narrowMenuOpen = !narrowMenuOpen; }}
+          aria-label="More playback options"
+          title="More"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+          </svg>
+        </button>
+        {#if narrowMenuOpen}
+          <div class="narrow-menu" role="menu">
+            <button
+              class="narrow-item icon-btn"
+              on:click={() => { previous(); narrowMenuOpen = false; }}
+              aria-label="Previous"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="19,4 9,12 19,20"/><rect x="5" y="4" width="2.5" height="16" rx="1"/></svg>
+              <span class="narrow-label">Previous</span>
+            </button>
+            <button
+              class="narrow-item icon-btn"
+              class:active={$shuffle}
+              on:click={() => { toggleShuffle(); narrowMenuOpen = false; }}
+              aria-label="Shuffle"
+              title={$shuffle && $smartShuffleEnabled ? 'Smart Shuffle on' : 'Shuffle'}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
+                <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+                <line x1="4" y1="4" x2="9" y2="9"/>
+              </svg>
+              {#if $shuffle && $smartShuffleEnabled}
+                <span class="smart-dot" aria-hidden="true"></span>
+              {/if}
+              <span class="narrow-label">Shuffle</span>
+            </button>
+            <button
+              class="narrow-item icon-btn"
+              class:active={$repeatMode !== 'off'}
+              on:click={() => { toggleRepeat(); }}
+              aria-label="Repeat"
+              title={$repeatMode === 'off' ? 'Repeat off' : $repeatMode === 'one' ? 'Repeat one' : 'Repeat all'}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
+                <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+              </svg>
+              {#if $repeatMode === 'one'}
+                <span class="one-badge">1</span>
+              {/if}
+              <span class="narrow-label">Repeat</span>
+            </button>
+            <button
+              class="narrow-item icon-btn"
+              class:active={$autoplayEnabled}
+              on:click={() => { autoplayEnabled.update(v => !v); }}
+              aria-label="Autoplay"
+              title={$autoplayEnabled ? 'Autoplay on' : 'Autoplay off'}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12a10 10 0 1 0 10-10"/>
+                <polyline points="12 8 12 12 14 14"/>
+                <polyline points="2 8 2 2 8 2"/>
+              </svg>
+              <span class="narrow-label">Autoplay</span>
+            </button>
+          </div>
+        {/if}
+      </div>
+
+      <!-- Wide: shuffle/repeat/autoplay always visible -->
       <button
-        class="ctrl-btn icon-btn"
+        class="ctrl-btn icon-btn wide-only"
         class:active={$shuffle}
         on:click={toggleShuffle}
         aria-label="Shuffle"
@@ -233,7 +312,7 @@
           <span class="smart-dot" aria-hidden="true"></span>
         {/if}
       </button>
-      <button class="ctrl-btn" on:click={previous} aria-label="Previous">
+      <button class="ctrl-btn wide-only" on:click={previous} aria-label="Previous">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="19,4 9,12 19,20"/><rect x="5" y="4" width="2.5" height="16" rx="1"/></svg>
       </button>
       <button
@@ -251,7 +330,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,4 15,12 5,20"/><rect x="16" y="4" width="2.5" height="16" rx="1"/></svg>
       </button>
       <button
-        class="ctrl-btn icon-btn"
+        class="ctrl-btn icon-btn wide-only"
         class:active={$repeatMode !== 'off'}
         on:click={toggleRepeat}
         aria-label="Repeat"
@@ -266,7 +345,7 @@
         {/if}
       </button>
       <button
-        class="ctrl-btn icon-btn"
+        class="ctrl-btn icon-btn wide-only"
         class:active={$autoplayEnabled}
         on:click={() => autoplayEnabled.update(v => !v)}
         aria-label="Autoplay"
@@ -356,6 +435,7 @@
           </button>
         {/if}
       {/if}
+      <!-- Wide: inline volume slider -->
       <input
         type="range"
         min="0"
@@ -363,9 +443,38 @@
         step="0.01"
         value={$volume}
         on:input={onVolume}
-        class="volume-bar"
+        class="volume-bar wide-only"
         aria-label="Volume"
       />
+      <!-- Narrow (≤800 px): vertical volume popup -->
+      <div class="volume-popup-wrap">
+        <button
+          class="ctrl-btn icon-btn narrow-only"
+          on:click|stopPropagation={() => { volumePopupOpen = !volumePopupOpen; }}
+          aria-label="Volume"
+          title="Volume"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+        </button>
+        {#if volumePopupOpen}
+          <div class="volume-popup" role="dialog" aria-label="Volume slider">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={$volume}
+              on:input={onVolume}
+              class="volume-vertical"
+              aria-label="Volume"
+            />
+          </div>
+        {/if}
+      </div>
       {#if $userQueue.length > 1}
         <button
           class="ctrl-btn icon-btn queue-btn"
@@ -423,6 +532,7 @@
       {/if}
 
       <!-- Sleep timer -->
+      {#if $musicSleepTimerEnabled}
       <div class="sleep-timer-wrap">
         <button
           class="ctrl-btn icon-btn sleep-btn"
@@ -467,6 +577,7 @@
           </div>
         {/if}
       </div>
+      {/if}
 
       <DesktopDevicePicker />
     </div>
@@ -841,6 +952,79 @@
     border-radius: 0 0 5px 5px;
     padding-top: 8px;
   }
+
+  /* ── Narrow overflow menu (≤800 px) ─────────────────────── */
+  .narrow-menu-wrap { position: relative; display: none; align-items: center; }
+  .narrow-dots-btn { padding: 6px 8px; }
+
+  .narrow-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 140px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .narrow-item {
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 7px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    width: 100%;
+  }
+  .narrow-item:hover { background: var(--bg-hover); color: var(--text); }
+  .narrow-item.active { color: var(--accent); }
+  .narrow-label { font-size: 0.82rem; }
+
+  /* ── Volume vertical popup (narrow) ─────────────────────── */
+  .volume-popup-wrap { position: relative; display: none; align-items: center; }
+
+  .volume-popup {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 10px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .volume-vertical {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 4px;
+    height: 100px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  @media (max-width: 800px) {
+    .wide-only { display: none !important; }
+    .narrow-menu-wrap { display: inline-flex; }
+    .volume-popup-wrap { display: inline-flex; }
+    .narrow-only { display: inline-flex !important; }
+  }
+  .narrow-only { display: none; }
 
   /* ── Mobile: replaced entirely by MobilePlayer component ── */
   @media (max-width: 640px) {

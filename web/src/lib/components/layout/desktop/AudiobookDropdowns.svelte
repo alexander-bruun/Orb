@@ -40,6 +40,7 @@
     deviceId,
     exclusiveMode,
   } from "$lib/stores/player/deviceSession";
+  import { audiobookSleepTimerEnabled } from "$lib/stores/settings/theme";
 
   export let speedOpen = false;
   export let sleepOpen = false;
@@ -102,6 +103,7 @@
   </div>
 
   <!-- Sleep timer -->
+  {#if $audiobookSleepTimerEnabled}
   <div class="picker-wrap">
     <button
       class="ctrl-btn icon-btn"
@@ -157,6 +159,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 
   <!-- Listen Along button -->
   {#if $lpRole === "host"}

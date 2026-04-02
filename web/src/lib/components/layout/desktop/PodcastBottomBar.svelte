@@ -11,9 +11,15 @@
     skipBackwardPodcast,
     closePodcast,
     formatPodcastMs,
+    podcastSleepTimerMins,
+    setPodcastSleepTimer,
+    PODCAST_SLEEP_PRESETS,
   } from "$lib/stores/player/podcastPlayer";
+  import { podcastSleepTimerEnabled } from "$lib/stores/settings/theme";
   import { getApiBase } from "$lib/api/base";
   import { goto } from "$app/navigation";
+
+  let sleepMenuOpen = false;
 
   $: progress =
     $podcastDurationMs > 0
@@ -36,6 +42,10 @@
     if ($currentEpisode) goto(`/podcasts/${$currentEpisode.podcast_id}`);
   }
 </script>
+
+<svelte:window on:click={(e) => {
+  if (sleepMenuOpen && !(e.target as HTMLElement).closest?.('.sleep-wrap')) sleepMenuOpen = false;
+}} />
 
 <footer class="pod-bar bottom-bar">
   <!-- Left: cover + metadata -->
@@ -137,8 +147,47 @@
       </div>
     </div>
 
-    <!-- Right: close -->
+    <!-- Right: sleep timer + close -->
     <div class="pod-right">
+      {#if $podcastSleepTimerEnabled}
+        <div class="sleep-wrap">
+          <button
+            class="ctrl-btn icon-btn"
+            class:active={$podcastSleepTimerMins > 0}
+            on:click|stopPropagation={() => { sleepMenuOpen = !sleepMenuOpen; }}
+            title={$podcastSleepTimerMins > 0 ? `Sleep in ${$podcastSleepTimerMins} min` : 'Sleep timer'}
+            aria-label="Sleep timer"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            {#if $podcastSleepTimerMins > 0}
+              <span class="sleep-badge">{$podcastSleepTimerMins}m</span>
+            {/if}
+          </button>
+          {#if sleepMenuOpen}
+            <div class="sleep-menu" role="menu">
+              {#each PODCAST_SLEEP_PRESETS as preset}
+                <button
+                  class="sleep-item"
+                  class:selected={$podcastSleepTimerMins === preset}
+                  role="menuitem"
+                  on:click={() => {
+                    setPodcastSleepTimer($podcastSleepTimerMins === preset ? 0 : preset);
+                    sleepMenuOpen = false;
+                  }}
+                >{preset} min</button>
+              {/each}
+              {#if $podcastSleepTimerMins > 0}
+                <button class="sleep-item sleep-cancel" role="menuitem" on:click={() => { setPodcastSleepTimer(0); sleepMenuOpen = false; }}>
+                  Cancel timer
+                </button>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <button class="ctrl-btn" on:click={closePodcast} title="Close" aria-label="Close podcast player">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <line x1="18" y1="6" x2="6" y2="18"/>
@@ -323,6 +372,47 @@
     cursor: pointer;
     height: 18px;
   }
+
+  /* ── Sleep timer ── */
+  .sleep-wrap { position: relative; display: inline-flex; align-items: center; }
+  .icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0;
+    padding: 6px;
+  }
+  .icon-btn.active { color: var(--accent); }
+  .sleep-badge {
+    position: absolute;
+    top: 0; right: -2px;
+    font-size: 8px; font-weight: 700; line-height: 1;
+    color: var(--accent); pointer-events: none; white-space: nowrap;
+  }
+  .sleep-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 120px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .sleep-item {
+    background: none; border: none; border-radius: 5px;
+    padding: 7px 12px; text-align: left; font-size: 0.8rem;
+    color: var(--text-muted); cursor: pointer; white-space: nowrap;
+  }
+  .sleep-item:hover { background: var(--bg-hover); color: var(--text); }
+  .sleep-item.selected { color: var(--accent); }
+  .sleep-cancel { margin-top: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
 
   .spin-ring {
     width: 16px;

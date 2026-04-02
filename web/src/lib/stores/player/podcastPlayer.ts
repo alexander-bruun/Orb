@@ -239,6 +239,32 @@ export function closePodcast() {
 	podcastBufferedPct.set(0);
 }
 
+// ── Sleep timer ───────────────────────────────────────────────────────────────
+
+export const podcastSleepTimerMins = writable(0);
+let _sleepTimeout: ReturnType<typeof setTimeout> | null = null;
+
+export const PODCAST_SLEEP_PRESETS = [5, 10, 15, 20, 30, 45, 60];
+
+export function setPodcastSleepTimer(minutes: number) {
+	if (_sleepTimeout !== null) {
+		clearTimeout(_sleepTimeout);
+		_sleepTimeout = null;
+	}
+	podcastSleepTimerMins.set(minutes);
+	if (minutes > 0) {
+		_sleepTimeout = setTimeout(() => {
+			if (_audio) {
+				_audio.pause();
+				podcastPlaybackState.set('paused');
+				_stopSaveInterval();
+				_saveProgress(false);
+			}
+			podcastSleepTimerMins.set(0);
+		}, minutes * 60_000);
+	}
+}
+
 export function formatPodcastMs(ms: number): string {
 	const totalSecs = Math.floor(ms / 1000);
 	const h = Math.floor(totalSecs / 3600);

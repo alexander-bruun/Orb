@@ -22,7 +22,7 @@ Orb is a self-hosted music server built for audiophiles who want Spotify-level c
 
 ## Features
 
-- **Lossless streaming** — FLAC, WAV, AIFF, DSD, and SACD at up to 32-bit/192kHz
+- **Lossless streaming** — FLAC, WAV, AIFF, DSD, and SACD at up to 32-bit/192kHz and 7.1 surround sound
 - **Library management** — Auto-indexing, MusicBrainz & Discogs metadata enrichment, and embedded album art
 - **Audiobooks** — Support for chapter markers, variable playback speed, and bookmarking
 - **Podcasts** — Subscribe, sync, and stream podcast episodes alongside your music library
