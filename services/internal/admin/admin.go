@@ -427,11 +427,15 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httputil.WriteErr(w, http.StatusServiceUnavailable, "log file path not configured")
 		return
 	}
+	absPath, err := filepath.Abs(s.logPath)
+	if err != nil {
+		absPath = s.logPath
+	}
 	out, err := tailFile(s.logPath, lines)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			httputil.WriteOK(w, map[string]any{
-				"path":   s.logPath,
+				"path":   absPath,
 				"exists": false,
 				"lines":  []string{},
 			})
@@ -441,7 +445,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.WriteOK(w, map[string]any{
-		"path":   s.logPath,
+		"path":   absPath,
 		"exists": true,
 		"lines":  out,
 	})

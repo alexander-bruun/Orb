@@ -1266,7 +1266,12 @@
         <p class="muted">Log file not found at <code>{logTail.path}</code>.</p>
       {:else}
         <p class="muted" style="font-size:0.78rem;margin-top:-0.25rem;margin-bottom:0.75rem">Source: <code>{logTail.path}</code></p>
-        <div class="server-log" bind:this={serverLogEl}>
+        <div class="server-log" bind:this={serverLogEl} on:scroll={() => {
+          if (serverLogEl) {
+            const atBottom = serverLogEl.scrollHeight - serverLogEl.scrollTop - serverLogEl.clientHeight < 10;
+            if (!atBottom) logAutoScroll = false;
+          }
+        }}>
           {#if logTail.lines.length === 0}
             <div class="log-line muted">No log lines found.</div>
           {:else}
