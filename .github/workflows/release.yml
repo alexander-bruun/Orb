@@ -160,15 +160,22 @@ jobs:
       - name: Initialize Tauri Android
         run: make android-init-ci
 
-      - name: Generate CI signing keystore
+      - name: Configure persisted Android signing keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          keytool -genkeypair -v -storetype JKS \
-            -keystore "$GITHUB_WORKSPACE/ci-keystore.jks" \
-            -storepass android -keypass android \
-            -alias dev \
-            -dname "CN=Orb CI, OU=CI, O=Orb, L=Earth, S=Earth, C=US" \
-            -keyalg RSA -keysize 2048 -validity 10000
-          printf 'keyAlias=dev\npassword=android\nstoreFile=%s/ci-keystore.jks\n' "$GITHUB_WORKSPACE" \
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_B64:?Missing secret ANDROID_KEYSTORE_B64}"
+          : "${ANDROID_KEY_ALIAS:?Missing secret ANDROID_KEY_ALIAS}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?Missing secret ANDROID_KEYSTORE_PASSWORD}"
+
+          printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$GITHUB_WORKSPACE/release-keystore.jks"
+          chmod 600 "$GITHUB_WORKSPACE/release-keystore.jks"
+
+          printf 'keyAlias=%s\npassword=%s\nstoreFile=%s/release-keystore.jks\n' \
+            "$ANDROID_KEY_ALIAS" "$ANDROID_KEYSTORE_PASSWORD" "$GITHUB_WORKSPACE" \
             > web/src-tauri/gen/android/keystore.properties
 
       - name: Build Tauri Android

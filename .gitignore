@@ -64,6 +64,6 @@ coverage/
 .cache/
 .parcel-cache/
 .DS_Store
-scripts/dev-keystore.jks
+*.jks
 orb
 site/
