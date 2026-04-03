@@ -60,10 +60,10 @@ export async function decodeFlac(data: Uint8Array): Promise<DecodedAudio | null>
 	// alternative to direct libflac.js integration for the initial implementation.
 	// Full libflac.js integration can be layered on top for 24-bit accuracy.
 	const ctx = new AudioContext();
-		try {
-			const payload = new Uint8Array(data);
-			const buf = await ctx.decodeAudioData(payload.buffer);
-			const channelData: Float32Array[] = [];
+	try {
+		const payload = new Uint8Array(data);
+		const buf = await ctx.decodeAudioData(payload.buffer);
+		const channelData: Float32Array[] = [];
 		for (let i = 0; i < buf.numberOfChannels; i++) {
 			channelData.push(buf.getChannelData(i));
 		}

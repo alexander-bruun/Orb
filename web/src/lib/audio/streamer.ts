@@ -81,7 +81,7 @@ export class Streamer {
 		// Pre-fetch the next chunk.
 		const nextChunk = chunkStart + CHUNK_SIZE;
 		if (nextChunk < this.fileSize && !this.cache.has(nextChunk) && !this.inflight.has(nextChunk)) {
-			this.fetchChunk(nextChunk).catch(() => {});
+			this.fetchChunk(nextChunk).catch(() => { });
 		}
 		return result;
 	}

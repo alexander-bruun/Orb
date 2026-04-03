@@ -1,15 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <!-- Background -->
-  <rect width="1024" height="1024" rx="200" fill="#0d0d10"/>
+  <rect width="1024" height="1024" rx="200" fill="#0d0d10" />
   <!-- Outer ring -->
-  <circle cx="512" cy="512" r="360" stroke="#c084fc" stroke-width="48" fill="none" opacity="0.3"/>
+  <circle cx="512" cy="512" r="360" stroke="#c084fc" stroke-width="48" fill="none" opacity="0.3" />
   <!-- Mid ring -->
-  <circle cx="512" cy="512" r="220" stroke="#c084fc" stroke-width="24" fill="none" opacity="0.15"/>
+  <circle cx="512" cy="512" r="220" stroke="#c084fc" stroke-width="24" fill="none" opacity="0.15" />
   <!-- Inner sphere -->
   <radialGradient id="sphere" cx="42%" cy="38%" r="58%">
-    <stop offset="0%" stop-color="#e9d5ff"/>
-    <stop offset="60%" stop-color="#c084fc"/>
-    <stop offset="100%" stop-color="#7e22ce"/>
+    <stop offset="0%" stop-color="#e9d5ff" />
+    <stop offset="60%" stop-color="#c084fc" />
+    <stop offset="100%" stop-color="#7e22ce" />
   </radialGradient>
-  <circle cx="512" cy="512" r="160" fill="url(#sphere)"/>
+  <circle cx="512" cy="512" r="160" fill="url(#sphere)" />
 </svg>

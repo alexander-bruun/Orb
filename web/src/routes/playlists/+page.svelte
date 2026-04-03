@@ -1,15 +1,20 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { playlists as playlistApi } from '$lib/api/playlists';
-  import { getPlaylistCoverGrid } from '$lib/api/playlists';
-  import { smartPlaylists as smartPlaylistApi } from '$lib/api/smartPlaylists';
-  import PlaylistCard from '$lib/components/playlist/PlaylistCard.svelte';
-  import SmartPlaylistCard from '$lib/components/playlist/SmartPlaylistCard.svelte';
-  import type { Playlist, SmartPlaylist } from '$lib/types';
-  import { goto } from '$app/navigation';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
-  import { addToast } from '$lib/stores/ui/toast';
-  import { parseM3U, parseXSPF, matchTracks, detectFormat } from '$lib/utils/playlistImport';
+  import { onMount } from "svelte";
+  import { playlists as playlistApi } from "$lib/api/playlists";
+  import { getPlaylistCoverGrid } from "$lib/api/playlists";
+  import { smartPlaylists as smartPlaylistApi } from "$lib/api/smartPlaylists";
+  import PlaylistCard from "$lib/components/playlist/PlaylistCard.svelte";
+  import SmartPlaylistCard from "$lib/components/playlist/SmartPlaylistCard.svelte";
+  import type { Playlist, SmartPlaylist } from "$lib/types";
+  import { goto } from "$app/navigation";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { addToast } from "$lib/stores/ui/toast";
+  import {
+    parseM3U,
+    parseXSPF,
+    matchTracks,
+    detectFormat,
+  } from "$lib/utils/playlistImport";
   import {
     startSpotifyLogin,
     handleSpotifyReturn,
@@ -19,16 +24,16 @@
     isSpotifyAuthorized,
     clearSpotifySession,
     isSpotifyConfigured,
-  } from '$lib/utils/spotifyImport';
+  } from "$lib/utils/spotifyImport";
 
   let items: Playlist[] = [];
   let smartItems: SmartPlaylist[] = [];
   let coverGrids: Record<string, string[]> = {};
   let loading = true;
   let creating = false;
-  let newName = '';
+  let newName = "";
   let showSmartForm = false;
-  let smartName = '';
+  let smartName = "";
   let isRestoring = false;
 
   // Whether the server has SPOTIFY_CLIENT_ID configured
@@ -42,40 +47,47 @@
       coverGrids = value.coverGrids;
       isRestoring = true;
       loading = false;
-    }
+    },
   };
 
-  $: systemSmartPlaylists = smartItems.filter(p => p.system);
-  $: userSmartPlaylists = smartItems.filter(p => !p.system);
+  $: systemSmartPlaylists = smartItems.filter((p) => p.system);
+  $: userSmartPlaylists = smartItems.filter((p) => !p.system);
 
   // ── M3U/XSPF import state ─────────────────────────────────────────────────────
   let fileImportInput: HTMLInputElement;
-  let fileImportPhase: 'idle' | 'matching' | 'preview' | 'creating' = 'idle';
-  let fileImportResults: import('$lib/utils/playlistImport').MatchResult[] = [];
+  let fileImportPhase: "idle" | "matching" | "preview" | "creating" = "idle";
+  let fileImportResults: import("$lib/utils/playlistImport").MatchResult[] = [];
   let fileImportProgress = 0;
-  let fileImportName = '';
+  let fileImportName = "";
 
   // ── Spotify import state ──────────────────────────────────────────────────────
-  type SpotifyPhase = 'idle' | 'picking' | 'matching' | 'preview' | 'creating';
-  let spotifyPhase: SpotifyPhase = 'idle';
-  let spotifyPlaylists: import('$lib/utils/spotifyImport').SpotifyPlaylistSummary[] = [];
-  let spotifySelectedId = '';
-  let spotifyResults: import('$lib/utils/spotifyImport').SpotifyMatchResult[] = [];
+  type SpotifyPhase = "idle" | "picking" | "matching" | "preview" | "creating";
+  let spotifyPhase: SpotifyPhase = "idle";
+  let spotifyPlaylists: import("$lib/utils/spotifyImport").SpotifyPlaylistSummary[] =
+    [];
+  let spotifySelectedId = "";
+  let spotifyResults: import("$lib/utils/spotifyImport").SpotifyMatchResult[] =
+    [];
   let spotifyMatchProgress = 0;
 
   onMount(async () => {
     // Check server Spotify config (non-blocking)
-    isSpotifyConfigured().then(v => { spotifyEnabled = v; });
+    isSpotifyConfigured().then((v) => {
+      spotifyEnabled = v;
+    });
 
     // Handle Spotify OAuth return (#spotify_token=... in fragment)
     try {
       const returned = handleSpotifyReturn();
       if (returned) {
-        spotifyPhase = 'picking';
+        spotifyPhase = "picking";
         spotifyPlaylists = await fetchUserPlaylists();
       }
     } catch (err: unknown) {
-      addToast(err instanceof Error ? err.message : 'Spotify auth failed', 'error');
+      addToast(
+        err instanceof Error ? err.message : "Spotify auth failed",
+        "error",
+      );
     }
 
     if (isRestoring && (items.length > 0 || smartItems.length > 0)) {
@@ -86,18 +98,20 @@
     try {
       const [pls, spls] = await Promise.all([
         playlistApi.list(),
-        smartPlaylistApi.list()
+        smartPlaylistApi.list(),
       ]);
       items = pls;
       smartItems = spls;
 
-      await Promise.all(items.map(async (pl) => {
-        try {
-          coverGrids[pl.id] = await getPlaylistCoverGrid(pl.id);
-        } catch {
-          coverGrids[pl.id] = [];
-        }
-      }));
+      await Promise.all(
+        items.map(async (pl) => {
+          try {
+            coverGrids[pl.id] = await getPlaylistCoverGrid(pl.id);
+          } catch {
+            coverGrids[pl.id] = [];
+          }
+        }),
+      );
     } finally {
       loading = false;
     }
@@ -111,7 +125,7 @@
       const pl = await playlistApi.create(newName.trim());
       items = [...items, pl];
       coverGrids[pl.id] = [];
-      newName = '';
+      newName = "";
     } finally {
       creating = false;
     }
@@ -133,46 +147,68 @@
   async function handleFileImport(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
-    (e.target as HTMLInputElement).value = '';
+    (e.target as HTMLInputElement).value = "";
 
     const text = await file.text();
     const fmt = detectFormat(file.name, text);
-    if (!fmt) { addToast('Unsupported file. Use .m3u or .xspf', 'error'); return; }
+    if (!fmt) {
+      addToast("Unsupported file. Use .m3u or .xspf", "error");
+      return;
+    }
 
-    fileImportName = file.name.replace(/\.[^.]+$/, '');
-    const parsed = fmt === 'm3u' ? parseM3U(text) : parseXSPF(text);
-    if (parsed.length === 0) { addToast('No tracks found in file.', 'error'); return; }
+    fileImportName = file.name.replace(/\.[^.]+$/, "");
+    const parsed = fmt === "m3u" ? parseM3U(text) : parseXSPF(text);
+    if (parsed.length === 0) {
+      addToast("No tracks found in file.", "error");
+      return;
+    }
 
-    fileImportPhase = 'matching';
+    fileImportPhase = "matching";
     fileImportProgress = 0;
     fileImportResults = [];
 
     const batchSize = 5;
-    const results: import('$lib/utils/playlistImport').MatchResult[] = new Array(parsed.length);
+    const results: import("$lib/utils/playlistImport").MatchResult[] =
+      new Array(parsed.length);
     for (let i = 0; i < parsed.length; i += batchSize) {
-      const batchRes = await matchTracks(parsed.slice(i, i + batchSize), batchSize);
+      const batchRes = await matchTracks(
+        parsed.slice(i, i + batchSize),
+        batchSize,
+      );
       for (let j = 0; j < batchRes.length; j++) results[i + j] = batchRes[j];
-      fileImportProgress = Math.min(100, Math.round(((i + batchSize) / parsed.length) * 100));
+      fileImportProgress = Math.min(
+        100,
+        Math.round(((i + batchSize) / parsed.length) * 100),
+      );
     }
     fileImportResults = results;
-    fileImportPhase = 'preview';
+    fileImportPhase = "preview";
   }
 
-  $: fileMatchedCount = fileImportResults.filter(r => r.matched !== null).length;
+  $: fileMatchedCount = fileImportResults.filter(
+    (r) => r.matched !== null,
+  ).length;
 
   async function confirmFileImport() {
-    const matched = fileImportResults.filter(r => r.matched !== null);
+    const matched = fileImportResults.filter((r) => r.matched !== null);
     if (matched.length === 0) return;
-    fileImportPhase = 'creating';
-    const pl = await playlistApi.create(fileImportName || 'Imported Playlist');
+    fileImportPhase = "creating";
+    const pl = await playlistApi.create(fileImportName || "Imported Playlist");
     for (const r of matched) {
       if (!r.matched) continue;
-      try { await playlistApi.addTrack(pl.id, r.matched.id); } catch { /* skip */ }
+      try {
+        await playlistApi.addTrack(pl.id, r.matched.id);
+      } catch {
+        /* skip */
+      }
     }
     items = [...items, pl];
     coverGrids[pl.id] = [];
-    addToast(`Created "${pl.name}" with ${matched.length} track${matched.length !== 1 ? 's' : ''}.`, 'info');
-    fileImportPhase = 'idle';
+    addToast(
+      `Created "${pl.name}" with ${matched.length} track${matched.length !== 1 ? "s" : ""}.`,
+      "info",
+    );
+    fileImportPhase = "idle";
     fileImportResults = [];
     goto(`/playlists/${pl.id}`);
   }
@@ -180,7 +216,7 @@
   // ── Spotify import ────────────────────────────────────────────────────────────
   async function connectSpotify() {
     if (isSpotifyAuthorized()) {
-      spotifyPhase = 'picking';
+      spotifyPhase = "picking";
       spotifyPlaylists = await fetchUserPlaylists();
     } else {
       startSpotifyLogin(); // full-page redirect to /auth/spotify
@@ -189,83 +225,138 @@
 
   async function selectSpotifyPlaylist() {
     if (!spotifySelectedId) return;
-    spotifyPhase = 'matching';
+    spotifyPhase = "matching";
     spotifyMatchProgress = 0;
     const tracks = await fetchPlaylistTracks(spotifySelectedId);
     const batchSize = 5;
-    const results: import('$lib/utils/spotifyImport').SpotifyMatchResult[] = new Array(tracks.length);
+    const results: import("$lib/utils/spotifyImport").SpotifyMatchResult[] =
+      new Array(tracks.length);
     for (let i = 0; i < tracks.length; i += batchSize) {
-      const batchRes = await matchSpotifyTracks(tracks.slice(i, i + batchSize), batchSize);
+      const batchRes = await matchSpotifyTracks(
+        tracks.slice(i, i + batchSize),
+        batchSize,
+      );
       for (let j = 0; j < batchRes.length; j++) results[i + j] = batchRes[j];
-      spotifyMatchProgress = Math.min(100, Math.round(((i + batchSize) / tracks.length) * 100));
+      spotifyMatchProgress = Math.min(
+        100,
+        Math.round(((i + batchSize) / tracks.length) * 100),
+      );
     }
     spotifyResults = results;
-    spotifyPhase = 'preview';
+    spotifyPhase = "preview";
   }
 
-  $: spotifyMatchedCount = spotifyResults.filter(r => r.matched !== null).length;
+  $: spotifyMatchedCount = spotifyResults.filter(
+    (r) => r.matched !== null,
+  ).length;
 
   async function confirmSpotifyImport() {
-    const matched = spotifyResults.filter(r => r.matched !== null);
+    const matched = spotifyResults.filter((r) => r.matched !== null);
     if (matched.length === 0) return;
-    const name = spotifyPlaylists.find(p => p.id === spotifySelectedId)?.name ?? 'Spotify Import';
-    spotifyPhase = 'creating';
+    const name =
+      spotifyPlaylists.find((p) => p.id === spotifySelectedId)?.name ??
+      "Spotify Import";
+    spotifyPhase = "creating";
     const pl = await playlistApi.create(name);
     for (const r of matched) {
       if (!r.matched) continue;
-      try { await playlistApi.addTrack(pl.id, r.matched.id); } catch { /* skip */ }
+      try {
+        await playlistApi.addTrack(pl.id, r.matched.id);
+      } catch {
+        /* skip */
+      }
     }
     items = [...items, pl];
     coverGrids[pl.id] = [];
-    addToast(`Created "${pl.name}" with ${matched.length} track${matched.length !== 1 ? 's' : ''}.`, 'info');
+    addToast(
+      `Created "${pl.name}" with ${matched.length} track${matched.length !== 1 ? "s" : ""}.`,
+      "info",
+    );
     clearSpotifySession();
-    spotifyPhase = 'idle';
+    spotifyPhase = "idle";
     spotifyResults = [];
     goto(`/playlists/${pl.id}`);
   }
 
-  function cancelFileImport() { fileImportPhase = 'idle'; fileImportResults = []; }
-  function cancelSpotify() { spotifyPhase = 'idle'; spotifyResults = []; clearSpotifySession(); }
+  function cancelFileImport() {
+    fileImportPhase = "idle";
+    fileImportResults = [];
+  }
+  function cancelSpotify() {
+    spotifyPhase = "idle";
+    spotifyResults = [];
+    clearSpotifySession();
+  }
 </script>
 
 <div class="playlists-page">
   <div class="header">
     <h2 class="title">Playlists</h2>
     <div class="header-actions">
-      <button class="btn-secondary" on:click={() => fileImportInput.click()} title="Import M3U or XSPF playlist">
+      <button
+        class="btn-secondary"
+        on:click={() => fileImportInput.click()}
+        title="Import M3U or XSPF playlist"
+      >
         Import
       </button>
       {#if spotifyEnabled}
-        <button class="btn-secondary" on:click={connectSpotify} title="Import from Spotify">
+        <button
+          class="btn-secondary"
+          on:click={connectSpotify}
+          title="Import from Spotify"
+        >
           Spotify
         </button>
       {/if}
-      <button class="btn-secondary" on:click={() => showSmartForm = !showSmartForm}>
-        {showSmartForm ? 'Cancel' : '+ Smart'}
+      <button
+        class="btn-secondary"
+        on:click={() => (showSmartForm = !showSmartForm)}
+      >
+        {showSmartForm ? "Cancel" : "+ Smart"}
       </button>
     </div>
   </div>
 
-  <input bind:this={fileImportInput} type="file" accept=".m3u,.m3u8,.xspf" class="hidden-input" on:change={handleFileImport} />
+  <input
+    bind:this={fileImportInput}
+    type="file"
+    accept=".m3u,.m3u8,.xspf"
+    class="hidden-input"
+    on:change={handleFileImport}
+  />
 
   <!-- M3U/XSPF import panel -->
-  {#if fileImportPhase === 'matching'}
+  {#if fileImportPhase === "matching"}
     <div class="import-panel">
       <p class="import-status">Matching tracks… {fileImportProgress}%</p>
-      <div class="import-progress-bar"><div class="import-progress-fill" style="width:{fileImportProgress}%"></div></div>
+      <div class="import-progress-bar">
+        <div
+          class="import-progress-fill"
+          style="width:{fileImportProgress}%"
+        ></div>
+      </div>
     </div>
-  {:else if fileImportPhase === 'preview'}
+  {:else if fileImportPhase === "preview"}
     <div class="import-panel">
       <p class="import-status">
-        Matched <strong>{fileMatchedCount}</strong> of <strong>{fileImportResults.length}</strong> tracks.
+        Matched <strong>{fileMatchedCount}</strong> of
+        <strong>{fileImportResults.length}</strong> tracks.
       </p>
       <div class="import-preview">
         {#each fileImportResults as r}
           <div class="import-row" class:unmatched={!r.matched}>
-            <span class="import-icon">{r.matched ? '✓' : '✗'}</span>
-            <span class="import-source">{r.parsed.artist ? `${r.parsed.artist} – ` : ''}{r.parsed.title}</span>
+            <span class="import-icon">{r.matched ? "✓" : "✗"}</span>
+            <span class="import-source"
+              >{r.parsed.artist ? `${r.parsed.artist} – ` : ""}{r.parsed
+                .title}</span
+            >
             {#if r.matched}
-              <span class="import-match">→ {r.matched.artist_name ? `${r.matched.artist_name} – ` : ''}{r.matched.title}</span>
+              <span class="import-match"
+                >→ {r.matched.artist_name
+                  ? `${r.matched.artist_name} – `
+                  : ""}{r.matched.title}</span
+              >
             {:else}
               <span class="import-nomatch">not found</span>
             {/if}
@@ -273,18 +364,27 @@
         {/each}
       </div>
       <div class="import-actions">
-        <button class="btn-create" on:click={confirmFileImport} disabled={fileMatchedCount === 0}>
-          Create playlist ({fileMatchedCount} track{fileMatchedCount !== 1 ? 's' : ''})
+        <button
+          class="btn-create"
+          on:click={confirmFileImport}
+          disabled={fileMatchedCount === 0}
+        >
+          Create playlist ({fileMatchedCount} track{fileMatchedCount !== 1
+            ? "s"
+            : ""})
         </button>
-        <button class="btn-secondary" on:click={cancelFileImport}>Cancel</button>
+        <button class="btn-secondary" on:click={cancelFileImport}>Cancel</button
+        >
       </div>
     </div>
-  {:else if fileImportPhase === 'creating'}
-    <div class="import-panel"><p class="import-status"><Spinner /> Creating playlist…</p></div>
+  {:else if fileImportPhase === "creating"}
+    <div class="import-panel">
+      <p class="import-status"><Spinner /> Creating playlist…</p>
+    </div>
   {/if}
 
   <!-- Spotify import panel -->
-  {#if spotifyPhase === 'picking'}
+  {#if spotifyPhase === "picking"}
     <div class="import-panel">
       <p class="import-status">Choose a Spotify playlist to import</p>
       <select class="spotify-select" bind:value={spotifySelectedId}>
@@ -294,27 +394,46 @@
         {/each}
       </select>
       <div class="import-actions">
-        <button class="btn-create" on:click={selectSpotifyPlaylist} disabled={!spotifySelectedId}>Import</button>
+        <button
+          class="btn-create"
+          on:click={selectSpotifyPlaylist}
+          disabled={!spotifySelectedId}>Import</button
+        >
         <button class="btn-secondary" on:click={cancelSpotify}>Cancel</button>
       </div>
     </div>
-  {:else if spotifyPhase === 'matching'}
-    <div class="import-panel">
-      <p class="import-status">Matching Spotify tracks… {spotifyMatchProgress}%</p>
-      <div class="import-progress-bar"><div class="import-progress-fill" style="width:{spotifyMatchProgress}%"></div></div>
-    </div>
-  {:else if spotifyPhase === 'preview'}
+  {:else if spotifyPhase === "matching"}
     <div class="import-panel">
       <p class="import-status">
-        Matched <strong>{spotifyMatchedCount}</strong> of <strong>{spotifyResults.length}</strong> Spotify tracks.
+        Matching Spotify tracks… {spotifyMatchProgress}%
+      </p>
+      <div class="import-progress-bar">
+        <div
+          class="import-progress-fill"
+          style="width:{spotifyMatchProgress}%"
+        ></div>
+      </div>
+    </div>
+  {:else if spotifyPhase === "preview"}
+    <div class="import-panel">
+      <p class="import-status">
+        Matched <strong>{spotifyMatchedCount}</strong> of
+        <strong>{spotifyResults.length}</strong> Spotify tracks.
       </p>
       <div class="import-preview">
         {#each spotifyResults as r}
           <div class="import-row" class:unmatched={!r.matched}>
-            <span class="import-icon">{r.matched ? '✓' : '✗'}</span>
-            <span class="import-source">{r.spotify.artist ? `${r.spotify.artist} – ` : ''}{r.spotify.title}</span>
+            <span class="import-icon">{r.matched ? "✓" : "✗"}</span>
+            <span class="import-source"
+              >{r.spotify.artist ? `${r.spotify.artist} – ` : ""}{r.spotify
+                .title}</span
+            >
             {#if r.matched}
-              <span class="import-match">→ {r.matched.artist_name ? `${r.matched.artist_name} – ` : ''}{r.matched.title}</span>
+              <span class="import-match"
+                >→ {r.matched.artist_name
+                  ? `${r.matched.artist_name} – `
+                  : ""}{r.matched.title}</span
+              >
             {:else}
               <span class="import-nomatch">not in library</span>
             {/if}
@@ -322,25 +441,51 @@
         {/each}
       </div>
       <div class="import-actions">
-        <button class="btn-create" on:click={confirmSpotifyImport} disabled={spotifyMatchedCount === 0}>
-          Create playlist ({spotifyMatchedCount} track{spotifyMatchedCount !== 1 ? 's' : ''})
+        <button
+          class="btn-create"
+          on:click={confirmSpotifyImport}
+          disabled={spotifyMatchedCount === 0}
+        >
+          Create playlist ({spotifyMatchedCount} track{spotifyMatchedCount !== 1
+            ? "s"
+            : ""})
         </button>
         <button class="btn-secondary" on:click={cancelSpotify}>Cancel</button>
       </div>
     </div>
-  {:else if spotifyPhase === 'creating'}
-    <div class="import-panel"><p class="import-status"><Spinner /> Creating playlist…</p></div>
+  {:else if spotifyPhase === "creating"}
+    <div class="import-panel">
+      <p class="import-status"><Spinner /> Creating playlist…</p>
+    </div>
   {/if}
 
   {#if showSmartForm}
     <form class="create-form" on:submit={createSmartPlaylist}>
-      <input type="text" placeholder="New smart playlist name…" bind:value={smartName} class="create-input" />
-      <button type="submit" class="btn-create" disabled={creating || !smartName.trim()}>Create</button>
+      <input
+        type="text"
+        placeholder="New smart playlist name…"
+        bind:value={smartName}
+        class="create-input"
+      />
+      <button
+        type="submit"
+        class="btn-create"
+        disabled={creating || !smartName.trim()}>Create</button
+      >
     </form>
   {:else}
     <form class="create-form" on:submit={createPlaylist}>
-      <input type="text" placeholder="New playlist name…" bind:value={newName} class="create-input" />
-      <button type="submit" class="btn-create" disabled={creating || !newName.trim()}>Create</button>
+      <input
+        type="text"
+        placeholder="New playlist name…"
+        bind:value={newName}
+        class="create-input"
+      />
+      <button
+        type="submit"
+        class="btn-create"
+        disabled={creating || !newName.trim()}>Create</button
+      >
     </form>
   {/if}
 
@@ -357,7 +502,9 @@
     {/if}
 
     {#if userSmartPlaylists.length > 0}
-      <div class="section-label" class:mt-24={systemSmartPlaylists.length > 0}>Smart Playlists</div>
+      <div class="section-label" class:mt-24={systemSmartPlaylists.length > 0}>
+        Smart Playlists
+      </div>
       <div class="list">
         {#each userSmartPlaylists as pl (pl.id)}
           <SmartPlaylistCard playlist={pl} />
@@ -365,7 +512,9 @@
       </div>
     {/if}
 
-    <div class="section-label" class:mt-24={smartItems.length > 0}>My Playlists</div>
+    <div class="section-label" class:mt-24={smartItems.length > 0}>
+      My Playlists
+    </div>
     {#if items.length === 0}
       <p class="muted">No manual playlists yet</p>
     {:else}
@@ -381,14 +530,34 @@
 <svelte:head><title>Playlists – Orb</title></svelte:head>
 
 <style>
-  .playlists-page { max-width: 800px; }
-  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-  .title { font-size: 1.25rem; font-weight: 600; margin: 0; }
-  .header-actions { display: flex; gap: 8px; }
+  .playlists-page {
+    max-width: 800px;
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+  .title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
 
-  .hidden-input { display: none; }
+  .hidden-input {
+    display: none;
+  }
 
-  .create-form { display: flex; gap: 8px; margin-bottom: 24px; }
+  .create-form {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
   .create-input {
     flex: 1;
     background: var(--bg-elevated);
@@ -399,7 +568,9 @@
     font-size: 0.875rem;
     outline: none;
   }
-  .create-input:focus { border-color: var(--accent); }
+  .create-input:focus {
+    border-color: var(--accent);
+  }
   .btn-create {
     background: var(--accent);
     border: none;
@@ -411,8 +582,13 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  .btn-create:hover { background: var(--accent-hover); }
-  .btn-create:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-create:hover {
+    background: var(--accent-hover);
+  }
+  .btn-create:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 
   .btn-secondary {
     background: transparent;
@@ -425,7 +601,10 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  .btn-secondary:hover { color: var(--text); border-color: var(--text-muted); }
+  .btn-secondary:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+  }
 
   .section-label {
     font-size: 0.7rem;
@@ -435,10 +614,20 @@
     color: var(--text-muted);
     margin-bottom: 8px;
   }
-  .mt-24 { margin-top: 24px; }
+  .mt-24 {
+    margin-top: 24px;
+  }
 
-  .list { display: flex; flex-direction: column; gap: 2px; }
-  .muted { color: var(--text-muted); font-size: 0.875rem; padding: 0 12px; }
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .muted {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    padding: 0 12px;
+  }
 
   /* ── Import / Spotify panels ─────────────────────────────── */
   .import-panel {
@@ -448,7 +637,11 @@
     padding: 16px;
     margin-bottom: 20px;
   }
-  .import-status { margin: 0 0 8px; font-size: 0.875rem; color: var(--text-muted); }
+  .import-status {
+    margin: 0 0 8px;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
   .import-progress-bar {
     height: 4px;
     background: var(--bg-hover);
@@ -475,14 +668,46 @@
     font-size: 0.78rem;
     border-bottom: 1px solid var(--border);
   }
-  .import-row:last-child { border-bottom: none; }
-  .import-row.unmatched { opacity: 0.5; }
-  .import-icon { flex-shrink: 0; width: 14px; color: var(--accent); font-size: 0.75rem; }
-  .import-row.unmatched .import-icon { color: var(--text-muted); }
-  .import-source { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-  .import-match { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); }
-  .import-nomatch { color: var(--text-muted); font-style: italic; }
-  .import-actions { display: flex; gap: 8px; margin-top: 4px; }
+  .import-row:last-child {
+    border-bottom: none;
+  }
+  .import-row.unmatched {
+    opacity: 0.5;
+  }
+  .import-icon {
+    flex-shrink: 0;
+    width: 14px;
+    color: var(--accent);
+    font-size: 0.75rem;
+  }
+  .import-row.unmatched .import-icon {
+    color: var(--text-muted);
+  }
+  .import-source {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .import-match {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+  .import-nomatch {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .import-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
   .spotify-select {
     width: 100%;
     background: var(--bg-elevated);
@@ -494,5 +719,7 @@
     outline: none;
     margin-bottom: 10px;
   }
-  .spotify-select:focus { border-color: var(--accent); }
+  .spotify-select:focus {
+    border-color: var(--accent);
+  }
 </style>

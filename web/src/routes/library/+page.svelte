@@ -1,46 +1,49 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { library as libApi } from '$lib/api/library';
-  import { admin as adminApi } from '$lib/api/admin';
-  import AlbumGrid from '$lib/components/library/AlbumGrid.svelte';
-  import AlphaScrollbar from '$lib/components/library/AlphaScrollbar.svelte';
-  import type { Album } from '$lib/types';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { onMount, onDestroy } from "svelte";
+  import { library as libApi } from "$lib/api/library";
+  import { admin as adminApi } from "$lib/api/admin";
+  import AlbumGrid from "$lib/components/library/AlbumGrid.svelte";
+  import AlphaScrollbar from "$lib/components/library/AlphaScrollbar.svelte";
+  import type { Album } from "$lib/types";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
-  type SortMode = 'title' | 'artist' | 'year' | 'channels';
+  type SortMode = "title" | "artist" | "year" | "channels";
 
   const SORT_MODES: { mode: SortMode; label: string }[] = [
-    { mode: 'title',    label: 'Title'    },
-    { mode: 'artist',   label: 'Artist'   },
-    { mode: 'year',     label: 'Year'     },
-    { mode: 'channels', label: 'Channels' },
+    { mode: "title", label: "Title" },
+    { mode: "artist", label: "Artist" },
+    { mode: "year", label: "Year" },
+    { mode: "channels", label: "Channels" },
   ];
 
   const PAGE_SIZE = 500;
-  const SORT_BY_KEY = 'library_sort_by';
-  const SORT_DIR_KEY = 'library_sort_dir';
+  const SORT_BY_KEY = "library_sort_by";
+  const SORT_DIR_KEY = "library_sort_dir";
 
   let albums: Album[] = [];
   let totalCount = 0;
   let loading = true;
   let loadingMore = false;
   let nextOffset = 0;
-  let sortBy: SortMode = 'title';
-  let sortDir: 'asc' | 'desc' = 'asc';
-  let activeKey = '';
+  let sortBy: SortMode = "title";
+  let sortDir: "asc" | "desc" = "asc";
+  let activeKey = "";
   let scrollEl: HTMLElement | null = null;
   let sentinel: HTMLElement;
   let observer: IntersectionObserver | null = null;
   let ingestES: EventSource | null = null;
   let isRestoring = false;
 
-  if (typeof localStorage !== 'undefined') {
+  if (typeof localStorage !== "undefined") {
     const savedSortBy = localStorage.getItem(SORT_BY_KEY);
-    if (savedSortBy && ['title', 'artist', 'year', 'channels'].includes(savedSortBy)) {
+    if (
+      savedSortBy &&
+      ["title", "artist", "year", "channels"].includes(savedSortBy)
+    ) {
       sortBy = savedSortBy as SortMode;
     }
     const savedSortDir = localStorage.getItem(SORT_DIR_KEY);
-    if (savedSortDir === 'asc' || savedSortDir === 'desc') {
+    if (savedSortDir === "asc" || savedSortDir === "desc") {
       sortDir = savedSortDir;
     }
   }
@@ -52,7 +55,7 @@
       nextOffset,
       sortBy,
       sortDir,
-      activeKey
+      activeKey,
     }),
     restore: (value) => {
       albums = value.albums;
@@ -63,31 +66,37 @@
       activeKey = value.activeKey;
       isRestoring = true;
       loading = false;
-    }
+    },
   };
 
   // ── Grouping (no client-side sort — DB returns in the right order) ─────────
 
   function getSortKey(album: Album, mode: SortMode): string {
     switch (mode) {
-      case 'title': {
-        const first = album.title.replace(/^(the |a |an )\s*/i, '').charAt(0).toUpperCase();
-        return /[A-Z]/.test(first) ? first : '#';
+      case "title": {
+        const first = album.title
+          .replace(/^(the |a |an )\s*/i, "")
+          .charAt(0)
+          .toUpperCase();
+        return /[A-Z]/.test(first) ? first : "#";
       }
-      case 'artist': {
-        const name = album.artist_name ?? '';
-        const first = name.replace(/^(the |a |an )\s*/i, '').charAt(0).toUpperCase();
-        return first && /[A-Z]/.test(first) ? first : '#';
+      case "artist": {
+        const name = album.artist_name ?? "";
+        const first = name
+          .replace(/^(the |a |an )\s*/i, "")
+          .charAt(0)
+          .toUpperCase();
+        return first && /[A-Z]/.test(first) ? first : "#";
       }
-      case 'year':
-        return album.release_year ? String(album.release_year) : '?';
-      case 'channels':
-        if (album.max_channels === 8) return '7.1';
-        if (album.max_channels === 6) return '5.1';
+      case "year":
+        return album.release_year ? String(album.release_year) : "?";
+      case "channels":
+        if (album.max_channels === 8) return "7.1";
+        if (album.max_channels === 6) return "5.1";
         if (album.max_channels && album.max_channels > 2) {
           return `${album.max_channels}ch`;
         }
-        return 'Stereo';
+        return "Stereo";
     }
   }
 
@@ -109,14 +118,14 @@
   }
 
   $: grouped = computeGrouped(albums, sortBy);
-  $: keys    = computeKeys(grouped, sortBy);
+  $: keys = computeKeys(grouped, sortBy);
   $: hasMore = albums.length < totalCount;
 
   // Reset scroll + active key whenever keys changes (sort changed or first load)
   $: {
     keys; // declare dependency
     if (!isRestoring) {
-      activeKey = keys[0] ?? '';
+      activeKey = keys[0] ?? "";
       scrollEl?.scrollTo({ top: 0 });
     }
   }
@@ -125,13 +134,13 @@
 
   function updateActive() {
     if (!scrollEl) return;
-    const sections = scrollEl.querySelectorAll('[data-scroll-key]');
+    const sections = scrollEl.querySelectorAll("[data-scroll-key]");
     const containerTop = scrollEl.getBoundingClientRect().top;
-    let current = keys[0] ?? '';
+    let current = keys[0] ?? "";
     for (const section of sections) {
       const top = section.getBoundingClientRect().top - containerTop;
       if (top <= 64) {
-        current = section.getAttribute('data-scroll-key') ?? current;
+        current = section.getAttribute("data-scroll-key") ?? current;
       }
     }
     activeKey = current;
@@ -161,8 +170,10 @@
     observer?.disconnect();
     if (!sentinel) return;
     observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadNextPage(); },
-      { root: scrollEl, rootMargin: '200px' }
+      (entries) => {
+        if (entries[0].isIntersecting) loadNextPage();
+      },
+      { root: scrollEl, rootMargin: "200px" },
     );
     observer.observe(sentinel);
   }
@@ -171,13 +182,13 @@
 
   async function changeSortBy(mode: SortMode) {
     if (mode === sortBy) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      sortDir = sortDir === "asc" ? "desc" : "asc";
     } else {
       sortBy = mode;
-      sortDir = 'asc';
+      sortDir = "asc";
     }
 
-    if (typeof localStorage !== 'undefined') {
+    if (typeof localStorage !== "undefined") {
       localStorage.setItem(SORT_BY_KEY, sortBy);
       localStorage.setItem(SORT_DIR_KEY, sortDir);
     }
@@ -204,16 +215,17 @@
   // ── Mount / destroy ───────────────────────────────────────────────────────
 
   onMount(() => {
-    scrollEl = document.querySelector('main.content');
-    if (scrollEl) scrollEl.addEventListener('scroll', updateActive, { passive: true });
+    scrollEl = document.querySelector("main.content");
+    if (scrollEl)
+      scrollEl.addEventListener("scroll", updateActive, { passive: true });
     loadFirstPage();
     ingestES = adminApi.openIngestStream((e) => {
-      if (e.type === 'complete') refreshAlbums();
+      if (e.type === "complete") refreshAlbums();
     });
   });
 
   onDestroy(() => {
-    scrollEl?.removeEventListener('scroll', updateActive);
+    scrollEl?.removeEventListener("scroll", updateActive);
     observer?.disconnect();
     ingestES?.close();
   });
@@ -235,7 +247,9 @@
     if (isRestoring && albums.length > 0) {
       loading = false;
       setupObserver();
-      setTimeout(() => { isRestoring = false; }, 0);
+      setTimeout(() => {
+        isRestoring = false;
+      }, 0);
       return;
     }
 
@@ -275,7 +289,7 @@
         >
           {label}
           {#if sortBy === mode}
-            <span class="dir-icon">{sortDir === 'asc' ? '↑' : '↓'}</span>
+            <span class="dir-icon">{sortDir === "asc" ? "↑" : "↓"}</span>
           {/if}
         </button>
       {/each}
@@ -348,7 +362,10 @@
     border-radius: 4px;
     color: var(--text-2);
     border: 1px solid transparent;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      border-color 0.15s,
+      background 0.15s;
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }

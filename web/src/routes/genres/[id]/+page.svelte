@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/stores';
-  import { library as libApi } from '$lib/api/library';
-  import AlbumCard from '$lib/components/library/AlbumCard.svelte';
-  import type { Artist, Album, Genre } from '$lib/types';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { onMount } from "svelte";
+  import { page } from "$app/stores";
+  import { library as libApi } from "$lib/api/library";
+  import AlbumCard from "$lib/components/library/AlbumCard.svelte";
+  import type { Artist, Album, Genre } from "$lib/types";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   let genre: Genre | null = null;
   let artists: Artist[] = [];
@@ -20,7 +20,7 @@
       albums = value.albums;
       isRestoring = true;
       loading = false;
-    }
+    },
   };
 
   onMount(async () => {
@@ -29,12 +29,12 @@
       return;
     }
 
-    const id = $page.params.id ?? '';
+    const id = $page.params.id ?? "";
     try {
       const [g, a, al] = await Promise.all([
         libApi.genreDetail(id),
         libApi.genreArtists(id, 100),
-        libApi.genreAlbums(id, 100)
+        libApi.genreAlbums(id, 100),
       ]);
       genre = g;
       artists = a;
@@ -76,14 +76,30 @@
 {/if}
 
 <svelte:head>
-  <title>{genre ? `${genre.name} – Orb` : 'Genre – Orb'}</title>
+  <title>{genre ? `${genre.name} – Orb` : "Genre – Orb"}</title>
 </svelte:head>
 
 <style>
-  .title { font-size: 2rem; font-weight: 700; margin-bottom: 24px; text-transform: capitalize; }
-  .section { font-size: 1rem; font-weight: 600; color: var(--text-muted); margin-bottom: 16px; }
-  .muted { color: var(--text-muted); }
-  .artist-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .title {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 24px;
+    text-transform: capitalize;
+  }
+  .section {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+  }
+  .muted {
+    color: var(--text-muted);
+  }
+  .artist-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
   .artist-card {
     padding: 8px 16px;
     border-radius: 8px;
@@ -94,7 +110,9 @@
     text-decoration: none;
     transition: border-color 0.15s;
   }
-  .artist-card:hover { border-color: var(--accent); }
+  .artist-card:hover {
+    border-color: var(--accent);
+  }
   .album-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

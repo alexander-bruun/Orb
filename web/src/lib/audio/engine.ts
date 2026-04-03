@@ -162,7 +162,7 @@ class AudioEngine {
 		// Web Audio path: create the context now so it exists within the gesture.
 		if (!this.ctx || this.ctx.sampleRate !== sampleRate) {
 			try {
-				if (this.ctx) this.ctx.close().catch(() => {});
+				if (this.ctx) this.ctx.close().catch(() => { });
 				this.ctx = new AudioContext({ sampleRate });
 				this.gainNode = this.ctx.createGain();
 				this.gainNode.gain.value = this.currentVolume;
@@ -178,7 +178,7 @@ class AudioEngine {
 			}
 		}
 		if (this.ctx?.state === 'suspended') {
-			this.ctx.resume().catch(() => {});
+			this.ctx.resume().catch(() => { });
 		}
 		// Native <audio> path: unlock the element within the gesture by
 		// instantiating the player (which creates the <audio> element) now so the
@@ -210,7 +210,7 @@ class AudioEngine {
 	 */
 	private async getCtx(sampleRate: number): Promise<AudioContext> {
 		if (this.ctx && this.ctx.sampleRate !== sampleRate) {
-			this.ctx.close().catch(() => {});
+			this.ctx.close().catch(() => { });
 			this.ctx = null;
 			this.gainNode = null;
 			this.replayGainNode = null;
@@ -374,12 +374,12 @@ class AudioEngine {
 				restSource.start(continuationAt, segBuf.duration);
 				restSource.onended = () => {
 					if (this.pendingSource === restSource && this.wasmActive) {
-						playerNext().catch(() => {});
+						playerNext().catch(() => { });
 					}
 				};
 				this.pendingSource = restSource;
 			})
-			.catch(() => {});
+			.catch(() => { });
 	}
 
 	/** Decode a Uint8Array to an AudioBuffer, returning null on failure. */
@@ -426,7 +426,7 @@ class AudioEngine {
 		source.start(0, offsetSeconds);
 		source.onended = () => {
 			if (this.currentSource === source && this.wasmActive) {
-				playerNext().catch(() => {});
+				playerNext().catch(() => { });
 			}
 		};
 
@@ -505,6 +505,9 @@ class AudioEngine {
 	 * `crossfadeSecs = 0` → gapless: next source starts sample-accurately at
 	 * the exact moment the current track ends, with no gain ramping.
 	 * `crossfadeSecs > 0` → crossfade: overlapping gain ramps over that window.
+	 * `crossfadeStartSecs` controls how early (before track end) the overlap starts.
+	 * If `gaplessFallbackEnabled` is true, missed/late crossfade windows fall
+	 * back to gapless transitions.
 	 *
 	 * `onTransition` is called at the moment the next track starts playing so
 	 * the player store can update currentTrack, queue index, etc.
@@ -512,7 +515,14 @@ class AudioEngine {
 	 * No-op when: no next buffer preloaded, not on WASM path, or too little
 	 * time remaining in the current track to schedule anything.
 	 */
-	scheduleCrossfade(crossfadeSecs: number, onTransition: () => void): void {
+	scheduleCrossfade(
+		crossfadeSecs: number,
+		crossfadeStartSecs: number,
+		gaplessFallbackEnabled: boolean,
+		fadeOutCurve: Float32Array | null,
+		fadeInCurve: Float32Array | null,
+		onTransition: () => void
+	): void {
 		this._cancelCrossfade();
 		if (!this.ctx || !this.wasmActive || !this.nextBuffer) return;
 
@@ -523,8 +533,17 @@ class AudioEngine {
 		const effectiveDuration = buf.duration - this.offsetSeconds;
 		const trackEnd = this.startTime + effectiveDuration;
 		// When to start playing the next track.
-		const crossfadeAt = trackEnd - crossfadeSecs;
-		const delayMs = (crossfadeAt - ctx.currentTime) * 1000;
+		let effectiveFadeSecs = Math.max(0, crossfadeSecs);
+		let crossfadeAt = trackEnd - Math.max(0, crossfadeStartSecs);
+		let delayMs = (crossfadeAt - ctx.currentTime) * 1000;
+
+		// If a configured crossfade cannot be scheduled in time, optionally fall
+		// back to gapless so transitions still happen without a gap.
+		if (delayMs < 200 && effectiveFadeSecs > 0 && gaplessFallbackEnabled) {
+			effectiveFadeSecs = 0;
+			crossfadeAt = trackEnd;
+			delayMs = (crossfadeAt - ctx.currentTime) * 1000;
+		}
 
 		// Need at least 200 ms of runway to do anything meaningful.
 		if (delayMs < 200) return;
@@ -540,17 +559,29 @@ class AudioEngine {
 		nextSource.buffer = nextBuf;
 		nextSource.connect(nextGain);
 
-		if (crossfadeSecs > 0) {
+		if (effectiveFadeSecs > 0) {
 			// Fade current track out over [crossfadeAt, crossfadeAt + crossfadeSecs].
 			const cf = this.crossfadeGain;
-			if (cf) {
-				cf.gain.setValueAtTime(1, crossfadeAt);
-				cf.gain.linearRampToValueAtTime(0, crossfadeAt + crossfadeSecs);
-			}
-			// Fade next track in over the same window.
-			nextGain.gain.setValueAtTime(0, crossfadeAt);
-			nextGain.gain.linearRampToValueAtTime(1, crossfadeAt + crossfadeSecs);
-		} else {
+				if (cf) {
+					cf.gain.cancelScheduledValues(crossfadeAt);
+					if (fadeOutCurve && fadeOutCurve.length >= 2) {
+						cf.gain.setValueAtTime(fadeOutCurve[0], crossfadeAt);
+						cf.gain.setValueCurveAtTime(fadeOutCurve, crossfadeAt, effectiveFadeSecs);
+					} else {
+						cf.gain.setValueAtTime(1, crossfadeAt);
+						cf.gain.linearRampToValueAtTime(0, crossfadeAt + effectiveFadeSecs);
+					}
+				}
+				// Fade next track in over the same window.
+				nextGain.gain.cancelScheduledValues(crossfadeAt);
+				if (fadeInCurve && fadeInCurve.length >= 2) {
+					nextGain.gain.setValueAtTime(fadeInCurve[0], crossfadeAt);
+					nextGain.gain.setValueCurveAtTime(fadeInCurve, crossfadeAt, effectiveFadeSecs);
+				} else {
+					nextGain.gain.setValueAtTime(0, crossfadeAt);
+					nextGain.gain.linearRampToValueAtTime(1, crossfadeAt + effectiveFadeSecs);
+				}
+			} else {
 			// Gapless: next track plays at full volume from the start.
 			nextGain.gain.value = 1;
 		}
@@ -559,7 +590,7 @@ class AudioEngine {
 		nextSource.start(crossfadeAt);
 		nextSource.onended = () => {
 			if (this.currentSource === nextSource && this.wasmActive) {
-				playerNext().catch(() => {});
+				playerNext().catch(() => { });
 			}
 		};
 
@@ -595,7 +626,7 @@ class AudioEngine {
 			cb?.();
 
 			// After the fade window, stop and disconnect the outgoing source.
-			const cleanupDelay = Math.max(0, crossfadeSecs) * 1000 + 100;
+			const cleanupDelay = Math.max(0, effectiveFadeSecs) * 1000 + 100;
 			setTimeout(() => {
 				if (this.outgoingSource) {
 					try { this.outgoingSource.stop(); } catch { /* ignore */ }
@@ -659,7 +690,7 @@ class AudioEngine {
 		this.nativePlayer.onDuration((ms) => durationMs.set(ms));
 		this.nativePlayer.onBuffered((pct) => bufferedPct.set(pct));
 		this.nativePlayer.onEnded(() => {
-			playerNext().catch(() => {});
+			playerNext().catch(() => { });
 		});
 		this.wasmActive = false;
 		this.stopIosWakeLock();
@@ -677,7 +708,7 @@ class AudioEngine {
 				// whenever a suspension occurs while a track is loaded.
 				this.nativeCtx.addEventListener('statechange', () => {
 					if (this.nativeCtx?.state === 'suspended' && this.loaded && !this.wasmActive) {
-						this.nativeCtx.resume().catch(() => {});
+						this.nativeCtx.resume().catch(() => { });
 					}
 				});
 				this.nativeGain = this.nativeCtx.createGain();
@@ -698,7 +729,7 @@ class AudioEngine {
 			}
 		}
 		if (this.nativeCtx?.state === 'suspended') {
-			this.nativeCtx.resume().catch(() => {});
+			this.nativeCtx.resume().catch(() => { });
 		}
 	}
 
@@ -732,8 +763,8 @@ class AudioEngine {
 	 * visibility (e.g. user returns to Chrome from another app on Android).
 	 */
 	resumeAllContexts() {
-		if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => {});
-		if (this.nativeCtx?.state === 'suspended') this.nativeCtx.resume().catch(() => {});
+		if (this.ctx?.state === 'suspended') this.ctx.resume().catch(() => { });
+		if (this.nativeCtx?.state === 'suspended') this.nativeCtx.resume().catch(() => { });
 	}
 
 	seek(positionSeconds: number) {
@@ -777,7 +808,7 @@ class AudioEngine {
 			source.start(0, positionSeconds);
 			source.onended = () => {
 				if (this.currentSource === source && this.wasmActive) {
-					playerNext().catch(() => {});
+					playerNext().catch(() => { });
 				}
 			};
 			this.currentSource = source;
@@ -952,7 +983,7 @@ class AudioEngine {
 		if (this.iosWakeLockEl) {
 			const el = this.iosWakeLockEl as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
 			if (typeof el.setSinkId === 'function') {
-				el.setSinkId(sinkId).catch(() => {});
+				el.setSinkId(sinkId).catch(() => { });
 			}
 		}
 	}
@@ -982,7 +1013,7 @@ class AudioEngine {
 		this.loaded = false;
 		this.offsetSeconds = 0;
 		if (this.nativePlayer) {
-			this.nativePlayer.onEnded(() => {});
+			this.nativePlayer.onEnded(() => { });
 			this.nativePlayer.pause();
 		}
 		// Free any outstanding offline blob URL to avoid memory leaks.
@@ -1022,7 +1053,7 @@ class AudioEngine {
 			el.src = src;
 			el.loop = true;
 			el.volume = 0;
-			el.play().catch(() => {});
+			el.play().catch(() => { });
 			this.iosWakeLockEl = el;
 		} catch {
 			// Non-browser env (SSR) or policy block — ignore.

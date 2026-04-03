@@ -60,11 +60,11 @@
   // so center = thumbR + progress/100 × (trackWidth − 2×thumbR).
   const THUMB_R = 6;
   let seekWrapWidth = 0;
-  $: abFillPx = seekWrapWidth > 2 * THUMB_R
-    ? THUMB_R + ($abProgress / 100) * (seekWrapWidth - 2 * THUMB_R)
-    : seekWrapWidth * $abProgress / 100;
+  $: abFillPx =
+    seekWrapWidth > 2 * THUMB_R
+      ? THUMB_R + ($abProgress / 100) * (seekWrapWidth - 2 * THUMB_R)
+      : (seekWrapWidth * $abProgress) / 100;
 </script>
-
 
 <svelte:window on:click={closeDropdowns} />
 
@@ -154,8 +154,18 @@
         aria-label="Skip back 10 seconds"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-          <text x="12" y="15.5" text-anchor="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="currentColor">10</text>
+          <path
+            d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+          />
+          <text
+            x="12"
+            y="15.5"
+            text-anchor="middle"
+            font-size="5.5"
+            font-family="sans-serif"
+            font-weight="bold"
+            fill="currentColor">10</text
+          >
         </svg>
       </button>
 
@@ -190,8 +200,18 @@
         aria-label="Skip forward 30 seconds"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/>
-          <text x="12" y="15.5" text-anchor="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="currentColor">30</text>
+          <path
+            d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"
+          />
+          <text
+            x="12"
+            y="15.5"
+            text-anchor="middle"
+            font-size="5.5"
+            font-family="sans-serif"
+            font-weight="bold"
+            fill="currentColor">30</text
+          >
         </svg>
       </button>
     </div>

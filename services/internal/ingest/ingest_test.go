@@ -35,9 +35,9 @@ func TestSplitArtistList(t *testing.T) {
 
 func TestParseFeaturedArtists(t *testing.T) {
 	tests := []struct {
-		input      string
-		wantTitle  string
-		wantNames  []string
+		input     string
+		wantTitle string
+		wantNames []string
 	}{
 		{"Sideways", "Sideways", nil},
 		{"Sideways (feat. Coco Jones)", "Sideways", []string{"Coco Jones"}},

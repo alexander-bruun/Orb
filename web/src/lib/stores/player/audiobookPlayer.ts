@@ -32,17 +32,17 @@ import type { AudiobookContentProvider, ControlPayload, RemoteState } from './en
 
 export type ABPlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
-export const currentAudiobook   = writable<Audiobook | null>(null);
-export const abPlaybackState    = writable<ABPlaybackState>('idle');
-export const abPositionMs       = writable(0);
-export const abDurationMs       = writable(0);
-export const abBufferedPct      = writable(0);
-export const abSpeed            = writable(1.0);
-export const abVolume           = writable(1.0);
-export const abBookmarks        = writable<AudiobookBookmark[]>([]);
+export const currentAudiobook = writable<Audiobook | null>(null);
+export const abPlaybackState = writable<ABPlaybackState>('idle');
+export const abPositionMs = writable(0);
+export const abDurationMs = writable(0);
+export const abBufferedPct = writable(0);
+export const abSpeed = writable(1.0);
+export const abVolume = writable(1.0);
+export const abBookmarks = writable<AudiobookBookmark[]>([]);
 
 // Sleep timer: minutes remaining (0 = off)
-export const sleepTimerMins     = writable(0);
+export const sleepTimerMins = writable(0);
 
 // ── Derived ───────────────────────────────────────────────────────────────────
 
@@ -415,7 +415,7 @@ function _persistProgress(completed = false) {
 
 	// Try to sync with server if online
 	if (!isCurrentlyOffline()) {
-		audiobooksApi.saveProgress(book.id, pos, completed).catch(() => {});
+		audiobooksApi.saveProgress(book.id, pos, completed).catch(() => { });
 	}
 }
 
@@ -562,7 +562,7 @@ export async function playAudiobook(book: Audiobook, startMs?: number) {
 	// Load bookmarks in parallel
 	audiobooksApi.listBookmarks(fullBook.id)
 		.then(({ bookmarks }) => abBookmarks.set(bookmarks))
-		.catch(() => {});
+		.catch(() => { });
 
 	if (_isMultiFile) {
 		const chapters = fullBook.chapters ?? [];
@@ -637,16 +637,16 @@ export async function playAudiobook(book: Audiobook, startMs?: number) {
 
 	// Claim exclusive slot and notify peers (Bug 2 fix).
 	if (get(exclusiveMode) && deviceId) {
-		devicesApi.activate(deviceId).catch(() => {});
+		devicesApi.activate(deviceId).catch(() => { });
 	}
-	sendHeartbeat().catch(() => {});
+	sendHeartbeat().catch(() => { });
 }
 
 export async function toggleABPlayPause() {
 	// Exclusive mode: delegate to active device.
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'toggle').catch(() => {});
+		devicesApi.controlCommand(activeDev, 'toggle').catch(() => { });
 		return;
 	}
 	_stopABShadowTick(); // Stop remote mirror tick — we're acting locally now
@@ -663,7 +663,7 @@ export async function toggleABPlayPause() {
 				return;
 			}
 			// Re-assert audiobook mode in case the MediaService was restarted
-			try { await invoke('set_audiobook_mode', { isAudiobook: true }); } catch {}
+			try { await invoke('set_audiobook_mode', { isAudiobook: true }); } catch { }
 			await _resumeNative();
 			abPlaybackState.set('playing');
 			_abShadowEpochMs = Date.now() - get(abPositionMs); // Set shadow epoch when resuming
@@ -679,14 +679,14 @@ export async function toggleABPlayPause() {
 				return;
 			}
 			engine.switchMode('audiobook');
-			audio.play().catch(() => {});
+			audio.play().catch(() => { });
 			_startSaveInterval();
 		} else {
 			audio.pause();
 			_stopSaveInterval();
 		}
 	}
-	sendHeartbeat().catch(() => {});
+	sendHeartbeat().catch(() => { });
 }
 
 export function seekAudiobook(seconds: number) {
@@ -694,7 +694,7 @@ export function seekAudiobook(seconds: number) {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		const posMs = Math.round(seconds * 1000);
-		devicesApi.controlCommand(activeDev, 'seek', { position_ms: posMs }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: posMs }).catch(() => { });
 		abPositionMs.set(posMs); // optimistic update
 		return;
 	}
@@ -714,7 +714,7 @@ export async function seekAudiobookMs(ms: number) {
 	// Exclusive mode: delegate to active device.
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'seek', { position_ms: ms }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: ms }).catch(() => { });
 		abPositionMs.set(ms); // optimistic update
 		return;
 	}
@@ -763,7 +763,7 @@ export function skipForward(seconds = 30) {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		const targetMs = Math.min(get(abPositionMs) + seconds * 1000, get(abDurationMs));
-		devicesApi.controlCommand(activeDev, 'seek', { position_ms: targetMs }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: targetMs }).catch(() => { });
 		abPositionMs.set(targetMs); // optimistic update
 		return;
 	}
@@ -781,7 +781,7 @@ export function skipBackward(seconds = 10) {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		const targetMs = Math.max(get(abPositionMs) - seconds * 1000, 0);
-		devicesApi.controlCommand(activeDev, 'seek', { position_ms: targetMs }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: targetMs }).catch(() => { });
 		abPositionMs.set(targetMs); // optimistic update
 		return;
 	}
@@ -799,7 +799,7 @@ export async function setABSpeed(rate: number) {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		abSpeed.set(rate); // optimistic local update
-		devicesApi.controlCommand(activeDev, 'speed', { speed: rate }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'speed', { speed: rate }).catch(() => { });
 		return;
 	}
 	abSpeed.set(rate);
@@ -813,7 +813,7 @@ export function setABVolume(v: number) {
 	// Exclusive mode: delegate to active device.
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'volume', { volume: v }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'volume', { volume: v }).catch(() => { });
 		return;
 	}
 	abVolume.set(v);
@@ -821,14 +821,14 @@ export function setABVolume(v: number) {
 	if (!isNative() && _audio) {
 		_audio.volume = v;
 	}
-	sendHeartbeat().catch(() => {});
+	sendHeartbeat().catch(() => { });
 }
 
 export async function jumpToChapter(chapter: AudiobookChapter) {
 	// Exclusive mode: delegate as a seek to the chapter's start position.
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'seek', { position_ms: chapter.start_ms }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: chapter.start_ms }).catch(() => { });
 		abPositionMs.set(chapter.start_ms); // optimistic update
 		return;
 	}
@@ -933,7 +933,7 @@ export function syncABVisibleState(audiobookId: string, posMs: number, playing: 
 				currentAudiobook.set(audiobook);
 				abDurationMs.set(audiobook.duration_ms ?? 0);
 			})
-			.catch(() => {});
+			.catch(() => { });
 	}
 }
 
@@ -966,7 +966,7 @@ export async function transferAudiobookPlayback(targetId: string) {
 		const active = devices.find((d) => d.is_active && d.id !== deviceId);
 
 		activeDeviceId.set(deviceId);
-		await devicesApi.activate(deviceId).catch(() => {});
+		await devicesApi.activate(deviceId).catch(() => { });
 
 		if (active?.state?.is_audiobook && active.state.audiobook_id) {
 			try {
@@ -984,7 +984,7 @@ export async function transferAudiobookPlayback(targetId: string) {
 		pauseAudiobook();
 	}
 
-	await devicesApi.activate(targetId).catch(() => {});
+	await devicesApi.activate(targetId).catch(() => { });
 	// Immediately send a heartbeat so the server has the audiobook state
 	// before the target device refreshes.
 	await sendHeartbeat();

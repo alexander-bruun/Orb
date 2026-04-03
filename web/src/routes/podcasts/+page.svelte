@@ -22,7 +22,7 @@
     try {
       const [subRes, allRes] = await Promise.all([
         podcastApi.getSubscriptions(1000, 0), // Get all subs for the checkmarks
-        podcastApi.list(limit, offset)
+        podcastApi.list(limit, offset),
       ]);
       subscriptions = subRes.podcasts ?? [];
       allPodcasts = allRes.podcasts ?? [];
@@ -73,11 +73,11 @@
   <div class="page-header">
     <h1 class="page-title">Podcasts</h1>
     <div class="subscribe-box">
-      <input 
-        type="text" 
-        placeholder="RSS Feed URL" 
-        bind:value={rssUrl} 
-        on:keydown={(e) => e.key === 'Enter' && handleSubscribe()}
+      <input
+        type="text"
+        placeholder="RSS Feed URL"
+        bind:value={rssUrl}
+        on:keydown={(e) => e.key === "Enter" && handleSubscribe()}
         disabled={subscribing}
       />
       <button on:click={handleSubscribe} disabled={subscribing || !rssUrl}>
@@ -106,24 +106,52 @@
     </div>
     <div class="grid">
       {#each allPodcasts as podcast (podcast.id)}
-        {@const isSubscribed = subscriptions.some(s => s.id === podcast.id)}
-        <div class="podcast-card" on:click={() => goto(`/podcasts/${podcast.id}`)}>
+        {@const isSubscribed = subscriptions.some((s) => s.id === podcast.id)}
+        <button
+          type="button"
+          class="podcast-card"
+          on:click={() => goto(`/podcasts/${podcast.id}`)}
+        >
           <div class="cover-wrap">
             {#if podcast.cover_art_key}
-              <img src="{getApiBase()}/covers/podcast/{podcast.id}" alt={podcast.title} class="cover" />
+              <img
+                src="{getApiBase()}/covers/podcast/{podcast.id}"
+                alt={podcast.title}
+                class="cover"
+              />
             {:else}
               <div class="cover placeholder">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                  <line x1="12" y1="19" x2="12" y2="23"/>
-                  <line x1="8" y1="23" x2="16" y2="23"/>
+                <svg
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                  />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
               </div>
             {/if}
             {#if isSubscribed}
               <div class="subscribed-indicator" title="Subscribed">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
               </div>
@@ -135,7 +163,7 @@
               <span class="author">{podcast.author}</span>
             {/if}
           </div>
-        </div>
+        </button>
       {/each}
     </div>
 
@@ -154,20 +182,40 @@
 </div>
 
 <style>
-  .page { padding: 24px; }
-  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
-  .page-title { font-size: 1.5rem; font-weight: 700; margin: 0; }
+  .page {
+    padding: 24px;
+  }
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+  }
+  .page-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+  }
 
-  .section-header { margin: 0 0 16px 0; }
-  .section-header h2 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+  .section-header {
+    margin: 0 0 16px 0;
+  }
+  .section-header h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0;
+  }
 
-  .subscribe-box { display: flex; gap: 8px; }
-  .subscribe-box input { 
-    background: var(--bg-elevated); 
-    border: 1px solid var(--border); 
-    color: var(--text); 
-    padding: 8px 12px; 
-    border-radius: 4px; 
+  .subscribe-box {
+    display: flex;
+    gap: 8px;
+  }
+  .subscribe-box input {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 4px;
     width: 300px;
   }
   .subscribe-box button {
@@ -178,7 +226,10 @@
     border-radius: 4px;
     cursor: pointer;
   }
-  .subscribe-box button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .subscribe-box button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
   .grid {
     display: grid;
@@ -186,10 +237,38 @@
     gap: 24px;
   }
 
-  .podcast-card { cursor: pointer; display: flex; flex-direction: column; gap: 8px; position: relative; }
-  .cover-wrap { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--bg-elevated); position: relative; }
-  .cover { width: 100%; height: 100%; object-fit: cover; }
-  .placeholder { display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+  .podcast-card {
+    appearance: none;
+    border: none;
+    background: transparent;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    padding: 0;
+  }
+  .cover-wrap {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    position: relative;
+  }
+  .cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+  }
 
   .subscribed-indicator {
     position: absolute;
@@ -203,15 +282,36 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   }
-  
-  .info { display: flex; flex-direction: column; }
-  .title { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .author { font-size: 0.8rem; color: var(--text-muted); }
 
-  .card-skeleton { display: flex; flex-direction: column; gap: 8px; }
-  .skeleton-cover { width: 100%; aspect-ratio: 1; border-radius: 8px; background: var(--bg-elevated); }
+  .info {
+    display: flex;
+    flex-direction: column;
+  }
+  .title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .author {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .card-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .skeleton-cover {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    background: var(--bg-elevated);
+  }
 
   .load-more {
     display: flex;
@@ -238,5 +338,9 @@
     cursor: not-allowed;
   }
 
-  .empty { text-align: center; padding: 48px; color: var(--text-muted); }
+  .empty {
+    text-align: center;
+    padding: 48px;
+    color: var(--text-muted);
+  }
 </style>

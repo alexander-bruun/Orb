@@ -1,30 +1,37 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { searchQuery, searchResults, searchFilters, savedFilters, saveFilter, deleteSavedFilter } from '$lib/stores/library';
-  import { library as libApi } from '$lib/api/library';
-  import TrackList from '$lib/components/library/TrackList.svelte';
-  import AlbumCard from '$lib/components/library/AlbumCard.svelte';
-  import ArtistList from '$lib/components/library/ArtistList.svelte';
-  import type { SearchFilters } from '$lib/types';
+  import { onMount } from "svelte";
+  import {
+    searchQuery,
+    searchResults,
+    searchFilters,
+    savedFilters,
+    saveFilter,
+    deleteSavedFilter,
+  } from "$lib/stores/library";
+  import { library as libApi } from "$lib/api/library";
+  import TrackList from "$lib/components/library/TrackList.svelte";
+  import AlbumCard from "$lib/components/library/AlbumCard.svelte";
+  import ArtistList from "$lib/components/library/ArtistList.svelte";
+  import type { SearchFilters } from "$lib/types";
 
   let loading = false;
-  let saveName = '';
+  let saveName = "";
   let showSaveInput = false;
   let searchDebounce: ReturnType<typeof setTimeout> | null = null;
-  let localQuery = '';
+  let localQuery = "";
   let searchInputEl: HTMLInputElement;
 
   // Local copies of filter fields for binding
-  let genre = '';
-  let yearFrom = '';
-  let yearTo = '';
-  let format = '';
-  let bitrateMin = '';
-  let bitrateMax = '';
-  let bpmMin = '';
-  let bpmMax = '';
-  let sortTracks = '';
-  let sortAlbums = '';
+  let genre = "";
+  let yearFrom = "";
+  let yearTo = "";
+  let format = "";
+  let bitrateMin = "";
+  let bitrateMax = "";
+  let bpmMin = "";
+  let bpmMax = "";
+  let sortTracks = "";
+  let sortAlbums = "";
   let typesTracks = true;
   let typesAlbums = true;
   let typesArtists = true;
@@ -32,42 +39,59 @@
   function buildFilters(): SearchFilters {
     const f: SearchFilters = {};
     if (genre.trim()) f.genre = genre.trim();
-    const yf = parseInt(yearFrom); if (!isNaN(yf) && yf > 0) f.year_from = yf;
-    const yt = parseInt(yearTo);   if (!isNaN(yt) && yt > 0) f.year_to = yt;
+    const yf = parseInt(yearFrom);
+    if (!isNaN(yf) && yf > 0) f.year_from = yf;
+    const yt = parseInt(yearTo);
+    if (!isNaN(yt) && yt > 0) f.year_to = yt;
     if (format) f.format = format;
-    const bmin = parseInt(bitrateMin); if (!isNaN(bmin) && bmin > 0) f.bitrate_min = bmin;
-    const bmax = parseInt(bitrateMax); if (!isNaN(bmax) && bmax > 0) f.bitrate_max = bmax;
-    const pmin = parseFloat(bpmMin); if (!isNaN(pmin) && pmin > 0) f.bpm_min = pmin;
-    const pmax = parseFloat(bpmMax); if (!isNaN(pmax) && pmax > 0) f.bpm_max = pmax;
+    const bmin = parseInt(bitrateMin);
+    if (!isNaN(bmin) && bmin > 0) f.bitrate_min = bmin;
+    const bmax = parseInt(bitrateMax);
+    if (!isNaN(bmax) && bmax > 0) f.bitrate_max = bmax;
+    const pmin = parseFloat(bpmMin);
+    if (!isNaN(pmin) && pmin > 0) f.bpm_min = pmin;
+    const pmax = parseFloat(bpmMax);
+    if (!isNaN(pmax) && pmax > 0) f.bpm_max = pmax;
     if (sortTracks) f.sort_tracks = sortTracks;
     if (sortAlbums) f.sort_albums = sortAlbums;
-    const types: ('tracks' | 'albums' | 'artists')[] = [];
-    if (typesTracks) types.push('tracks');
-    if (typesAlbums) types.push('albums');
-    if (typesArtists) types.push('artists');
+    const types: ("tracks" | "albums" | "artists")[] = [];
+    if (typesTracks) types.push("tracks");
+    if (typesAlbums) types.push("albums");
+    if (typesArtists) types.push("artists");
     if (types.length < 3) f.types = types;
     return f;
   }
 
   function syncFromFilters(f: SearchFilters) {
-    genre = f.genre ?? '';
-    yearFrom = f.year_from ? String(f.year_from) : '';
-    yearTo = f.year_to ? String(f.year_to) : '';
-    format = f.format ?? '';
-    bitrateMin = f.bitrate_min ? String(f.bitrate_min) : '';
-    bitrateMax = f.bitrate_max ? String(f.bitrate_max) : '';
-    bpmMin = f.bpm_min ? String(f.bpm_min) : '';
-    bpmMax = f.bpm_max ? String(f.bpm_max) : '';
-    sortTracks = f.sort_tracks ?? '';
-    sortAlbums = f.sort_albums ?? '';
-    typesTracks = !f.types || f.types.includes('tracks');
-    typesAlbums = !f.types || f.types.includes('albums');
-    typesArtists = !f.types || f.types.includes('artists');
+    genre = f.genre ?? "";
+    yearFrom = f.year_from ? String(f.year_from) : "";
+    yearTo = f.year_to ? String(f.year_to) : "";
+    format = f.format ?? "";
+    bitrateMin = f.bitrate_min ? String(f.bitrate_min) : "";
+    bitrateMax = f.bitrate_max ? String(f.bitrate_max) : "";
+    bpmMin = f.bpm_min ? String(f.bpm_min) : "";
+    bpmMax = f.bpm_max ? String(f.bpm_max) : "";
+    sortTracks = f.sort_tracks ?? "";
+    sortAlbums = f.sort_albums ?? "";
+    typesTracks = !f.types || f.types.includes("tracks");
+    typesAlbums = !f.types || f.types.includes("albums");
+    typesArtists = !f.types || f.types.includes("artists");
   }
 
   function hasActiveFilters(f: SearchFilters): boolean {
-    return !!(f.genre || f.year_from || f.year_to || f.format || f.bitrate_min || f.bitrate_max ||
-              f.bpm_min || f.bpm_max || f.sort_tracks || f.sort_albums || (f.types && f.types.length < 3));
+    return !!(
+      f.genre ||
+      f.year_from ||
+      f.year_to ||
+      f.format ||
+      f.bitrate_min ||
+      f.bitrate_max ||
+      f.bpm_min ||
+      f.bpm_max ||
+      f.sort_tracks ||
+      f.sort_albums ||
+      (f.types && f.types.length < 3)
+    );
   }
 
   async function doSearch(q: string, filters: SearchFilters) {
@@ -96,7 +120,17 @@
   }
 
   function clearFilters() {
-    genre = yearFrom = yearTo = format = bitrateMin = bitrateMax = bpmMin = bpmMax = sortTracks = sortAlbums = '';
+    genre =
+      yearFrom =
+      yearTo =
+      format =
+      bitrateMin =
+      bitrateMax =
+      bpmMin =
+      bpmMax =
+      sortTracks =
+      sortAlbums =
+        "";
     typesTracks = typesAlbums = typesArtists = true;
     searchFilters.set({});
     if (localQuery.trim()) doSearch(localQuery, {});
@@ -111,7 +145,7 @@
   function handleSave() {
     if (!saveName.trim()) return;
     saveFilter(saveName.trim(), buildFilters());
-    saveName = '';
+    saveName = "";
     showSaveInput = false;
   }
 
@@ -122,7 +156,7 @@
     if (localQuery.trim()) doSearch(localQuery, $searchFilters);
 
     // Focus the input on desktop only — on mobile this would pop the keyboard up immediately
-    if (!('ontouchstart' in window)) {
+    if (!("ontouchstart" in window)) {
       searchInputEl?.focus();
     }
   });
@@ -134,9 +168,16 @@
 
   $: activeFilters = hasActiveFilters($searchFilters);
   $: activeFilterCount = [
-    $searchFilters.genre, $searchFilters.year_from, $searchFilters.year_to,
-    $searchFilters.format, $searchFilters.bitrate_min, $searchFilters.bitrate_max,
-    $searchFilters.bpm_min, $searchFilters.bpm_max, $searchFilters.sort_tracks, $searchFilters.sort_albums,
+    $searchFilters.genre,
+    $searchFilters.year_from,
+    $searchFilters.year_to,
+    $searchFilters.format,
+    $searchFilters.bitrate_min,
+    $searchFilters.bitrate_max,
+    $searchFilters.bpm_min,
+    $searchFilters.bpm_max,
+    $searchFilters.sort_tracks,
+    $searchFilters.sort_albums,
     $searchFilters.types && $searchFilters.types.length < 3 ? true : null,
   ].filter(Boolean).length;
 </script>
@@ -145,9 +186,18 @@
   <!-- Hero search input -->
   <div class="hero">
     <div class="hero-search">
-      <svg class="hero-icon" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="11" cy="11" r="8"/>
-        <path d="m21 21-4.35-4.35"/>
+      <svg
+        class="hero-icon"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.35-4.35" />
       </svg>
       <input
         bind:this={searchInputEl}
@@ -159,8 +209,30 @@
         aria-label="Search your library"
       />
       {#if localQuery}
-        <button class="hero-clear" on:click={() => { localQuery = ''; searchQuery.set(''); searchResults.set({ tracks: [], albums: [], artists: [] }); searchInputEl?.focus(); }} aria-label="Clear">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <button
+          class="hero-clear"
+          on:click={() => {
+            localQuery = "";
+            searchQuery.set("");
+            searchResults.set({ tracks: [], albums: [], artists: [] });
+            searchInputEl?.focus();
+          }}
+          aria-label="Clear"
+        >
+          <svg
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+            ><line x1="18" y1="6" x2="6" y2="18" /><line
+              x1="6"
+              y1="6"
+              x2="18"
+              y2="18"
+            /></svg
+          >
         </button>
       {/if}
     </div>
@@ -169,16 +241,32 @@
   <!-- Filters -->
   <details class="filter-section" open>
     <summary class="filter-summary">
-      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-        <line x1="4" y1="6" x2="20" y2="6"/>
-        <line x1="8" y1="12" x2="16" y2="12"/>
-        <line x1="11" y1="18" x2="13" y2="18"/>
+      <svg
+        width="13"
+        height="13"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+      >
+        <line x1="4" y1="6" x2="20" y2="6" />
+        <line x1="8" y1="12" x2="16" y2="12" />
+        <line x1="11" y1="18" x2="13" y2="18" />
       </svg>
       Filters
       {#if activeFilterCount > 0}
         <span class="filter-count">{activeFilterCount}</span>
       {/if}
-      <svg class="chevron" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+      <svg
+        class="chevron"
+        width="12"
+        height="12"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg
+      >
     </summary>
 
     <div class="filter-body">
@@ -186,24 +274,50 @@
         <!-- Result types -->
         <fieldset class="filter-group filter-types">
           <legend class="filter-label">Show</legend>
-          <label class="check-label"><input type="checkbox" bind:checked={typesTracks} /> Tracks</label>
-          <label class="check-label"><input type="checkbox" bind:checked={typesAlbums} /> Albums</label>
-          <label class="check-label"><input type="checkbox" bind:checked={typesArtists} /> Artists</label>
+          <label class="check-label"
+            ><input type="checkbox" bind:checked={typesTracks} /> Tracks</label
+          >
+          <label class="check-label"
+            ><input type="checkbox" bind:checked={typesAlbums} /> Albums</label
+          >
+          <label class="check-label"
+            ><input type="checkbox" bind:checked={typesArtists} /> Artists</label
+          >
         </fieldset>
 
         <!-- Genre -->
         <div class="filter-group">
           <label class="filter-label" for="f-genre">Genre</label>
-          <input id="f-genre" class="filter-input" type="text" placeholder="e.g. jazz" bind:value={genre} />
+          <input
+            id="f-genre"
+            class="filter-input"
+            type="text"
+            placeholder="e.g. jazz"
+            bind:value={genre}
+          />
         </div>
 
         <!-- Year range -->
         <div class="filter-group">
           <span class="filter-label">Year</span>
           <div class="range-row">
-            <input class="filter-input narrow" type="number" placeholder="from" min="1900" max="2100" bind:value={yearFrom} />
+            <input
+              class="filter-input narrow"
+              type="number"
+              placeholder="from"
+              min="1900"
+              max="2100"
+              bind:value={yearFrom}
+            />
             <span class="range-sep">–</span>
-            <input class="filter-input narrow" type="number" placeholder="to" min="1900" max="2100" bind:value={yearTo} />
+            <input
+              class="filter-input narrow"
+              type="number"
+              placeholder="to"
+              min="1900"
+              max="2100"
+              bind:value={yearTo}
+            />
           </div>
         </div>
 
@@ -224,9 +338,21 @@
         <div class="filter-group">
           <span class="filter-label">Bitrate (kbps)</span>
           <div class="range-row">
-            <input class="filter-input narrow" type="number" placeholder="min" min="0" bind:value={bitrateMin} />
+            <input
+              class="filter-input narrow"
+              type="number"
+              placeholder="min"
+              min="0"
+              bind:value={bitrateMin}
+            />
             <span class="range-sep">–</span>
-            <input class="filter-input narrow" type="number" placeholder="max" min="0" bind:value={bitrateMax} />
+            <input
+              class="filter-input narrow"
+              type="number"
+              placeholder="max"
+              min="0"
+              bind:value={bitrateMax}
+            />
           </div>
         </div>
 
@@ -234,16 +360,36 @@
         <div class="filter-group">
           <span class="filter-label">BPM</span>
           <div class="range-row">
-            <input class="filter-input narrow" type="number" placeholder="min" min="0" max="400" step="1" bind:value={bpmMin} />
+            <input
+              class="filter-input narrow"
+              type="number"
+              placeholder="min"
+              min="0"
+              max="400"
+              step="1"
+              bind:value={bpmMin}
+            />
             <span class="range-sep">–</span>
-            <input class="filter-input narrow" type="number" placeholder="max" min="0" max="400" step="1" bind:value={bpmMax} />
+            <input
+              class="filter-input narrow"
+              type="number"
+              placeholder="max"
+              min="0"
+              max="400"
+              step="1"
+              bind:value={bpmMax}
+            />
           </div>
         </div>
 
         <!-- Sort tracks -->
         <div class="filter-group">
           <label class="filter-label" for="f-sort-tracks">Sort tracks</label>
-          <select id="f-sort-tracks" class="filter-select" bind:value={sortTracks}>
+          <select
+            id="f-sort-tracks"
+            class="filter-select"
+            bind:value={sortTracks}
+          >
             <option value="">Relevance</option>
             <option value="title">Title</option>
             <option value="year">Year</option>
@@ -256,7 +402,11 @@
         <!-- Sort albums -->
         <div class="filter-group">
           <label class="filter-label" for="f-sort-albums">Sort albums</label>
-          <select id="f-sort-albums" class="filter-select" bind:value={sortAlbums}>
+          <select
+            id="f-sort-albums"
+            class="filter-select"
+            bind:value={sortAlbums}
+          >
             <option value="">Relevance</option>
             <option value="title">Title</option>
             <option value="year">Year</option>
@@ -265,19 +415,31 @@
       </div>
 
       <div class="filter-actions">
-        <button class="btn-primary" on:click={applyFilters}>Apply filters</button>
+        <button class="btn-primary" on:click={applyFilters}
+          >Apply filters</button
+        >
         {#if activeFilters}
           <button class="btn-secondary" on:click={clearFilters}>Clear</button>
         {/if}
 
         {#if showSaveInput}
           <div class="save-row">
-            <input class="filter-input save-input" type="text" placeholder="Preset name" bind:value={saveName} />
+            <input
+              class="filter-input save-input"
+              type="text"
+              placeholder="Preset name"
+              bind:value={saveName}
+            />
             <button class="btn-primary" on:click={handleSave}>Save</button>
-            <button class="btn-secondary" on:click={() => (showSaveInput = false)}>Cancel</button>
+            <button
+              class="btn-secondary"
+              on:click={() => (showSaveInput = false)}>Cancel</button
+            >
           </div>
         {:else}
-          <button class="btn-ghost" on:click={() => (showSaveInput = true)}>Save preset…</button>
+          <button class="btn-ghost" on:click={() => (showSaveInput = true)}
+            >Save preset…</button
+          >
         {/if}
       </div>
 
@@ -286,10 +448,18 @@
         <div class="presets">
           <span class="presets-label">Presets:</span>
           {#each $savedFilters as sf (sf.name)}
-            <button class="preset-chip" on:click={() => applySavedFilter(sf.filters)}>
+            <button
+              class="preset-chip"
+              on:click={() => applySavedFilter(sf.filters)}
+            >
               {sf.name}
             </button>
-            <button class="preset-del" title="Delete preset" on:click={() => deleteSavedFilter(sf.name)} aria-label="Delete {sf.name}">×</button>
+            <button
+              class="preset-del"
+              title="Delete preset"
+              on:click={() => deleteSavedFilter(sf.name)}
+              aria-label="Delete {sf.name}">×</button
+            >
           {/each}
         </div>
       {/if}
@@ -336,7 +506,8 @@
           </section>
         {/if}
       {:else}
-        <p class="muted">No results for "<span class="query">{localQuery}</span>"
+        <p class="muted">
+          No results for "<span class="query">{localQuery}</span>"
           {#if activeFilters}— try removing some filters{/if}
         </p>
       {/if}
@@ -347,7 +518,9 @@
 </div>
 
 <svelte:head>
-  <title>{$searchQuery ? `"${$searchQuery}" – Search – Orb` : 'Search – Orb'}</title>
+  <title
+    >{$searchQuery ? `"${$searchQuery}" – Search – Orb` : "Search – Orb"}</title
+  >
 </svelte:head>
 
 <style>
@@ -371,7 +544,9 @@
     border-radius: 12px;
     padding: 0 16px;
     height: 52px;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
   }
   .hero-search:focus-within {
     border-color: var(--accent);
@@ -390,9 +565,11 @@
     outline: none;
     font-size: 1rem;
     color: var(--text);
-    font-family: 'Syne', sans-serif;
+    font-family: "Syne", sans-serif;
   }
-  .hero-input::placeholder { color: var(--text-muted); }
+  .hero-input::placeholder {
+    color: var(--text-muted);
+  }
 
   .hero-clear {
     background: none;
@@ -405,7 +582,9 @@
     align-items: center;
     transition: color 0.12s;
   }
-  .hero-clear:hover { color: var(--text); }
+  .hero-clear:hover {
+    color: var(--text);
+  }
 
   /* ── Filters (details/summary) ──────────────────────────── */
   .filter-section {
@@ -429,8 +608,12 @@
     user-select: none;
     transition: background 0.1s;
   }
-  .filter-summary::-webkit-details-marker { display: none; }
-  .filter-summary:hover { background: var(--surface-2); }
+  .filter-summary::-webkit-details-marker {
+    display: none;
+  }
+  .filter-summary:hover {
+    background: var(--surface-2);
+  }
 
   .filter-count {
     display: inline-flex;
@@ -452,7 +635,9 @@
     transition: transform 0.2s;
     color: var(--text-muted);
   }
-  details[open] .chevron { transform: rotate(180deg); }
+  details[open] .chevron {
+    transform: rotate(180deg);
+  }
 
   .filter-body {
     border-top: 1px solid var(--border);
@@ -497,7 +682,10 @@
     box-sizing: border-box;
     transition: border-color 0.15s;
   }
-  .filter-input:focus { outline: none; border-color: var(--accent); }
+  .filter-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 
   .filter-select {
     background: var(--bg);
@@ -509,16 +697,26 @@
     width: 100%;
     transition: border-color 0.15s;
   }
-  .filter-select:focus { outline: none; border-color: var(--accent); }
+  .filter-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 
-  .narrow { width: 70px; flex: 0 0 70px; }
+  .narrow {
+    width: 70px;
+    flex: 0 0 70px;
+  }
 
   .range-row {
     display: flex;
     align-items: center;
     gap: 6px;
   }
-  .range-sep { color: var(--text-muted); font-size: 0.875rem; flex-shrink: 0; }
+  .range-sep {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    flex-shrink: 0;
+  }
 
   .check-label {
     display: flex;
@@ -544,7 +742,9 @@
     gap: 6px;
     flex-wrap: wrap;
   }
-  .save-input { max-width: 180px; }
+  .save-input {
+    max-width: 180px;
+  }
 
   /* Presets bar */
   .presets {
@@ -573,7 +773,9 @@
     cursor: pointer;
     transition: background 0.12s;
   }
-  .preset-chip:hover { background: var(--accent-glow); }
+  .preset-chip:hover {
+    background: var(--accent-glow);
+  }
   .preset-del {
     font-size: 0.75rem;
     padding: 1px 4px;
@@ -584,7 +786,9 @@
     margin-left: -2px;
     line-height: 1;
   }
-  .preset-del:hover { color: var(--text); }
+  .preset-del:hover {
+    color: var(--text);
+  }
 
   .btn-primary {
     padding: 7px 16px;
@@ -597,7 +801,9 @@
     cursor: pointer;
     transition: opacity 0.12s;
   }
-  .btn-primary:hover { opacity: 0.85; }
+  .btn-primary:hover {
+    opacity: 0.85;
+  }
 
   .btn-secondary {
     padding: 7px 14px;
@@ -609,7 +815,9 @@
     cursor: pointer;
     transition: color 0.12s;
   }
-  .btn-secondary:hover { color: var(--text); }
+  .btn-secondary:hover {
+    color: var(--text);
+  }
 
   .btn-ghost {
     padding: 4px 8px;
@@ -621,10 +829,14 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .btn-ghost:hover { color: var(--text); }
+  .btn-ghost:hover {
+    color: var(--text);
+  }
 
   /* ── Results ────────────────────────────────────────────── */
-  .results { display: block; }
+  .results {
+    display: block;
+  }
 
   .section-title {
     font-size: 0.6875rem;
@@ -667,13 +879,23 @@
     padding: 48px 0;
   }
 
-  .query { color: var(--text); }
+  .query {
+    color: var(--text);
+  }
 
   /* ── Mobile ─────────────────────────────────────────────── */
   @media (max-width: 640px) {
-    .hero { padding: 4px 0 16px; }
-    .hero-search { height: 46px; padding: 0 12px; gap: 10px; }
-    .hero-input { font-size: 0.9375rem; }
+    .hero {
+      padding: 4px 0 16px;
+    }
+    .hero-search {
+      height: 46px;
+      padding: 0 12px;
+      gap: 10px;
+    }
+    .hero-input {
+      font-size: 0.9375rem;
+    }
 
     .filter-grid {
       grid-template-columns: 1fr 1fr;
@@ -693,7 +915,12 @@
   }
 
   @media (max-width: 400px) {
-    .filter-grid { grid-template-columns: 1fr; }
-    .filter-types { flex-direction: row; flex-wrap: wrap; }
+    .filter-grid {
+      grid-template-columns: 1fr;
+    }
+    .filter-types {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
   }
 </style>

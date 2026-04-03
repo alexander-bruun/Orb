@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { userQueue, removeFromUserQueue, playTrack, queueModalOpen } from '$lib/stores/player';
+  import {
+    userQueue,
+    removeFromUserQueue,
+    playTrack,
+    queueModalOpen,
+  } from "$lib/stores/player";
 
   let maximized = true;
 
@@ -32,23 +37,57 @@
         <span class="count">{$userQueue.length}</span>
       </span>
       <div class="head-actions">
-        <button class="head-btn" on:click={toggleSize} title={maximized ? 'Collapse' : 'Expand'} aria-label={maximized ? 'Collapse queue' : 'Expand queue'}>
+        <button
+          class="head-btn"
+          on:click={toggleSize}
+          title={maximized ? "Collapse" : "Expand"}
+          aria-label={maximized ? "Collapse queue" : "Expand queue"}
+        >
           {#if maximized}
             <!-- Chevron down = collapse -->
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-              <polyline points="6,9 12,15 18,9"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              aria-hidden="true"
+            >
+              <polyline points="6,9 12,15 18,9" />
             </svg>
           {:else}
             <!-- Chevron up = expand -->
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-              <polyline points="18,15 12,9 6,15"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              aria-hidden="true"
+            >
+              <polyline points="18,15 12,9 6,15" />
             </svg>
           {/if}
         </button>
-        <button class="head-btn" on:click={close} title="Close" aria-label="Close queue">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
+        <button
+          class="head-btn"
+          on:click={close}
+          title="Close"
+          aria-label="Close queue"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       </div>
@@ -56,7 +95,7 @@
 
     {#if maximized}
       <div class="queue-list">
-        {#each $userQueue as track, i (track.id + '-' + i)}
+        {#each $userQueue as track, i (track.id + "-" + i)}
           <div class="qi">
             <span class="qi-num">{i + 1}</span>
             <div class="qi-info">
@@ -71,8 +110,14 @@
               title="Play now"
               aria-label="Play {track.title} now"
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <polygon points="5,3 19,12 5,21"/>
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <polygon points="5,3 19,12 5,21" />
               </svg>
             </button>
             <button
@@ -81,9 +126,17 @@
               title="Remove"
               aria-label="Remove {track.title} from queue"
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                <line x1="18" y1="6" x2="6" y2="18"/>
-                <line x1="6" y1="6" x2="18" y2="18"/>
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                aria-hidden="true"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             </button>
           </div>
@@ -102,15 +155,23 @@
     background: var(--surface);
     border: 1px solid var(--border-2);
     border-radius: 10px 10px 0 0;
-    box-shadow: 0 -4px 24px rgba(0,0,0,0.4), 0 -1px 4px rgba(0,0,0,0.2);
+    box-shadow:
+      0 -4px 24px rgba(0, 0, 0, 0.4),
+      0 -1px 4px rgba(0, 0, 0, 0.2);
     z-index: 500;
     overflow: hidden;
     animation: slideUp 0.18s ease-out;
   }
 
   @keyframes slideUp {
-    from { transform: translateY(8px); opacity: 0; }
-    to   { transform: translateY(0); opacity: 1; }
+    from {
+      transform: translateY(8px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
 
   .panel-head {
@@ -164,18 +225,30 @@
     color: var(--text-2);
     cursor: pointer;
     border-radius: 5px;
-    transition: background 0.1s, color 0.1s;
+    transition:
+      background 0.1s,
+      color 0.1s;
   }
-  .head-btn:hover { background: var(--surface-2); color: var(--text); }
+  .head-btn:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
 
   .queue-list {
     max-height: 340px;
     overflow-y: auto;
     padding: 4px;
   }
-  .queue-list::-webkit-scrollbar { width: 4px; }
-  .queue-list::-webkit-scrollbar-track { background: transparent; }
-  .queue-list::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 2px; }
+  .queue-list::-webkit-scrollbar {
+    width: 4px;
+  }
+  .queue-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .queue-list::-webkit-scrollbar-thumb {
+    background: var(--border-2);
+    border-radius: 2px;
+  }
 
   .qi {
     display: flex;
@@ -185,8 +258,12 @@
     border-radius: 6px;
     transition: background 0.1s;
   }
-  .qi:hover { background: var(--surface-2); }
-  .qi:hover .qi-act { opacity: 1; }
+  .qi:hover {
+    background: var(--surface-2);
+  }
+  .qi:hover .qi-act {
+    opacity: 1;
+  }
 
   .qi-num {
     width: 18px;
@@ -233,7 +310,14 @@
     cursor: pointer;
     border-radius: 4px;
     opacity: 0;
-    transition: opacity 0.1s, background 0.1s, color 0.1s;
+    transition:
+      opacity 0.1s,
+      background 0.1s,
+      color 0.1s;
   }
-  .qi-act:hover { background: var(--border-2); color: var(--text); opacity: 1; }
+  .qi-act:hover {
+    background: var(--border-2);
+    color: var(--text);
+    opacity: 1;
+  }
 </style>

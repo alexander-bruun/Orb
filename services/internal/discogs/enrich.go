@@ -9,11 +9,11 @@ import (
 
 // ArtistEnrichment holds metadata extracted from Discogs for an artist.
 type ArtistEnrichment struct {
-	DiscogsID  int
-	Name       string
-	Profile    string
-	Genres     []string // genres gathered from search result
-	ImageURI   string   // primary image URL (requires auth to download)
+	DiscogsID int
+	Name      string
+	Profile   string
+	Genres    []string // genres gathered from search result
+	ImageURI  string   // primary image URL (requires auth to download)
 }
 
 // AlbumEnrichment holds metadata extracted from Discogs for an album.

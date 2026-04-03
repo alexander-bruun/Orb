@@ -160,7 +160,7 @@ currentTrack.subscribe(async (track) => {
 		try {
 			decoded = await tmpCtx.decodeAudioData(data);
 		} finally {
-			tmpCtx.close().catch(() => {});
+			tmpCtx.close().catch(() => { });
 		}
 		if (gen !== generation) return;
 		await applyBuf(decoded);

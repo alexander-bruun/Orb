@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
   import {
     currentTrack,
     playbackState,
@@ -13,16 +13,20 @@
     previous,
     transferPlayback,
     formattedFormat,
-  } from '$lib/stores/player';
-  import { abFormattedFormat } from '$lib/stores/player/audiobookPlayer';
-  import { activePlayer } from '$lib/stores/player/engine';
-  import { library } from '$lib/api/library';
-  import { favorites } from '$lib/stores/library/favorites';
-  import { get, writable } from 'svelte/store';
-  import { getApiBase } from '$lib/api/base';
-  import { lyricsLines, lyricsLoading, activeLyricIndex } from '$lib/stores/player/lyrics';
-  import { goto } from '$app/navigation';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
+  } from "$lib/stores/player";
+  import { abFormattedFormat } from "$lib/stores/player/audiobookPlayer";
+  import { activePlayer } from "$lib/stores/player/engine";
+  import { library } from "$lib/api/library";
+  import { favorites } from "$lib/stores/library/favorites";
+  import { get, writable } from "svelte/store";
+  import { getApiBase } from "$lib/api/base";
+  import {
+    lyricsLines,
+    lyricsLoading,
+    activeLyricIndex,
+  } from "$lib/stores/player/lyrics";
+  import { goto } from "$app/navigation";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
   import {
     castState,
     castDeviceName,
@@ -31,23 +35,27 @@
     stopCast,
     remotePlaybackSupported,
     promptRemotePlayback,
-  } from '$lib/stores/player/casting';
+  } from "$lib/stores/player/casting";
   import {
     lpRole,
     lpPanelOpen,
     lpParticipants,
     lpSessionId,
     createAndConnect,
-  } from '$lib/stores/social/listenParty';
-  import StarRating from '$lib/components/ui/StarRating.svelte';
-  import MobilePlaybackControls from './MobilePlaybackControls.svelte';
-  import MobileProgressBar from './MobileProgressBar.svelte';
-  import MobileVolumeSlider from './MobileVolumeSlider.svelte';
-  import MobileDevicePicker from './MobileDevicePicker.svelte';
-  import { nativePlatform } from '$lib/utils/platform';
-  import { invoke } from '@tauri-apps/api/core';
+  } from "$lib/stores/social/listenParty";
+  import StarRating from "$lib/components/ui/StarRating.svelte";
+  import MobilePlaybackControls from "./MobilePlaybackControls.svelte";
+  import MobileProgressBar from "./MobileProgressBar.svelte";
+  import MobileVolumeSlider from "./MobileVolumeSlider.svelte";
+  import MobileDevicePicker from "./MobileDevicePicker.svelte";
+  import { nativePlatform } from "$lib/utils/platform";
+  import { invoke } from "@tauri-apps/api/core";
 
-  const currentAlbum = writable<{ id: string; title: string; artist?: string } | null>(null);
+  const currentAlbum = writable<{
+    id: string;
+    title: string;
+    artist?: string;
+  } | null>(null);
 
   $: isFavorite = $currentTrack ? $favorites.has($currentTrack.id) : false;
 
@@ -71,8 +79,8 @@
         dismissing = false;
       }
     }
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   });
 
   // Lyrics view
@@ -84,25 +92,32 @@
   $: if (!playerOpen) showLyrics = false;
 
   // Auto-scroll to the active lyric line when it changes
-  $: if (showLyrics && lyricsContainer && $activeLyricIndex >= 0 && $activeLyricIndex !== lastScrolledIdx) {
+  $: if (
+    showLyrics &&
+    lyricsContainer &&
+    $activeLyricIndex >= 0 &&
+    $activeLyricIndex !== lastScrolledIdx
+  ) {
     lastScrolledIdx = $activeLyricIndex;
-    const el = lyricsContainer.querySelector<HTMLElement>(`[data-lyric-idx="${$activeLyricIndex}"]`);
-    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const el = lyricsContainer.querySelector<HTMLElement>(
+      `[data-lyric-idx="${$activeLyricIndex}"]`,
+    );
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
   }
 
   // Touch-swipe to dismiss
   let touchStartY = 0;
   let touchCurrentY = 0;
   let swiping = false;
-  let rawDelta = 0;      // raw touch offset
-  let swipeDelta = 0;    // rubber-banded visual offset
+  let rawDelta = 0; // raw touch offset
+  let swipeDelta = 0; // rubber-banded visual offset
   let dismissing = false;
 
   // Mini-player horizontal swipe → next / previous
   let miniStartX = 0;
   let miniStartY = 0;
   let miniDeltaX = 0;
-  let miniSwipeAxis: 'h' | 'v' | null = null;
+  let miniSwipeAxis: "h" | "v" | null = null;
   let miniIsSwiping = false;
   let miniDidSwipe = false;
 
@@ -121,10 +136,10 @@
     const dy = e.touches[0].clientY - miniStartY;
 
     if (!miniSwipeAxis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-      miniSwipeAxis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+      miniSwipeAxis = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
     }
 
-    if (miniSwipeAxis === 'h') {
+    if (miniSwipeAxis === "h") {
       e.preventDefault();
       miniDeltaX = dx;
     }
@@ -134,12 +149,13 @@
     if (!miniIsSwiping) return;
     miniIsSwiping = false;
 
-    if (miniSwipeAxis === 'h' && Math.abs(miniDeltaX) > 55) {
+    if (miniSwipeAxis === "h" && Math.abs(miniDeltaX) > 55) {
       miniDidSwipe = true;
       const goNext = miniDeltaX > 0;
       miniDeltaX = 0;
       miniSwipeAxis = null;
-      if (goNext) next(); else previous();
+      if (goNext) next();
+      else previous();
     } else {
       miniDeltaX = 0;
       miniSwipeAxis = null;
@@ -155,7 +171,7 @@
   }
 
   function onMiniKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onMiniClick();
     }
@@ -163,8 +179,11 @@
 
   $: {
     if ($currentTrack?.album_id) {
-      library.album($currentTrack.album_id)
-        .then(res => currentAlbum.set({ id: res.album.id, title: res.album.title }))
+      library
+        .album($currentTrack.album_id)
+        .then((res) =>
+          currentAlbum.set({ id: res.album.id, title: res.album.title }),
+        )
         .catch(() => currentAlbum.set(null));
     } else {
       currentAlbum.set(null);
@@ -175,7 +194,7 @@
 
   function openPlayer() {
     playerOpen = true;
-    history.pushState({ orbPlayer: true }, '');
+    history.pushState({ orbPlayer: true }, "");
     playerHistoryPushed = true;
   }
 
@@ -217,7 +236,7 @@
     if (rawDelta > 100) {
       dismissing = true;
       swipeDelta = window.innerHeight * 1.1;
-      await new Promise<void>(r => setTimeout(r, 400));
+      await new Promise<void>((r) => setTimeout(r, 400));
       dismissing = false;
       playerOpen = false;
       rawDelta = 0;
@@ -233,7 +252,7 @@
   }
 
   function handleFullscreenKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       e.preventDefault();
       closePlayer();
     }
@@ -267,15 +286,23 @@
 
   async function handleCastToggle() {
     // On Android native, open the system Bluetooth / connected devices settings.
-    if (nativePlatform() === 'android') {
-      try { await invoke('open_bluetooth_settings'); } catch { /* ignore */ }
+    if (nativePlatform() === "android") {
+      try {
+        await invoke("open_bluetooth_settings");
+      } catch {
+        /* ignore */
+      }
       return;
     }
-    if ($castState === 'connected') {
+    if ($castState === "connected") {
       stopCast();
-    } else if ($castState === 'idle') {
-      try { await startCast(); } catch { /* user cancelled */ }
-    } else if ($castState === 'unavailable') {
+    } else if ($castState === "idle") {
+      try {
+        await startCast();
+      } catch {
+        /* user cancelled */
+      }
+    } else if ($castState === "unavailable") {
       // Try the Remote Playback API first (mobile browsers).
       if (remotePlaybackSupported) {
         try {
@@ -289,9 +316,13 @@
       // Retry Cast SDK init — may succeed if conditions changed.
       initCastSdk();
       // Give it a moment then check again.
-      await new Promise(r => setTimeout(r, 1500));
-      if (get(castState) === 'idle') {
-        try { await startCast(); } catch { /* user cancelled */ }
+      await new Promise((r) => setTimeout(r, 1500));
+      if (get(castState) === "idle") {
+        try {
+          await startCast();
+        } catch {
+          /* user cancelled */
+        }
       }
     }
   }
@@ -304,9 +335,11 @@
 
 <!-- ── Mini player (shown above bottom nav) ──────────────────────────────── -->
 {#if $currentTrack}
-  
-  
-  <section class="mini-player-wrap" role="complementary" aria-label="Now playing">
+  <section
+    class="mini-player-wrap"
+    role="complementary"
+    aria-label="Now playing"
+  >
     <div
       class="mini-player"
       role="button"
@@ -317,110 +350,148 @@
       on:touchstart={onMiniTouchStart}
       on:touchmove|nonpassive={onMiniTouchMove}
       on:touchend={onMiniTouchEnd}
-      style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
-             transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
+      style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX *
+        0.015}deg);
+             transition: {miniIsSwiping
+        ? 'none'
+        : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
     >
-    <!-- Thin progress line at top -->
-    <div class="mini-progress-track">
-      <div class="mini-progress-fill" style="width: {progress}%"></div>
-    </div>
+      <!-- Thin progress line at top -->
+      <div class="mini-progress-track">
+        <div class="mini-progress-fill" style="width: {progress}%"></div>
+      </div>
 
-    <!-- Content row -->
-    <div class="mini-content">
-      <!-- Cover art -->
-      {#if $currentTrack.album_id}
-        <img
-          src="{getApiBase()}/covers/{$currentTrack.album_id}"
-          alt="album art"
-          class="mini-cover"
-        />
-      {:else}
-        <div class="mini-cover mini-cover--placeholder"></div>
-      {/if}
-
-      <!-- Track info -->
-      <div class="mini-info">
-        <span class="mini-title">{$currentTrack.title}</span>
-        {#if $currentTrack.artist_name}
-          <span class="mini-artist">{$currentTrack.artist_name}</span>
+      <!-- Content row -->
+      <div class="mini-content">
+        <!-- Cover art -->
+        {#if $currentTrack.album_id}
+          <img
+            src="{getApiBase()}/covers/{$currentTrack.album_id}"
+            alt="album art"
+            class="mini-cover"
+          />
+        {:else}
+          <div class="mini-cover mini-cover--placeholder"></div>
         {/if}
-      </div>
 
-      <!-- Controls -->
-      <div class="mini-controls">
-        <button
-          class="mini-btn mini-btn--fav"
-          class:active={isFavorite}
-          on:click|stopPropagation={toggleFavorite}
-          aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-          aria-pressed={isFavorite}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-          </svg>
-        </button>
-        <button
-          class="mini-btn"
-          on:click|stopPropagation={togglePlayPause}
-          aria-label={$playbackState === 'playing' ? 'Pause' : 'Play'}
-        >
-          {#if $playbackState === 'playing'}
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <rect x="6" y="4" width="4" height="16" rx="1"/>
-              <rect x="14" y="4" width="4" height="16" rx="1"/>
-            </svg>
-          {:else}
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <polygon points="5,3 19,12 5,21"/>
-            </svg>
+        <!-- Track info -->
+        <div class="mini-info">
+          <span class="mini-title">{$currentTrack.title}</span>
+          {#if $currentTrack.artist_name}
+            <span class="mini-artist">{$currentTrack.artist_name}</span>
           {/if}
-        </button>
-        <button
-          class="mini-btn"
-          on:click|stopPropagation={next}
-          aria-label="Next"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <polygon points="5,4 15,12 5,20"/>
-            <rect x="16" y="4" width="2.5" height="16" rx="1"/>
-          </svg>
-        </button>
+        </div>
+
+        <!-- Controls -->
+        <div class="mini-controls">
+          <button
+            class="mini-btn mini-btn--fav"
+            class:active={isFavorite}
+            on:click|stopPropagation={toggleFavorite}
+            aria-label={isFavorite
+              ? "Remove from favorites"
+              : "Add to favorites"}
+            aria-pressed={isFavorite}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill={isFavorite ? "currentColor" : "none"}
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+              />
+            </svg>
+          </button>
+          <button
+            class="mini-btn"
+            on:click|stopPropagation={togglePlayPause}
+            aria-label={$playbackState === "playing" ? "Pause" : "Play"}
+          >
+            {#if $playbackState === "playing"}
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <rect x="6" y="4" width="4" height="16" rx="1" />
+                <rect x="14" y="4" width="4" height="16" rx="1" />
+              </svg>
+            {:else}
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
+            {/if}
+          </button>
+          <button
+            class="mini-btn"
+            on:click|stopPropagation={next}
+            aria-label="Next"
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <polygon points="5,4 15,12 5,20" />
+              <rect x="16" y="4" width="2.5" height="16" rx="1" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
-  </div>
   </section>
 {/if}
 
 <!-- ── Full-screen player ─────────────────────────────────────────────────── -->
 {#if playerOpen && $currentTrack}
-  
-  
-    <div
-      class="fullscreen-player"
-      role="dialog"
-      aria-label="Full-screen player"
-      tabindex="-1"
-      style="
+  <div
+    class="fullscreen-player"
+    role="dialog"
+    aria-label="Full-screen player"
+    tabindex="-1"
+    style="
         transform: translateY({swipeDelta}px) scale({1 - swipeDelta * 0.00032});
         opacity: {Math.max(0.12, 1 - swipeDelta / 310)};
         border-radius: {Math.min(swipeDelta * 0.22, 20)}px;
-        transition: {swiping ? 'none' : dismissing
-          ? 'transform 0.4s cubic-bezier(0.4, 0, 1, 1), opacity 0.4s cubic-bezier(0.4, 0, 1, 1), border-radius 0.4s cubic-bezier(0.4, 0, 1, 1)'
-          : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
+        transition: {swiping
+      ? 'none'
+      : dismissing
+        ? 'transform 0.4s cubic-bezier(0.4, 0, 1, 1), opacity 0.4s cubic-bezier(0.4, 0, 1, 1), border-radius 0.4s cubic-bezier(0.4, 0, 1, 1)'
+        : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
       "
-      on:touchstart={onTouchStart}
-      on:touchmove={onTouchMove}
-      on:touchend={onTouchEnd}
-      on:keydown={handleFullscreenKeyDown}
-    >
+    on:touchstart={onTouchStart}
+    on:touchmove={onTouchMove}
+    on:touchend={onTouchEnd}
+    on:keydown={handleFullscreenKeyDown}
+  >
     <!-- Blurred album art background (parallax: moves slower than content) -->
     {#if $currentTrack.album_id}
       <div
         class="fs-bg"
         style="
           background-image: url('{getApiBase()}/covers/{$currentTrack.album_id}');
-          transform: translateY({-swipeDelta * 0.38}px) scale({1 + swipeDelta * 0.00045});
-          transition: {swiping ? 'none' : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
+          transform: translateY({-swipeDelta * 0.38}px) scale({1 +
+          swipeDelta * 0.00045});
+          transition: {swiping
+          ? 'none'
+          : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
         "
       ></div>
     {/if}
@@ -431,28 +502,42 @@
       <!-- Top bar: swipe handle + close button -->
       <div class="fs-topbar">
         {#if $lyricsLines.length > 0}
-          
           <button
             class="fs-lyrics-toggle"
             class:active={showLyrics}
-            on:click|stopPropagation={() => { showLyrics = !showLyrics; }}
-            aria-label={showLyrics ? 'Show player' : 'Show lyrics'}
-            aria-pressed={showLyrics}
-          >Lyrics</button>
+            on:click|stopPropagation={() => {
+              showLyrics = !showLyrics;
+            }}
+            aria-label={showLyrics ? "Show player" : "Show lyrics"}
+            aria-pressed={showLyrics}>Lyrics</button
+          >
         {:else}
           <div class="fs-topbar-spacer"></div>
         {/if}
         <div class="swipe-handle"></div>
-        <button class="fs-close-btn" on:click={() => closePlayer()} aria-label="Close player">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
-            <polyline points="6 9 12 15 18 9"/>
+        <button
+          class="fs-close-btn"
+          on:click={() => closePlayer()}
+          aria-label="Close player"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9" />
           </svg>
         </button>
       </div>
 
       {#if showLyrics}
         <!-- ── Lyrics panel ───────────────────────────────────────── -->
-        
+
         <div
           class="fs-lyrics"
           bind:this={lyricsContainer}
@@ -468,8 +553,6 @@
           {:else}
             <div class="lyric-spacer-top"></div>
             {#each $lyricsLines as line, i}
-              
-              
               <button
                 type="button"
                 class="lyric-line"
@@ -477,7 +560,8 @@
                 class:lyric-past={i < $activeLyricIndex}
                 data-lyric-idx={i}
                 on:click|stopPropagation={() => seekToLyric(line.time_ms)}
-              >{line.text || '♩'}</button>
+                >{line.text || "♩"}</button
+              >
             {/each}
             <div class="lyric-spacer-bottom"></div>
           {/if}
@@ -489,8 +573,12 @@
         </div>
       {:else}
         <!-- Bitrate / format badge -->
-        {#if $activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}
-          <div class="fs-format-badge">{$activePlayer === 'audiobook' ? $abFormattedFormat : $formattedFormat}</div>
+        {#if $activePlayer === "audiobook" ? $abFormattedFormat : $formattedFormat}
+          <div class="fs-format-badge">
+            {$activePlayer === "audiobook"
+              ? $abFormattedFormat
+              : $formattedFormat}
+          </div>
         {/if}
 
         <!-- Album art -->
@@ -507,18 +595,21 @@
         </div>
 
         <!-- Active lyric preview (shown when lyrics panel is closed) -->
-        
-        
+
         <button
           type="button"
           class="fs-lyric-slot"
-          class:fs-lyric-slot--active={$lyricsLines.length > 0 && $activeLyricIndex >= 0}
+          class:fs-lyric-slot--active={$lyricsLines.length > 0 &&
+            $activeLyricIndex >= 0}
           aria-label="Show lyrics"
-          on:click|stopPropagation={() => { if ($lyricsLines.length > 0 && $activeLyricIndex >= 0) showLyrics = true; }}
+          on:click|stopPropagation={() => {
+            if ($lyricsLines.length > 0 && $activeLyricIndex >= 0)
+              showLyrics = true;
+          }}
         >
           {#if $lyricsLines.length > 0 && $activeLyricIndex >= 0}
             <span class="fs-lyric-preview">
-              {$lyricsLines[$activeLyricIndex]?.text ?? ''}
+              {$lyricsLines[$activeLyricIndex]?.text ?? ""}
             </span>
           {/if}
         </button>
@@ -529,36 +620,34 @@
             <div class="fs-title">{$currentTrack.title}</div>
             <div class="fs-sub">
               {#if $currentTrack.artist_name}
-                
-              <span
-                class="fs-artist"
-                on:click={goToArtist}
-                on:keydown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    goToArtist();
-                  }
-                }}
-                role="link"
-                tabindex="0"
-              >{$currentTrack.artist_name}</span>
+                <span
+                  class="fs-artist"
+                  on:click={goToArtist}
+                  on:keydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      goToArtist();
+                    }
+                  }}
+                  role="link"
+                  tabindex="0">{$currentTrack.artist_name}</span
+                >
               {/if}
               {#if $currentAlbum}
                 <span class="fs-sep">·</span>
-                
-                
-            <span
-              class="fs-album"
-              on:click={goToAlbum}
-              on:keydown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  goToAlbum();
-                }
-              }}
-              role="link"
-              tabindex="0"
-            >
+
+                <span
+                  class="fs-album"
+                  on:click={goToAlbum}
+                  on:keydown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      goToAlbum();
+                    }
+                  }}
+                  role="link"
+                  tabindex="0"
+                >
                   {$currentAlbum.title}
                 </span>
               {/if}
@@ -570,11 +659,25 @@
               class="fs-fav-btn"
               class:active={isFavorite}
               on:click={toggleFavorite}
-              aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+              aria-label={isFavorite
+                ? "Remove from favorites"
+                : "Add to favorites"}
               aria-pressed={isFavorite}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill={isFavorite ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill={isFavorite ? "currentColor" : "none"}
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+                />
               </svg>
             </button>
           </div>
@@ -592,19 +695,40 @@
 
       <!-- Extras row: queue + listen along + device transfer -->
       <div class="fs-extras">
-        {#if $lpRole === 'host'}
+        {#if $lpRole === "host"}
           <button
             class="fs-extra-btn"
             class:active={$lpPanelOpen}
-            on:click={() => { closePlayer(); lpPanelOpen.update(v => !v); }}
+            on:click={() => {
+              closePlayer();
+              lpPanelOpen.update((v) => !v);
+            }}
             aria-label="Listen Along"
             title="Listen Along"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-              <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="7" r="3" /><path
+                d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
+              />
+              <circle cx="18" cy="7" r="2.5" /><path
+                d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"
+              />
             </svg>
-            <span>Party{#if $lpParticipants.length > 0}&nbsp;<span class="party-count">{$lpParticipants.length}</span>{/if}</span>
+            <span
+              >Party{#if $lpParticipants.length > 0}&nbsp;<span
+                  class="party-count">{$lpParticipants.length}</span
+                >{/if}</span
+            >
           </button>
         {:else if $lpRole === null}
           <button
@@ -613,9 +737,23 @@
             aria-label="Start Listen Along"
             title="Start Listen Along"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="9" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-              <circle cx="18" cy="7" r="2.5"/><path d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="7" r="3" /><path
+                d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
+              />
+              <circle cx="18" cy="7" r="2.5" /><path
+                d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"
+              />
             </svg>
             <span>Party</span>
           </button>
@@ -625,40 +763,66 @@
           <button
             class="fs-extra-btn"
             class:active={$queueModalOpen}
-            on:click={() => queueModalOpen.update(v => !v)}
+            on:click={() => queueModalOpen.update((v) => !v)}
             aria-label="Queue"
             title="Queue"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <line x1="8" y1="6" x2="21" y2="6"/>
-              <line x1="8" y1="12" x2="21" y2="12"/>
-              <line x1="8" y1="18" x2="21" y2="18"/>
-              <polyline points="3,6 4,7 6,5"/>
-              <polyline points="3,12 4,13 6,11"/>
-              <polyline points="3,18 4,19 6,17"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <polyline points="3,6 4,7 6,5" />
+              <polyline points="3,12 4,13 6,11" />
+              <polyline points="3,18 4,19 6,17" />
             </svg>
-            <span>Queue <span class="queue-count">{$userQueue.length}</span></span>
+            <span
+              >Queue <span class="queue-count">{$userQueue.length}</span></span
+            >
           </button>
         {/if}
 
         <button
           class="fs-extra-btn"
-          class:active={$castState === 'connected'}
+          class:active={$castState === "connected"}
           on:click={handleCastToggle}
-          disabled={$castState === 'connecting'}
-          aria-label={$castState === 'connected' ? 'Stop casting' : 'Cast to device'}
-          title={$castState === 'connected' ? `Casting to ${$castDeviceName}` : 'Cast'}
+          disabled={$castState === "connecting"}
+          aria-label={$castState === "connected"
+            ? "Stop casting"
+            : "Cast to device"}
+          title={$castState === "connected"
+            ? `Casting to ${$castDeviceName}`
+            : "Cast"}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/>
-            <path d="M2 15a7 7 0 0 1 7 7"/>
-            <path d="M2 15a3 3 0 0 1 3 3"/>
-            <line x1="2" y1="22" x2="2.01" y2="22"/>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"
+            />
+            <path d="M2 15a7 7 0 0 1 7 7" />
+            <path d="M2 15a3 3 0 0 1 3 3" />
+            <line x1="2" y1="22" x2="2.01" y2="22" />
           </svg>
-          {#if $castState === 'connected'}
+          {#if $castState === "connected"}
             <span class="fs-cast-dot"></span>
           {/if}
-          <span>{$castState === 'connected' ? $castDeviceName : 'Cast'}</span>
+          <span>{$castState === "connected" ? $castDeviceName : "Cast"}</span>
         </button>
 
         <MobileDevicePicker
@@ -690,7 +854,9 @@
       background: var(--bg-elevated);
       border: 1px solid var(--border);
       border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.18);
       overflow: hidden;
       z-index: 39;
       cursor: pointer;
@@ -788,7 +954,10 @@
 
     .mini-btn--fav {
       color: var(--text-muted);
-      transition: color 0.15s, background 0.1s, transform 0.1s;
+      transition:
+        color 0.15s,
+        background 0.1s,
+        transform 0.1s;
     }
 
     .mini-btn--fav.active {
@@ -873,7 +1042,10 @@
       border-radius: 20px;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      transition:
+        background 0.15s,
+        color 0.15s,
+        border-color 0.15s;
     }
 
     .fs-lyrics-toggle.active {
@@ -1002,7 +1174,10 @@
       color: rgba(255, 255, 255, 0.22);
       margin: 0 0 22px;
       padding: 0;
-      transition: color 0.35s ease, font-size 0.2s ease, opacity 0.1s ease;
+      transition:
+        color 0.35s ease,
+        font-size 0.2s ease,
+        opacity 0.1s ease;
       cursor: pointer;
       word-break: break-word;
       -webkit-tap-highlight-color: transparent;
@@ -1069,7 +1244,9 @@
       padding: 8px;
       cursor: pointer;
       color: rgba(255, 255, 255, 0.5);
-      transition: color 0.15s, transform 0.1s;
+      transition:
+        color 0.15s,
+        transform 0.1s;
       -webkit-tap-highlight-color: transparent;
     }
 
@@ -1156,6 +1333,5 @@
     .queue-count {
       font-weight: 700;
     }
-
   }
 </style>

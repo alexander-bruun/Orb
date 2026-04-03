@@ -5,7 +5,13 @@
   import { smartPlaylists as spApi } from "$lib/api/smartPlaylists";
   import { audiobooks as abApi } from "$lib/api/audiobooks";
   import { podcasts as pcApi } from "$lib/api/podcasts";
-  import type { Track, Album, SmartPlaylist, Audiobook, Podcast } from "$lib/types";
+  import type {
+    Track,
+    Album,
+    SmartPlaylist,
+    Audiobook,
+    Podcast,
+  } from "$lib/types";
   import TrackList from "$lib/components/library/TrackList.svelte";
   import AlbumCard from "$lib/components/library/AlbumCard.svelte";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
@@ -32,7 +38,10 @@
   let newPodcasts: Podcast[] = [];
   let podcastsWithNewEpisodes: Podcast[] = [];
   let smartPls: SmartPlaylist[] = [];
-  type InProgressBook = Audiobook & { position_ms: number; progress_updated_at: string };
+  type InProgressBook = Audiobook & {
+    position_ms: number;
+    progress_updated_at: string;
+  };
   let inProgressBooks: InProgressBook[] = [];
   let loading = true;
   let playsLoading = false;
@@ -56,7 +65,7 @@
       customFrom,
       customTo,
       recentPage,
-      mostPage
+      mostPage,
     }),
     restore: (value) => {
       recentTracks = value.recentTracks;
@@ -75,7 +84,7 @@
       mostPage = value.mostPage;
       isRestoring = true;
       loading = false;
-    }
+    },
   };
 
   $: recentPages = Math.max(1, Math.ceil(recentTracks.length / PAGE_SIZE));
@@ -126,7 +135,7 @@
         }
         return acc;
       }, new Map<string, Audiobook>())
-      .values()
+      .values(),
   );
 
   function playAllOffline() {
@@ -147,16 +156,38 @@
   async function loadHomeData() {
     loading = true;
     try {
-      [recentTracks, mostTracks, recentAlbums, newAlbums, newAudiobooks, newPodcasts, podcastsWithNewEpisodes, smartPls, inProgressBooks] = await Promise.all([
+      [
+        recentTracks,
+        mostTracks,
+        recentAlbums,
+        newAlbums,
+        newAudiobooks,
+        newPodcasts,
+        podcastsWithNewEpisodes,
+        smartPls,
+        inProgressBooks,
+      ] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
         libApi.mostPlayed(100).then((r) => r ?? []),
         libApi.recentlyPlayedAlbums().then((r) => r ?? []),
         libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
-        abApi.recentlyAdded(20).then((r) => r.audiobooks ?? []).catch(() => []),
-        pcApi.recentlyAdded(20).then((r) => r.podcasts ?? []).catch(() => []),
-        pcApi.withNewEpisodes(20).then((r) => r.podcasts ?? []).catch(() => []),
+        abApi
+          .recentlyAdded(20)
+          .then((r) => r.audiobooks ?? [])
+          .catch(() => []),
+        pcApi
+          .recentlyAdded(20)
+          .then((r) => r.podcasts ?? [])
+          .catch(() => []),
+        pcApi
+          .withNewEpisodes(20)
+          .then((r) => r.podcasts ?? [])
+          .catch(() => []),
         spApi.list().then((r) => r ?? []),
-        abApi.inProgress(10).then((r) => r.audiobooks ?? []).catch(() => []),
+        abApi
+          .inProgress(10)
+          .then((r) => r.audiobooks ?? [])
+          .catch(() => []),
       ]);
       dataFetched = true;
     } catch {
@@ -278,22 +309,51 @@
             <a class="ab-card" href="/audiobooks/{book.id}">
               <div class="ab-cover-wrap">
                 {#if book.cover_art_key}
-                  <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
+                  <img
+                    src="{getApiBase()}/covers/audiobook/{book.id}"
+                    alt={book.title}
+                    class="ab-cover"
+                    loading="lazy"
+                  />
                 {:else}
                   <div class="ab-cover ab-placeholder">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    <svg
+                      width="28"
+                      height="28"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                     </svg>
                   </div>
                 {/if}
-                <button class="ab-play-btn" aria-label="Play {book.title}" on:click|preventDefault|stopPropagation={() => playAudiobook(book, 0)}>
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
+                <button
+                  class="ab-play-btn"
+                  aria-label="Play {book.title}"
+                  on:click|preventDefault|stopPropagation={() =>
+                    playAudiobook(book, 0)}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    aria-hidden="true"
+                    ><path d="M4 2.5l10 5.5-10 5.5V2.5z" /></svg
+                  >
                 </button>
               </div>
               <div class="ab-info">
                 <span class="ab-title" title={book.title}>{book.title}</span>
-                {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+                {#if book.author_name}<span class="ab-author"
+                    >{book.author_name}</span
+                  >{/if}
               </div>
             </a>
           {/each}
@@ -305,14 +365,24 @@
       <div class="offline-title-row">
         <h2 class="title">Downloads</h2>
         <span class="offline-badge">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="1" y1="1" x2="23" y2="23"/>
-            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
-            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
-            <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
-            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
-            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+            <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+            <line x1="12" y1="20" x2="12.01" y2="20" />
           </svg>
           Offline
         </span>
@@ -322,38 +392,73 @@
         <div class="offline-actions">
           <button class="btn-play" on:click={playAllOffline}>▶ Play</button>
           <button class="btn-shuffle" on:click={shuffleOffline} title="Shuffle">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-              <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
-              <line x1="4" y1="4" x2="9" y2="9"/>
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="16 3 21 3 21 8" /><line
+                x1="4"
+                y1="20"
+                x2="21"
+                y2="3"
+              />
+              <polyline points="21 16 21 21 16 21" /><line
+                x1="15"
+                y1="15"
+                x2="21"
+                y2="21"
+              />
+              <line x1="4" y1="4" x2="9" y2="9" />
             </svg>
             Shuffle
           </button>
-          <span class="track-count">{offlineTracks.length} track{offlineTracks.length === 1 ? "" : "s"}</span>
+          <span class="track-count"
+            >{offlineTracks.length} track{offlineTracks.length === 1
+              ? ""
+              : "s"}</span
+          >
         </div>
       {/if}
     </div>
 
     {#if offlineTracks.length === 0}
       <div class="empty-offline">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="1" y1="1" x2="23" y2="23"/>
-          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
-          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
-          <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
-          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
-          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-          <line x1="12" y1="20" x2="12.01" y2="20"/>
+        <svg
+          width="40"
+          height="40"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="1" y1="1" x2="23" y2="23" />
+          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+          <path d="M10.71 5.05A16 16 0 0 1 22.56 9" />
+          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+          <line x1="12" y1="20" x2="12.01" y2="20" />
         </svg>
         <p>You're offline and have no downloaded tracks.</p>
-        <p class="muted">Download your favorites while connected to listen without a network.</p>
+        <p class="muted">
+          Download your favorites while connected to listen without a network.
+        </p>
       </div>
     {:else}
       <TrackList tracks={offlineTracks} showCover={true} />
     {/if}
   </div>
 
-<!-- ── Online loading skeleton ─────────────────────────────────────────────── -->
+  <!-- ── Online loading skeleton ─────────────────────────────────────────────── -->
 {:else if loading}
   <div class="skeleton-home">
     <!-- Album slider skeleton -->
@@ -386,7 +491,7 @@
     </div>
   </div>
 
-<!-- ── Normal online home ───────────────────────────────────────────────────── -->
+  <!-- ── Normal online home ───────────────────────────────────────────────────── -->
 {:else}
   {#if inProgressBooks.length > 0}
     <section class="home-section">
@@ -396,18 +501,35 @@
       </div>
       <div class="ab-slider">
         {#each inProgressBooks as book (book.id)}
-          {@const pct = book.duration_ms > 0 ? Math.min(100, (book.position_ms / book.duration_ms) * 100) : 0}
-          
-          
+          {@const pct =
+            book.duration_ms > 0
+              ? Math.min(100, (book.position_ms / book.duration_ms) * 100)
+              : 0}
+
           <a class="ab-card" href="/audiobooks/{book.id}">
             <div class="ab-cover-wrap">
               {#if book.cover_art_key}
-                <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
+                <img
+                  src="{getApiBase()}/covers/audiobook/{book.id}"
+                  alt={book.title}
+                  class="ab-cover"
+                  loading="lazy"
+                />
               {:else}
                 <div class="ab-cover ab-placeholder">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                   </svg>
                 </div>
               {/if}
@@ -415,29 +537,47 @@
               <div class="ab-progress-strip">
                 <div class="ab-progress-fill" style="width:{pct}%"></div>
               </div>
-              <button class="ab-play-btn" aria-label="Resume {book.title}" on:click|preventDefault|stopPropagation={() => playAudiobook(book, book.position_ms)}>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
+              <button
+                class="ab-play-btn"
+                aria-label="Resume {book.title}"
+                on:click|preventDefault|stopPropagation={() =>
+                  playAudiobook(book, book.position_ms)}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z" /></svg
+                >
               </button>
             </div>
             <div class="ab-info">
               <span class="ab-title" title={book.title}>{book.title}</span>
-              {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+              {#if book.author_name}<span class="ab-author"
+                  >{book.author_name}</span
+                >{/if}
               {#if book.series}
-                
-                
                 <button
                   type="button"
                   class="ab-series"
                   aria-label={`View series: ${book.series}`}
-                  on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}
+                  on:click|stopPropagation={() =>
+                    goto(
+                      `/audiobooks/series/${encodeURIComponent(book.series!)}`,
+                    )}
                   on:keydown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`);
+                      goto(
+                        `/audiobooks/series/${encodeURIComponent(book.series!)}`,
+                      );
                     }
                   }}
                 >
-                  {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+                  {book.series}{book.series_index != null
+                    ? ` #${book.series_index}`
+                    : ""}
                 </button>
               {/if}
             </div>
@@ -458,14 +598,31 @@
           <a class="pc-card" href="/podcasts/{pc.id}">
             <div class="pc-cover-wrap">
               {#if pc.cover_art_key}
-                <img src="{getApiBase()}/covers/podcast/{pc.id}" alt={pc.title} class="pc-cover" loading="lazy" />
+                <img
+                  src="{getApiBase()}/covers/podcast/{pc.id}"
+                  alt={pc.title}
+                  class="pc-cover"
+                  loading="lazy"
+                />
               {:else}
                 <div class="pc-cover pc-placeholder">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" y1="19" x2="12" y2="23"/>
-                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                    />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                 </div>
               {/if}
@@ -605,22 +762,50 @@
           <a class="ab-card" href="/audiobooks/{book.id}">
             <div class="ab-cover-wrap">
               {#if book.cover_art_key}
-                <img src="{getApiBase()}/covers/audiobook/{book.id}" alt={book.title} class="ab-cover" loading="lazy" />
+                <img
+                  src="{getApiBase()}/covers/audiobook/{book.id}"
+                  alt={book.title}
+                  class="ab-cover"
+                  loading="lazy"
+                />
               {:else}
                 <div class="ab-cover ab-placeholder">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                   </svg>
                 </div>
               {/if}
-              <button class="ab-play-btn" aria-label="Play {book.title}" on:click|preventDefault|stopPropagation={() => playAudiobook(book, 0)}>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z"/></svg>
+              <button
+                class="ab-play-btn"
+                aria-label="Play {book.title}"
+                on:click|preventDefault|stopPropagation={() =>
+                  playAudiobook(book, 0)}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  aria-hidden="true"><path d="M4 2.5l10 5.5-10 5.5V2.5z" /></svg
+                >
               </button>
             </div>
             <div class="ab-info">
               <span class="ab-title" title={book.title}>{book.title}</span>
-              {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+              {#if book.author_name}<span class="ab-author"
+                  >{book.author_name}</span
+                >{/if}
             </div>
           </a>
         {/each}
@@ -639,14 +824,31 @@
           <a class="pc-card" href="/podcasts/{pc.id}">
             <div class="pc-cover-wrap">
               {#if pc.cover_art_key}
-                <img src="{getApiBase()}/covers/podcast/{pc.id}" alt={pc.title} class="pc-cover" loading="lazy" />
+                <img
+                  src="{getApiBase()}/covers/podcast/{pc.id}"
+                  alt={pc.title}
+                  class="pc-cover"
+                  loading="lazy"
+                />
               {:else}
                 <div class="pc-cover pc-placeholder">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" y1="19" x2="12" y2="23"/>
-                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                    />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                 </div>
               {/if}
@@ -671,14 +873,35 @@
         {#each smartPls.slice(0, 6) as sp (sp.id)}
           <a class="sp-card" href="/smart-playlists/{sp.id}">
             <div class="sp-icon" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="8" y1="6" x2="21" y2="6" /><line
+                  x1="8"
+                  y1="12"
+                  x2="21"
+                  y2="12"
+                /><line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" /><line
+                  x1="3"
+                  y1="12"
+                  x2="3.01"
+                  y2="12"
+                /><line x1="3" y1="18" x2="3.01" y2="18" />
               </svg>
             </div>
             <div class="sp-info">
               <span class="sp-name">{sp.name}</span>
-              <span class="sp-meta">{sp.rules.length} rule{sp.rules.length === 1 ? '' : 's'}</span>
+              <span class="sp-meta"
+                >{sp.rules.length} rule{sp.rules.length === 1 ? "" : "s"}</span
+              >
             </div>
           </a>
         {/each}
@@ -695,9 +918,13 @@
 
 <style>
   /* ── Offline view ── */
-  .offline-view { padding-top: 4px; }
+  .offline-view {
+    padding-top: 4px;
+  }
 
-  .offline-header { margin-bottom: 20px; }
+  .offline-header {
+    margin-bottom: 20px;
+  }
 
   .offline-title-row {
     display: flex;
@@ -705,7 +932,11 @@
     gap: 12px;
     margin-bottom: 12px;
   }
-  .title { font-size: 1.25rem; font-weight: 600; margin: 0; }
+  .title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+  }
 
   .offline-badge {
     display: inline-flex;
@@ -736,7 +967,9 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .btn-play:hover { background: var(--accent-hover); }
+  .btn-play:hover {
+    background: var(--accent-hover);
+  }
 
   .btn-shuffle {
     display: flex;
@@ -751,7 +984,10 @@
     font-weight: 600;
     cursor: pointer;
   }
-  .btn-shuffle:hover { color: var(--text); border-color: var(--text); }
+  .btn-shuffle:hover {
+    color: var(--text);
+    border-color: var(--text);
+  }
 
   .track-count {
     font-size: 0.8rem;
@@ -768,12 +1004,25 @@
     color: var(--text-muted);
     text-align: center;
   }
-  .empty-offline p { margin: 0; font-size: 0.9rem; }
-  .empty-offline svg { opacity: 0.4; }
+  .empty-offline p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+  .empty-offline svg {
+    opacity: 0.4;
+  }
 
   /* ── Loading skeleton ── */
-  .skeleton-home { display: flex; flex-direction: column; gap: 40px; }
-  .skeleton-section { display: flex; flex-direction: column; gap: 16px; }
+  .skeleton-home {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+  }
+  .skeleton-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
 
   .skeleton-slider {
     display: flex;
@@ -787,7 +1036,11 @@
     flex: 0 0 134px;
   }
 
-  .skeleton-tracks { display: flex; flex-direction: column; gap: 2px; }
+  .skeleton-tracks {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
   .skeleton-row {
     display: flex;
     align-items: center;
@@ -803,7 +1056,9 @@
   }
 
   /* ── Normal home ── */
-  .home-section { margin-bottom: 40px; }
+  .home-section {
+    margin-bottom: 40px;
+  }
 
   .section-header {
     display: flex;
@@ -812,7 +1067,11 @@
     margin-bottom: 16px;
   }
 
-  .section-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
+  .section-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+  }
 
   .view-all {
     font-size: 0.8rem;
@@ -820,7 +1079,9 @@
     text-decoration: none;
     letter-spacing: 0.02em;
   }
-  .view-all:hover { color: var(--text); }
+  .view-all:hover {
+    color: var(--text);
+  }
 
   .plays-controls {
     display: flex;
@@ -830,7 +1091,10 @@
     margin-bottom: 20px;
   }
 
-  .interval-tabs { display: flex; gap: 4px; }
+  .interval-tabs {
+    display: flex;
+    gap: 4px;
+  }
 
   .interval-tab {
     background: none;
@@ -840,12 +1104,26 @@
     cursor: pointer;
     font-size: 0.8rem;
     padding: 4px 12px;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s,
+      border-color 0.15s;
   }
-  .interval-tab:hover { color: var(--text); border-color: var(--text-muted); }
-  .interval-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .interval-tab:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+  }
+  .interval-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
 
-  .date-range { display: flex; align-items: center; gap: 8px; }
+  .date-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 
   .date-input {
     background: var(--bg-elevated);
@@ -856,9 +1134,15 @@
     padding: 3px 8px;
     cursor: pointer;
   }
-  .date-input:focus { outline: none; border-color: var(--accent); }
+  .date-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 
-  .date-sep { color: var(--text-muted); font-size: 0.8rem; }
+  .date-sep {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+  }
 
   .plays-columns {
     display: grid;
@@ -866,7 +1150,9 @@
     gap: 32px;
   }
   @media (max-width: 900px) {
-    .plays-columns { grid-template-columns: 1fr; }
+    .plays-columns {
+      grid-template-columns: 1fr;
+    }
   }
 
   .col-header {
@@ -876,7 +1162,11 @@
     margin-bottom: 12px;
   }
 
-  .col-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
+  .col-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0;
+  }
 
   .page-label {
     display: flex;
@@ -895,9 +1185,15 @@
     padding: 2px 6px;
     cursor: pointer;
   }
-  .page-select:focus { outline: none; border-color: var(--accent); }
+  .page-select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 
-  .muted { color: var(--text-muted); font-size: 0.875rem; }
+  .muted {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+  }
 
   .sp-grid {
     display: grid;
@@ -914,9 +1210,14 @@
     padding: 12px;
     text-decoration: none;
     color: inherit;
-    transition: background 0.15s, border-color 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
   }
-  .sp-card:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+  .sp-card:hover {
+    background: var(--bg-hover);
+    border-color: var(--text-muted);
+  }
   .sp-icon {
     width: 36px;
     height: 36px;
@@ -928,9 +1229,23 @@
     flex-shrink: 0;
     color: var(--accent);
   }
-  .sp-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .sp-name { font-size: 0.85rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sp-meta { font-size: 0.72rem; color: var(--text-muted); }
+  .sp-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .sp-name {
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sp-meta {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
 
   /* ── Continue Listening audiobook cards ── */
   .ab-slider {
@@ -941,9 +1256,16 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
-  .ab-slider::-webkit-scrollbar { height: 4px; }
-  .ab-slider::-webkit-scrollbar-track { background: transparent; }
-  .ab-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .ab-slider::-webkit-scrollbar {
+    height: 4px;
+  }
+  .ab-slider::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .ab-slider::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
 
   .ab-card {
     flex: 0 0 160px;
@@ -973,7 +1295,9 @@
     display: block;
     transition: transform 0.25s;
   }
-  .ab-card:hover .ab-cover { transform: scale(1.03); }
+  .ab-card:hover .ab-cover {
+    transform: scale(1.03);
+  }
 
   .ab-placeholder {
     position: absolute;
@@ -991,7 +1315,7 @@
     left: 0;
     right: 0;
     height: 3px;
-    background: rgba(255,255,255,0.15);
+    background: rgba(255, 255, 255, 0.15);
   }
   .ab-progress-fill {
     height: 100%;
@@ -1015,11 +1339,18 @@
     cursor: pointer;
     opacity: 0;
     transform: translateY(3px);
-    transition: opacity 0.2s, transform 0.2s;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   }
-  .ab-card:hover .ab-play-btn { opacity: 1; transform: translateY(0); }
-  .ab-play-btn:hover { filter: brightness(1.1); }
+  .ab-card:hover .ab-play-btn {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .ab-play-btn:hover {
+    filter: brightness(1.1);
+  }
 
   .ab-info {
     display: flex;
@@ -1066,9 +1397,16 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
-  .pc-slider::-webkit-scrollbar { height: 4px; }
-  .pc-slider::-webkit-scrollbar-track { background: transparent; }
-  .pc-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .pc-slider::-webkit-scrollbar {
+    height: 4px;
+  }
+  .pc-slider::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .pc-slider::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
 
   .pc-card {
     flex: 0 0 160px;
@@ -1096,7 +1434,9 @@
     display: block;
     transition: transform 0.25s;
   }
-  .pc-card:hover .pc-cover { transform: scale(1.03); }
+  .pc-card:hover .pc-cover {
+    transform: scale(1.03);
+  }
 
   .pc-placeholder {
     display: flex;
@@ -1138,9 +1478,16 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
-  .album-slider::-webkit-scrollbar { height: 4px; }
-  .album-slider::-webkit-scrollbar-track { background: transparent; }
-  .album-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .album-slider::-webkit-scrollbar {
+    height: 4px;
+  }
+  .album-slider::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .album-slider::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
 
   .slider-item {
     flex: 0 0 160px;
@@ -1150,6 +1497,14 @@
     display: flex;
     flex-direction: column;
   }
-  .slider-item :global(.album-card) { width: 160px; max-width: 160px; box-sizing: border-box; }
-  .slider-item :global(.cover-wrap) { width: 134px; height: 134px; padding-bottom: 0; }
+  .slider-item :global(.album-card) {
+    width: 160px;
+    max-width: 160px;
+    box-sizing: border-box;
+  }
+  .slider-item :global(.cover-wrap) {
+    width: 134px;
+    height: 134px;
+    padding-bottom: 0;
+  }
 </style>

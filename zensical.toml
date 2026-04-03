@@ -8,15 +8,15 @@ repo_name = "alexander-bruun/orb"
 repo_url = "https://github.com/alexander-bruun/orb"
 
 nav = [
-  {"Home" = "home.md"},
-  {"Getting started" = [
-    {"Installation" = "installation.md"},
-    {"Configuration" = "configuration.md"},
-    {"Library structure" = [
-      {"Music" = "library-music.md"},
-      {"Audiobook" = "library-audiobooks.md"},
-    ]},
-  ]},
+  { "Home" = "home.md" },
+  { "Getting started" = [
+    { "Installation" = "installation.md" },
+    { "Configuration" = "configuration.md" },
+    { "Library structure" = [
+      { "Music" = "library-music.md" },
+      { "Audiobook" = "library-audiobooks.md" },
+    ] },
+  ] },
 ]
 
 [project.theme]
@@ -44,21 +44,21 @@ features = [
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme)"
-toggle = {icon = "lucide/sun-moon", name = "Switch to light mode"}
+toggle = { icon = "lucide/sun-moon", name = "Switch to light mode" }
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: light)"
 scheme = "default"
 primary = "indigo"
 accent = "purple"
-toggle = {icon = "lucide/sun", name = "Switch to dark mode"}
+toggle = { icon = "lucide/sun", name = "Switch to dark mode" }
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: dark)"
 scheme = "slate"
 primary = "black"
 accent = "purple"
-toggle = {icon = "lucide/moon-star", name = "Switch to system preference"}
+toggle = { icon = "lucide/moon-star", name = "Switch to system preference" }
 
 [project.theme.icon.tag]
 default = "lucide/hash"

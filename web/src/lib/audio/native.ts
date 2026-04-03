@@ -94,7 +94,7 @@ export class NativePlayer {
 	}
 
 	resume() {
-		this.el.play().catch(() => {});
+		this.el.play().catch(() => { });
 	}
 
 	seek(seconds: number) {

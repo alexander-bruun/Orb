@@ -1,27 +1,38 @@
 <script lang="ts">
-  import type { Album } from '$lib/types';
-  import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
-  import { getArtistName } from '$lib/stores/library/artists';
-  import { currentTrack, playbackState } from '$lib/stores/player';
+  import type { Album } from "$lib/types";
+  import { goto } from "$app/navigation";
+  import { onMount } from "svelte";
+  import { getArtistName } from "$lib/stores/library/artists";
+  import { currentTrack, playbackState } from "$lib/stores/player";
 
   export let album: Album;
 
-  let artistName: string = '';
+  let artistName: string = "";
 
   $: isActiveAlbum = $currentTrack?.album_id === album.id;
-  $: isPlaying = isActiveAlbum && $playbackState === 'playing';
+  $: isPlaying = isActiveAlbum && $playbackState === "playing";
 
-  import { getApiBase } from '$lib/api/base';
+  import { getApiBase } from "$lib/api/base";
 
   // Each straight edge uses a sine wave multiplied by a smoothstep envelope
   // that drives both amplitude and its derivative to zero at each endpoint.
   // This ensures C1 continuity where the wave meets the corner arc — no kink.
   const wavePath = (() => {
-    const size = 200, amp = 3, r = 8, waves = 9, steps = 120;
+    const size = 200,
+      amp = 3,
+      r = 8,
+      waves = 9,
+      steps = 120;
     const e = size - r;
 
-    function edge(x0: number, y0: number, x1: number, y1: number, nx: number, ny: number): string {
+    function edge(
+      x0: number,
+      y0: number,
+      x1: number,
+      y1: number,
+      nx: number,
+      ny: number,
+    ): string {
       const pts: string[] = [];
       for (let i = 0; i <= steps; i++) {
         const u = i / steps;
@@ -31,21 +42,24 @@
         const t = Math.min(u / fade, (1 - u) / fade, 1);
         const env = t * t * (3 - 2 * t);
         const w = amp * env * Math.sin(u * waves * Math.PI * 2);
-        pts.push(`${(x0 + u*(x1-x0) + nx*w).toFixed(2)},${(y0 + u*(y1-y0) + ny*w).toFixed(2)}`);
+        pts.push(
+          `${(x0 + u * (x1 - x0) + nx * w).toFixed(2)},${(y0 + u * (y1 - y0) + ny * w).toFixed(2)}`,
+        );
       }
-      return pts.join(' L ');
+      return pts.join(" L ");
     }
 
     return [
-      `M ${r},0 L`,      edge(r, 0,    e, 0,    0, -1),  // top →
+      `M ${r},0 L`,
+      edge(r, 0, e, 0, 0, -1), // top →
       `A ${r},${r} 0 0 1 ${size},${r} L`,
-                          edge(size, r, size, e, 1, 0),   // right ↓
+      edge(size, r, size, e, 1, 0), // right ↓
       `A ${r},${r} 0 0 1 ${e},${size} L`,
-                          edge(e, size, r, size, 0, 1),   // bottom ←
+      edge(e, size, r, size, 0, 1), // bottom ←
       `A ${r},${r} 0 0 1 0,${e} L`,
-                          edge(0, e,    0, r,   -1, 0),   // left ↑
+      edge(0, e, 0, r, -1, 0), // left ↑
       `A ${r},${r} 0 0 1 ${r},0 Z`,
-    ].join(' ');
+    ].join(" ");
   })();
 
   onMount(async () => {
@@ -59,10 +73,20 @@
   });
 </script>
 
-<button class="album-card" class:playing={isActiveAlbum} on:click={() => goto(`/library/albums/${album.id}`)} aria-label="View album {album.title}">
+<button
+  class="album-card"
+  class:playing={isActiveAlbum}
+  on:click={() => goto(`/library/albums/${album.id}`)}
+  aria-label="View album {album.title}"
+>
   <div class="cover-wrap" class:wave-active={isActiveAlbum}>
     {#if album.cover_art_key}
-      <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" loading="lazy" />
+      <img
+        src="{getApiBase()}/covers/{album.id}"
+        alt={album.title}
+        class="cover"
+        loading="lazy"
+      />
     {:else}
       <div class="cover placeholder album-fallback">♪</div>
     {/if}
@@ -76,20 +100,41 @@
         {:else}{album.max_channels}ch{/if}
       </span>
     {/if}
-    <svg class="wave-ring" class:wave-visible={isPlaying} viewBox="-5 -5 210 210" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <path d={wavePath} pathLength="1000" fill="none"
-            stroke="var(--accent)" stroke-width="2" stroke-linecap="round"
-            stroke-dasharray="350 650" class="wave-dash" />
-      <path d={wavePath} pathLength="1000" fill="none"
-            stroke="var(--accent)" stroke-width="6" stroke-linecap="round"
-            stroke-dasharray="350 650" class="wave-dash wave-glow" />
+    <svg
+      class="wave-ring"
+      class:wave-visible={isPlaying}
+      viewBox="-5 -5 210 210"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d={wavePath}
+        pathLength="1000"
+        fill="none"
+        stroke="var(--accent)"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-dasharray="350 650"
+        class="wave-dash"
+      />
+      <path
+        d={wavePath}
+        pathLength="1000"
+        fill="none"
+        stroke="var(--accent)"
+        stroke-width="6"
+        stroke-linecap="round"
+        stroke-dasharray="350 650"
+        class="wave-dash wave-glow"
+      />
     </svg>
   </div>
   <div class="info">
     <span class="title">{album.title}</span>
     <div class="meta">
       {#if artistName}<span class="artist">{artistName}</span>{/if}
-      {#if album.release_year}<span class="year">{album.release_year}</span>{/if}
+      {#if album.release_year}<span class="year">{album.release_year}</span
+        >{/if}
     </div>
   </div>
 </button>
@@ -108,12 +153,22 @@
     padding: 12px;
     cursor: pointer;
     text-align: left;
-    transition: background 0.15s, border-color 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
     position: relative;
   }
-  .album-card:hover { background: var(--bg-hover); border-color: var(--accent); }
-  .album-card.playing { border-color: var(--accent); background: var(--accent-dim); }
-  .album-card.playing:hover { background: var(--bg-hover); }
+  .album-card:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+  .album-card.playing {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .album-card.playing:hover {
+    background: var(--bg-hover);
+  }
 
   .cover-wrap {
     position: relative;
@@ -149,7 +204,9 @@
     opacity: 0.15;
   }
   @keyframes dash-travel {
-    to { stroke-dashoffset: -1000; }
+    to {
+      stroke-dashoffset: -1000;
+    }
   }
   .cover {
     position: absolute;
@@ -191,7 +248,7 @@
     left: 6px;
     background: rgba(0, 0, 0, 0.55);
     color: #fff;
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
     font-size: 0.6rem;
     font-weight: 600;
     letter-spacing: 0.05em;
@@ -201,9 +258,38 @@
     backdrop-filter: blur(4px);
   }
 
-  .info { display: flex; flex-direction: column; gap: 2px; }
-  .title { font-size: 0.875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
-  .meta { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; min-width: 0; }
-  .artist { font-size: 0.75rem; color: var(--text-muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .year { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
+  .info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+  }
+  .meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px;
+    min-width: 0;
+  }
+  .artist {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .year {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
 </style>

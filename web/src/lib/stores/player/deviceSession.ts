@@ -194,7 +194,7 @@ export async function startSession() {
 		// before other devices poll. Without this, a browser refresh causes
 		// the server to return position_ms: 0 to secondary devices until
 		// the first periodic heartbeat (30s later).
-		sendHeartbeat().catch(() => {});
+		sendHeartbeat().catch(() => { });
 
 		// Start heartbeat (every 30 s).
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -214,7 +214,7 @@ export function stopSession() {
 	deviceRegistered.set(false);
 	activeDevices.set([]);
 	if (browser && deviceId) {
-		devicesApi.unregister(deviceId).catch(() => {});
+		devicesApi.unregister(deviceId).catch(() => { });
 	}
 }
 
@@ -406,7 +406,7 @@ if (browser) {
 					// If this device was playing locally while we were offline,
 					// claim the active slot so the server reflects reality.
 					if (get(engine.enginePlaybackState) === 'playing' && deviceId) {
-						devicesApi.activate(deviceId).catch(() => {});
+						devicesApi.activate(deviceId).catch(() => { });
 					}
 				});
 			}

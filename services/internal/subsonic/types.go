@@ -12,13 +12,13 @@ const apiVersion = "1.16.1"
 
 // Response is the top-level XML/JSON envelope.
 type Response struct {
-	XMLName        xml.Name `xml:"subsonic-response" json:"-"`
-	XMLNS          string   `xml:"xmlns,attr"                   json:"-"`
-	Status         string   `xml:"status,attr"                  json:"status"`
-	Version        string   `xml:"version,attr"                 json:"version"`
-	Type           string   `xml:"type,attr"                    json:"type"`
-	ServerVersion  string   `xml:"serverVersion,attr"           json:"serverVersion"`
-	OpenSubsonic   bool     `xml:"openSubsonic,attr"            json:"openSubsonic"`
+	XMLName       xml.Name `xml:"subsonic-response" json:"-"`
+	XMLNS         string   `xml:"xmlns,attr"                   json:"-"`
+	Status        string   `xml:"status,attr"                  json:"status"`
+	Version       string   `xml:"version,attr"                 json:"version"`
+	Type          string   `xml:"type,attr"                    json:"type"`
+	ServerVersion string   `xml:"serverVersion,attr"           json:"serverVersion"`
+	OpenSubsonic  bool     `xml:"openSubsonic,attr"            json:"openSubsonic"`
 
 	// Only one of these should be populated per response.
 	Error                  *SubsonicError          `xml:"error,omitempty"                    json:"error,omitempty"`
@@ -107,9 +107,9 @@ type Artist struct {
 
 // ArtistsID3 is the top-level wrapper for the ID3 artist list (getArtists).
 type ArtistsID3 struct {
-	LastModified    int64       `xml:"lastModified,attr"    json:"lastModified"`
-	IgnoredArticles string      `xml:"ignoredArticles,attr" json:"ignoredArticles"`
-	Index           []IndexID3  `xml:"index"                json:"index,omitempty"`
+	LastModified    int64      `xml:"lastModified,attr"    json:"lastModified"`
+	IgnoredArticles string     `xml:"ignoredArticles,attr" json:"ignoredArticles"`
+	Index           []IndexID3 `xml:"index"                json:"index,omitempty"`
 }
 
 // IndexID3 is one letter group in the ID3 artist index.
@@ -129,27 +129,27 @@ type ArtistID3 struct {
 
 // ArtistWithAlbumsID3 is an artist with its albums (getArtist response).
 type ArtistWithAlbumsID3 struct {
-	ID             string      `xml:"id,attr"             json:"id"`
-	Name           string      `xml:"name,attr"           json:"name"`
-	AlbumCount     int         `xml:"albumCount,attr"     json:"albumCount"`
-	Starred        string      `xml:"starred,attr"        json:"starred,omitempty"`
-	ArtistImageURL string      `xml:"artistImageUrl,attr" json:"artistImageUrl,omitempty"`
-	Album          []AlbumID3  `xml:"album"               json:"album,omitempty"`
+	ID             string     `xml:"id,attr"             json:"id"`
+	Name           string     `xml:"name,attr"           json:"name"`
+	AlbumCount     int        `xml:"albumCount,attr"     json:"albumCount"`
+	Starred        string     `xml:"starred,attr"        json:"starred,omitempty"`
+	ArtistImageURL string     `xml:"artistImageUrl,attr" json:"artistImageUrl,omitempty"`
+	Album          []AlbumID3 `xml:"album"               json:"album,omitempty"`
 }
 
 // AlbumID3 is an album in the ID3 format.
 type AlbumID3 struct {
-	ID         string `xml:"id,attr"         json:"id"`
-	Name       string `xml:"name,attr"       json:"name"`
-	Artist     string `xml:"artist,attr"     json:"artist,omitempty"`
-	ArtistID   string `xml:"artistId,attr"   json:"artistId,omitempty"`
-	CoverArt   string `xml:"coverArt,attr"   json:"coverArt,omitempty"`
-	SongCount  int    `xml:"songCount,attr"  json:"songCount"`
-	Duration   int    `xml:"duration,attr"   json:"duration"`
-	Year       int    `xml:"year,attr"       json:"year,omitempty"`
-	Genre      string `xml:"genre,attr"      json:"genre,omitempty"`
-	Starred    string `xml:"starred,attr"    json:"starred,omitempty"`
-	Created    string `xml:"created,attr"    json:"created,omitempty"`
+	ID        string `xml:"id,attr"         json:"id"`
+	Name      string `xml:"name,attr"       json:"name"`
+	Artist    string `xml:"artist,attr"     json:"artist,omitempty"`
+	ArtistID  string `xml:"artistId,attr"   json:"artistId,omitempty"`
+	CoverArt  string `xml:"coverArt,attr"   json:"coverArt,omitempty"`
+	SongCount int    `xml:"songCount,attr"  json:"songCount"`
+	Duration  int    `xml:"duration,attr"   json:"duration"`
+	Year      int    `xml:"year,attr"       json:"year,omitempty"`
+	Genre     string `xml:"genre,attr"      json:"genre,omitempty"`
+	Starred   string `xml:"starred,attr"    json:"starred,omitempty"`
+	Created   string `xml:"created,attr"    json:"created,omitempty"`
 }
 
 // AlbumWithSongsID3 is an album with its songs (getAlbum response).
@@ -190,10 +190,10 @@ type Child struct {
 
 // Directory is a legacy music directory node.
 type Directory struct {
-	ID       string  `xml:"id,attr"       json:"id"`
-	Parent   string  `xml:"parent,attr"   json:"parent,omitempty"`
-	Name     string  `xml:"name,attr"     json:"name"`
-	Child    []Child `xml:"child"         json:"child,omitempty"`
+	ID     string  `xml:"id,attr"       json:"id"`
+	Parent string  `xml:"parent,attr"   json:"parent,omitempty"`
+	Name   string  `xml:"name,attr"     json:"name"`
+	Child  []Child `xml:"child"         json:"child,omitempty"`
 }
 
 // ── Album/Song lists ──────────────────────────────────────────────────────────
@@ -221,9 +221,9 @@ type NowPlaying struct {
 // NowPlayingEntry extends Child with playback metadata.
 type NowPlayingEntry struct {
 	Child
-	Username        string `xml:"username,attr"        json:"username"`
-	MinutesAgo      int    `xml:"minutesAgo,attr"      json:"minutesAgo"`
-	PlayerID        int    `xml:"playerId,attr"        json:"playerId"`
+	Username   string `xml:"username,attr"        json:"username"`
+	MinutesAgo int    `xml:"minutesAgo,attr"      json:"minutesAgo"`
+	PlayerID   int    `xml:"playerId,attr"        json:"playerId"`
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────

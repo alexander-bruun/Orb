@@ -43,12 +43,17 @@
 
 <div class="page">
   <div class="page-header">
-    
-    
-    <button type="button" class="back" on:click={() => goto("/audiobooks")} aria-label="Back to audiobooks">← Audiobooks</button>
+    <button
+      type="button"
+      class="back"
+      on:click={() => goto("/audiobooks")}
+      aria-label="Back to audiobooks">← Audiobooks</button
+    >
     <h1 class="page-title">{seriesName}</h1>
     {#if !loading}
-      <span class="count">{books.length} book{books.length === 1 ? "" : "s"}</span>
+      <span class="count"
+        >{books.length} book{books.length === 1 ? "" : "s"}</span
+      >
     {/if}
   </div>
 
@@ -69,8 +74,6 @@
   {:else}
     <div class="grid">
       {#each books as book (book.id)}
-        
-        
         <div
           class="book-card"
           role="button"
@@ -89,9 +92,19 @@
               />
             {:else}
               <div class="cover placeholder">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                <svg
+                  width="40"
+                  height="40"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                 </svg>
               </div>
             {/if}
@@ -100,8 +113,14 @@
               aria-label="Play {book.title}"
               on:click|stopPropagation={() => playAudiobook(book)}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M4 2.5l10 5.5-10 5.5V2.5z" />
               </svg>
             </button>
           </div>
@@ -124,7 +143,9 @@
 </div>
 
 <style>
-  .page { padding-top: 4px; }
+  .page {
+    padding-top: 4px;
+  }
 
   .page-header {
     display: flex;
@@ -143,11 +164,24 @@
     cursor: pointer;
     font: inherit;
   }
-  .back:hover { color: var(--text); }
+  .back:hover {
+    color: var(--text);
+  }
 
-  .page-title { font-size: 1.5rem; font-weight: 700; margin: 0; }
-  .count { font-size: 0.8rem; color: var(--text-muted); }
-  .error { color: var(--text-muted); text-align: center; padding: 48px; }
+  .page-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+  }
+  .count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .error {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 48px;
+  }
 
   .grid {
     display: grid;
@@ -174,8 +208,12 @@
     animation: shimmer 1.4s ease-in-out infinite;
   }
   @keyframes shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 
   .book-card {
@@ -203,7 +241,9 @@
     display: block;
     transition: transform 0.25s;
   }
-  .book-card:hover .cover { transform: scale(1.03); }
+  .book-card:hover .cover {
+    transform: scale(1.03);
+  }
 
   .placeholder {
     position: absolute;
@@ -231,11 +271,18 @@
     cursor: pointer;
     opacity: 0;
     transform: translateY(4px);
-    transition: opacity 0.2s, transform 0.2s;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   }
-  .book-card:hover .play-btn { opacity: 1; transform: translateY(0); }
-  .play-btn:hover { filter: brightness(1.1); }
+  .book-card:hover .play-btn {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .play-btn:hover {
+    filter: brightness(1.1);
+  }
 
   .info {
     display: flex;
@@ -281,6 +328,9 @@
   }
 
   @media (max-width: 640px) {
-    .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px 12px; }
+    .grid {
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 16px 12px;
+    }
   }
 </style>

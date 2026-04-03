@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Album } from '$lib/types';
-  import AlbumCard from './AlbumCard.svelte';
+  import type { Album } from "$lib/types";
+  import AlbumCard from "./AlbumCard.svelte";
 
   export let grouped: Map<string, Album[]>;
   export let keys: string[];

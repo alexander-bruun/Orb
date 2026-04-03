@@ -324,33 +324,33 @@ func albumContainer(id, parentID string, a store.Album, baseURL string) string {
 func trackItem(parentID string, t store.Track, baseURL string) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf(`<item id="track:%s" parentID="%s" restricted="1">`, xmlEscape(t.ID), xmlEscape(parentID)))
-	b.WriteString(fmt.Sprintf(`<dc:title>%s</dc:title>`, xmlEscape(t.Title)))
+	_, _ = fmt.Fprintf(&b, `<item id="track:%s" parentID="%s" restricted="1">`, xmlEscape(t.ID), xmlEscape(parentID))
+	_, _ = fmt.Fprintf(&b, `<dc:title>%s</dc:title>`, xmlEscape(t.Title))
 	b.WriteString(`<upnp:class>object.item.audioItem.musicTrack</upnp:class>`)
 
 	if t.ArtistName != nil {
-		b.WriteString(fmt.Sprintf(`<upnp:artist>%s</upnp:artist>`, xmlEscape(*t.ArtistName)))
-		b.WriteString(fmt.Sprintf(`<dc:creator>%s</dc:creator>`, xmlEscape(*t.ArtistName)))
+		_, _ = fmt.Fprintf(&b, `<upnp:artist>%s</upnp:artist>`, xmlEscape(*t.ArtistName))
+		_, _ = fmt.Fprintf(&b, `<dc:creator>%s</dc:creator>`, xmlEscape(*t.ArtistName))
 	}
 	if t.AlbumName != nil {
-		b.WriteString(fmt.Sprintf(`<upnp:album>%s</upnp:album>`, xmlEscape(*t.AlbumName)))
+		_, _ = fmt.Fprintf(&b, `<upnp:album>%s</upnp:album>`, xmlEscape(*t.AlbumName))
 	}
 	if t.TrackNumber != nil {
-		b.WriteString(fmt.Sprintf(`<upnp:originalTrackNumber>%d</upnp:originalTrackNumber>`, *t.TrackNumber))
+		_, _ = fmt.Fprintf(&b, `<upnp:originalTrackNumber>%d</upnp:originalTrackNumber>`, *t.TrackNumber)
 	}
 
 	// Album art
 	if t.CoverArtKey != "" && t.AlbumID != nil {
-		b.WriteString(fmt.Sprintf(`<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>`,
-			xmlEscape(baseURL+"/covers/"+*t.AlbumID)))
+		_, _ = fmt.Fprintf(&b, `<upnp:albumArtURI dlna:profileID="JPEG_TN">%s</upnp:albumArtURI>`,
+			xmlEscape(baseURL+"/covers/"+*t.AlbumID))
 	}
 
 	// Resource element
 	mime := mimeForFormat(t.Format)
 	dur := formatDuration(t.DurationMs)
 	streamURL := baseURL + "/cast/media/" + t.ID
-	b.WriteString(fmt.Sprintf(`<res protocolInfo="http-get:*:%s:*" duration="%s" size="%d">%s</res>`,
-		mime, dur, t.FileSize, xmlEscape(streamURL)))
+	_, _ = fmt.Fprintf(&b, `<res protocolInfo="http-get:*:%s:*" duration="%s" size="%d">%s</res>`,
+		mime, dur, t.FileSize, xmlEscape(streamURL))
 
 	b.WriteString("</item>")
 	return b.String()
@@ -463,7 +463,7 @@ func writeSoapOK(w http.ResponseWriter, service, action, innerXML string) {
 func soapFault(w http.ResponseWriter, code int, desc string) {
 	w.Header().Set("Content-Type", `text/xml; charset="utf-8"`)
 	w.WriteHeader(http.StatusInternalServerError)
-	fmt.Fprintf(w,
+	_, _ = fmt.Fprintf(w,
 		`<?xml version="1.0"?>`+
 			`<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">`+
 			`<s:Body><s:Fault><faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring>`+

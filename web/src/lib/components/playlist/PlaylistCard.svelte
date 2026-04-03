@@ -1,29 +1,49 @@
-
 <script lang="ts">
-  import type { Playlist } from '$lib/types';
-  import { goto } from '$app/navigation';
+  import type { Playlist } from "$lib/types";
+  import { goto } from "$app/navigation";
 
-  import { getApiBase } from '$lib/api/base';
+  import { getApiBase } from "$lib/api/base";
 
   export let playlist: Playlist;
   export let coverGrid: string[] | undefined;
 </script>
 
-<button class="playlist-card" on:click={() => goto(`/playlists/${playlist.id}`)} aria-label="View playlist {playlist.name}">
+<button
+  class="playlist-card"
+  on:click={() => goto(`/playlists/${playlist.id}`)}
+  aria-label="View playlist {playlist.name}"
+>
   <div class="cover cover-grid">
     {#if coverGrid && coverGrid.length > 0}
       <div class="grid">
         {#each Array(4) as _, i}
           {#if coverGrid[i]}
-            <img src={coverGrid[i]} alt="cover" class="grid-img" loading="lazy" />
+            <img
+              src={coverGrid[i]}
+              alt="cover"
+              class="grid-img"
+              loading="lazy"
+            />
           {:else}
             <span class="grid-fallback">♪</span>
           {/if}
         {/each}
       </div>
     {:else}
-      <img src="{getApiBase()}/covers/playlist/{playlist.id}" alt="cover" style="width:100%;height:100%;object-fit:cover;border-radius:4px;" loading="lazy" on:error={(e) => { if (e.target) (e.target as HTMLImageElement).style.display = 'none'; }} />
-      <span class="placeholder" style="position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;">♪</span>
+      <img
+        src="{getApiBase()}/covers/playlist/{playlist.id}"
+        alt="cover"
+        style="width:100%;height:100%;object-fit:cover;border-radius:4px;"
+        loading="lazy"
+        on:error={(e) => {
+          if (e.target) (e.target as HTMLImageElement).style.display = "none";
+        }}
+      />
+      <span
+        class="placeholder"
+        style="position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;"
+        >♪</span
+      >
     {/if}
   </div>
   <div class="info">
@@ -53,9 +73,12 @@
     text-align: left;
     transition: background 0.1s;
   }
-  .playlist-card:hover { background: var(--bg-hover); }
+  .playlist-card:hover {
+    background: var(--bg-hover);
+  }
   .cover {
-    width: 48px; height: 48px;
+    width: 48px;
+    height: 48px;
     background: var(--bg-hover);
     border-radius: 4px;
     display: flex;
@@ -65,11 +88,42 @@
     color: var(--text-muted);
     flex-shrink: 0;
   }
-  .info { display: flex; flex-direction: column; overflow: hidden; min-width: 0; flex: 1; }
-  .name-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
-  .name { font-size: 0.9rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
-  .count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
-  .desc { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .info {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+    flex: 1;
+  }
+  .name-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+  }
+  .name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+  .count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .desc {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .cover-grid {
     position: relative;
     width: 48px;

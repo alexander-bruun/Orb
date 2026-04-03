@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/stores';
-  import { authStore } from '$lib/stores/auth';
-  import { social } from '$lib/api/social';
-  import { getApiBase } from '$lib/api/base';
-  import { getPlaylistCoverGrid } from '$lib/api/playlists';
-  import type { PublicProfile, ActivityRow, UserStats } from '$lib/api/social';
-  import type { Playlist } from '$lib/types';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { onMount } from "svelte";
+  import { page } from "$app/stores";
+  import { authStore } from "$lib/stores/auth";
+  import { social } from "$lib/api/social";
+  import { getApiBase } from "$lib/api/base";
+  import { getPlaylistCoverGrid } from "$lib/api/playlists";
+  import type { PublicProfile, ActivityRow, UserStats } from "$lib/api/social";
+  import type { Playlist } from "$lib/types";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   const username = $page.params.username!;
   $: isOwnProfile = $authStore.user?.username === username;
@@ -18,20 +18,23 @@
   let coverGrids: Record<string, string[]> = {};
   let activity: ActivityRow[] = [];
   let stats: UserStats | null = null;
-  let activeTab: 'activity' | 'playlists' | 'stats' = 'activity';
+  let activeTab: "activity" | "playlists" | "stats" = "activity";
   let loading = true;
-  let error = '';
+  let error = "";
   let followLoading = false;
 
   function avatarUrl(key: string | null | undefined): string | null {
     if (!key) return null;
     // key is like "avatars/uuid.jpg" — serve via /covers/avatar/{filename}
-    const filename = key.split('/').pop();
+    const filename = key.split("/").pop();
     return filename ? `${getApiBase()}/covers/avatar/${filename}` : null;
   }
 
   function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+    });
   }
 
   function formatDuration(ms: number): string {
@@ -45,13 +48,13 @@
     const name = row.display_name || row.username;
     const meta = row.metadata ?? {};
     switch (row.type) {
-      case 'play':
-        return `${name} played ${meta.track_name ?? 'a track'}`;
-      case 'favorite':
-        return `${name} favorited ${meta.track_name ?? 'a track'}`;
-      case 'playlist_create':
-        return `${name} created playlist "${meta.playlist_name ?? ''}"`;
-      case 'playlist_follow':
+      case "play":
+        return `${name} played ${meta.track_name ?? "a track"}`;
+      case "favorite":
+        return `${name} favorited ${meta.track_name ?? "a track"}`;
+      case "playlist_create":
+        return `${name} created playlist "${meta.playlist_name ?? ""}"`;
+      case "playlist_follow":
         return `${name} joined a collaborative playlist`;
       default:
         return `${name} did something`;
@@ -60,13 +63,13 @@
 
   async function loadProfile() {
     loading = true;
-    error = '';
+    error = "";
     try {
       const res = await social.getProfile(username);
       profile = res.profile;
       isFollowing = res.is_following ?? false;
     } catch (e: any) {
-      error = e?.message ?? 'Profile not found or not public.';
+      error = e?.message ?? "Profile not found or not public.";
     } finally {
       loading = false;
     }
@@ -75,20 +78,22 @@
   async function loadTab(tab: typeof activeTab) {
     activeTab = tab;
     if (!profile) return;
-    if (tab === 'playlists' && playlists.length === 0) {
+    if (tab === "playlists" && playlists.length === 0) {
       playlists = await social.getProfilePlaylists(username).catch(() => []);
-      await Promise.all(playlists.map(async (pl) => {
-        try {
-          coverGrids[pl.id] = await getPlaylistCoverGrid(pl.id);
-        } catch {
-          coverGrids[pl.id] = [];
-        }
-      }));
+      await Promise.all(
+        playlists.map(async (pl) => {
+          try {
+            coverGrids[pl.id] = await getPlaylistCoverGrid(pl.id);
+          } catch {
+            coverGrids[pl.id] = [];
+          }
+        }),
+      );
     }
-    if (tab === 'activity' && activity.length === 0) {
+    if (tab === "activity" && activity.length === 0) {
       activity = await social.getProfileActivity(username).catch(() => []);
     }
-    if (tab === 'stats' && !stats) {
+    if (tab === "stats" && !stats) {
       stats = await social.getProfileStats(username).catch(() => null);
     }
   }
@@ -128,10 +133,8 @@
 <div class="profile-page">
   {#if loading}
     <div class="state-msg"><Spinner size={24} /></div>
-
   {:else if error}
     <div class="state-msg state-msg--error">{error}</div>
-
   {:else if profile}
     <!-- Header -->
     <div class="profile-header">
@@ -140,7 +143,9 @@
           <img src={avatarUrl(profile.avatar_key)} alt="" class="avatar" />
         {:else}
           <div class="avatar avatar--initials">
-            {(profile.display_name || profile.username).slice(0, 2).toUpperCase()}
+            {(profile.display_name || profile.username)
+              .slice(0, 2)
+              .toUpperCase()}
           </div>
         {/if}
       </div>
@@ -155,9 +160,15 @@
         {/if}
 
         <div class="stats-row">
-          <span class="stat"><strong>{profile.follower_count}</strong> followers</span>
-          <span class="stat"><strong>{profile.following_count}</strong> following</span>
-          <span class="stat"><strong>{profile.playlist_count}</strong> playlists</span>
+          <span class="stat"
+            ><strong>{profile.follower_count}</strong> followers</span
+          >
+          <span class="stat"
+            ><strong>{profile.following_count}</strong> following</span
+          >
+          <span class="stat"
+            ><strong>{profile.playlist_count}</strong> playlists</span
+          >
           <span class="stat muted">Joined {formatDate(profile.joined_at)}</span>
         </div>
 
@@ -171,7 +182,7 @@
               on:click={toggleFollow}
               disabled={followLoading}
             >
-              {isFollowing ? 'Unfollow' : 'Follow'}
+              {isFollowing ? "Unfollow" : "Follow"}
             </button>
           {/if}
         </div>
@@ -180,14 +191,26 @@
 
     <!-- Tabs -->
     <div class="tabs">
-      <button class="tab" class:active={activeTab === 'activity'} on:click={() => loadTab('activity')}>Activity</button>
-      <button class="tab" class:active={activeTab === 'playlists'} on:click={() => loadTab('playlists')}>Playlists</button>
-      <button class="tab" class:active={activeTab === 'stats'} on:click={() => loadTab('stats')}>Stats</button>
+      <button
+        class="tab"
+        class:active={activeTab === "activity"}
+        on:click={() => loadTab("activity")}>Activity</button
+      >
+      <button
+        class="tab"
+        class:active={activeTab === "playlists"}
+        on:click={() => loadTab("playlists")}>Playlists</button
+      >
+      <button
+        class="tab"
+        class:active={activeTab === "stats"}
+        on:click={() => loadTab("stats")}>Stats</button
+      >
     </div>
 
     <!-- Tab content -->
     <div class="tab-content">
-      {#if activeTab === 'activity'}
+      {#if activeTab === "activity"}
         {#if activity.length === 0}
           <p class="empty">No recent activity.</p>
         {:else}
@@ -199,7 +222,9 @@
                     <img src={avatarUrl(row.avatar_key)} alt="" />
                   {:else}
                     <div class="activity-avatar--initials">
-                      {(row.display_name || row.username).slice(0, 1).toUpperCase()}
+                      {(row.display_name || row.username)
+                        .slice(0, 1)
+                        .toUpperCase()}
                     </div>
                   {/if}
                 </div>
@@ -208,14 +233,14 @@
                   {#if row.metadata?.cover_key}
                     <!-- nothing for now -->
                   {/if}
-                  <span class="activity-time">{formatDate(row.created_at)}</span>
+                  <span class="activity-time">{formatDate(row.created_at)}</span
+                  >
                 </div>
               </li>
             {/each}
           </ul>
         {/if}
-
-      {:else if activeTab === 'playlists'}
+      {:else if activeTab === "playlists"}
         {#if playlists.length === 0}
           <p class="empty">No public playlists.</p>
         {:else}
@@ -228,27 +253,39 @@
                       <div class="art-grid">
                         {#each Array(4) as _, i}
                           {#if coverGrids[pl.id][i]}
-                            <img src={coverGrids[pl.id][i]} alt="" class="art-grid-img" loading="lazy" />
+                            <img
+                              src={coverGrids[pl.id][i]}
+                              alt=""
+                              class="art-grid-img"
+                              loading="lazy"
+                            />
                           {:else}
                             <span class="art-grid-fallback">♪</span>
                           {/if}
                         {/each}
                       </div>
                     {:else}
-                      <img src="{getApiBase()}/covers/playlist/{pl.id}" alt="" on:error={(e) => (e.currentTarget as HTMLImageElement).style.display='none'} />
+                      <img
+                        src="{getApiBase()}/covers/playlist/{pl.id}"
+                        alt=""
+                        on:error={(e) =>
+                          ((e.currentTarget as HTMLImageElement).style.display =
+                            "none")}
+                      />
                     {/if}
                   </div>
                   <div class="playlist-name-row">
                     <span class="playlist-name">{pl.name}</span>
-                    {#if pl.track_count != null}<span class="playlist-count">{pl.track_count}</span>{/if}
+                    {#if pl.track_count != null}<span class="playlist-count"
+                        >{pl.track_count}</span
+                      >{/if}
                   </div>
                 </a>
               </li>
             {/each}
           </ul>
         {/if}
-
-      {:else if activeTab === 'stats'}
+      {:else if activeTab === "stats"}
         {#if !stats}
           <p class="empty">No stats available.</p>
         {:else}
@@ -258,7 +295,9 @@
               <div class="stat-label">Total plays</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value">{formatDuration(stats.total_played_ms)}</div>
+              <div class="stat-value">
+                {formatDuration(stats.total_played_ms)}
+              </div>
               <div class="stat-label">Total listening time</div>
             </div>
           </div>
@@ -269,7 +308,9 @@
               {#each stats.top_artists as a, i}
                 <li class="top-artist-row">
                   <span class="rank">{i + 1}</span>
-                  <a href="/artists/{a.artist_id}" class="artist-name">{a.artist_name}</a>
+                  <a href="/artists/{a.artist_id}" class="artist-name"
+                    >{a.artist_name}</a
+                  >
                   <span class="play-count">{a.plays} plays</span>
                 </li>
               {/each}
@@ -294,7 +335,9 @@
     padding: 64px 0;
     font-size: 0.9rem;
   }
-  .state-msg--error { color: var(--error, #ef4444); }
+  .state-msg--error {
+    color: var(--error, #ef4444);
+  }
 
   /* Header */
   .profile-header {
@@ -304,7 +347,9 @@
     margin-bottom: 32px;
   }
 
-  .avatar-wrap { flex-shrink: 0; }
+  .avatar-wrap {
+    flex-shrink: 0;
+  }
 
   .avatar {
     width: 96px;
@@ -326,7 +371,10 @@
     font-weight: 600;
   }
 
-  .profile-meta { flex: 1; min-width: 0; }
+  .profile-meta {
+    flex: 1;
+    min-width: 0;
+  }
 
   .display-name {
     font-size: 1.5rem;
@@ -355,10 +403,17 @@
     font-size: 0.85rem;
     color: var(--text-muted);
   }
-  .stat strong { color: var(--text); }
-  .muted { color: var(--text-muted); }
+  .stat strong {
+    color: var(--text);
+  }
+  .muted {
+    color: var(--text-muted);
+  }
 
-  .actions { display: flex; gap: 8px; }
+  .actions {
+    display: flex;
+    gap: 8px;
+  }
 
   .btn-primary {
     padding: 7px 18px;
@@ -371,8 +426,13 @@
     cursor: pointer;
     transition: opacity 0.15s;
   }
-  .btn-primary:hover { opacity: 0.85; }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary:hover {
+    opacity: 0.85;
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
   .btn-secondary {
     padding: 7px 18px;
@@ -386,7 +446,9 @@
     text-decoration: none;
     transition: background 0.15s;
   }
-  .btn-secondary:hover { background: var(--bg-hover); }
+  .btn-secondary:hover {
+    background: var(--bg-hover);
+  }
 
   /* Tabs */
   .tabs {
@@ -404,11 +466,18 @@
     border: none;
     border-bottom: 2px solid transparent;
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+    transition:
+      color 0.15s,
+      border-color 0.15s;
     margin-bottom: -1px;
   }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover {
+    color: var(--text);
+  }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
 
   .empty {
     color: var(--text-muted);
@@ -417,8 +486,19 @@
   }
 
   /* Activity */
-  .activity-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
-  .activity-item { display: flex; gap: 12px; align-items: flex-start; }
+  .activity-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .activity-item {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
   .activity-avatar img,
   .activity-avatar--initials {
     width: 32px;
@@ -436,40 +516,169 @@
     font-size: 0.75rem;
     font-weight: 600;
   }
-  .activity-body { display: flex; flex-direction: column; gap: 2px; }
-  .activity-text { font-size: 0.875rem; color: var(--text); }
-  .activity-time { font-size: 0.75rem; color: var(--text-muted); }
+  .activity-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .activity-text {
+    font-size: 0.875rem;
+    color: var(--text);
+  }
+  .activity-time {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
 
   /* Playlists */
-  .playlist-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 16px; }
-  .playlist-item { display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: var(--text); }
-  .playlist-art { aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
-  .playlist-art img { width: 100%; height: 100%; object-fit: cover; }
-  .art-grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; width: 100%; height: 100%; gap: 0; }
-  .art-grid-img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 0; }
-  .art-grid-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: var(--text-muted); background: var(--bg-elevated); }
-  .playlist-name-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
-  .playlist-name { font-size: 0.875rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .playlist-count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
+  .playlist-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+  }
+  .playlist-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .playlist-art {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+  .playlist-art img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .art-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    width: 100%;
+    height: 100%;
+    gap: 0;
+  }
+  .art-grid-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: 0;
+  }
+  .art-grid-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+  }
+  .playlist-name-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .playlist-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .playlist-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
 
   /* Stats */
-  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-  .stat-card { background: var(--bg-elevated); border-radius: 10px; padding: 16px; }
-  .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--text); }
-  .stat-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg-elevated);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
 
-  .sub-heading { font-size: 0.875rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 12px; }
-  .top-artists { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-  .top-artist-row { display: flex; align-items: center; gap: 12px; font-size: 0.875rem; }
-  .rank { width: 20px; text-align: right; color: var(--text-muted); font-size: 0.75rem; }
-  .artist-name { flex: 1; color: var(--text); text-decoration: none; }
-  .artist-name:hover { color: var(--accent); }
-  .play-count { color: var(--text-muted); }
+  .sub-heading {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0 0 12px;
+  }
+  .top-artists {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .top-artist-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.875rem;
+  }
+  .rank {
+    width: 20px;
+    text-align: right;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+  .artist-name {
+    flex: 1;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .artist-name:hover {
+    color: var(--accent);
+  }
+  .play-count {
+    color: var(--text-muted);
+  }
 
   @media (max-width: 480px) {
-    .profile-header { flex-direction: column; align-items: center; text-align: center; }
-    .stats-row { justify-content: center; }
-    .actions { justify-content: center; }
-    .stats-grid { grid-template-columns: 1fr; }
+    .profile-header {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .stats-row {
+      justify-content: center;
+    }
+    .actions {
+      justify-content: center;
+    }
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

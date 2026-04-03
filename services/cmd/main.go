@@ -21,7 +21,6 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/admin"
 	audiobookpkg "github.com/alexander-bruun/orb/services/internal/audiobook"
 	"github.com/alexander-bruun/orb/services/internal/auth"
-	"github.com/alexander-bruun/orb/services/internal/ticketmaster"
 	"github.com/alexander-bruun/orb/services/internal/castproxy"
 	"github.com/alexander-bruun/orb/services/internal/collaboration"
 	"github.com/alexander-bruun/orb/services/internal/config"
@@ -47,6 +46,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/store"
 	"github.com/alexander-bruun/orb/services/internal/stream"
 	"github.com/alexander-bruun/orb/services/internal/subsonic"
+	"github.com/alexander-bruun/orb/services/internal/ticketmaster"
 	"github.com/alexander-bruun/orb/services/internal/user"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
@@ -233,7 +233,11 @@ func registerRoutes(
 		r.Route("/podcasts", podcastHandler.Routes)
 
 		// Ensure default podcasts
-		go podcastSvc.EnsureDefaultPodcasts(context.Background())
+		go func() {
+			if err := podcastSvc.EnsureDefaultPodcasts(context.Background()); err != nil {
+				slog.Warn("ensure default podcasts failed", "err", err)
+			}
+		}()
 
 		// Start podcast background worker
 		go podcastSvc.StartBackgroundWorker(context.Background(), 1*time.Hour)

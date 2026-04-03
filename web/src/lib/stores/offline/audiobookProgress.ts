@@ -67,7 +67,7 @@ export async function syncProgressToServer(): Promise<void> {
       // In a real scenario, we might want to check if the server's progress
       // is newer, but usually local progress is more recent if we've been offline.
       await audiobooksApi.saveProgress(entry.audiobookId, entry.positionMs, entry.completed);
-      
+
       // Success - remove from local storage
       localProgress.update(m => {
         m.delete(entry.audiobookId);

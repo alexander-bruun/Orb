@@ -17,12 +17,12 @@ import (
 
 	"github.com/alexander-bruun/orb/services/internal/activity"
 	"github.com/alexander-bruun/orb/services/internal/auth"
-	"github.com/alexander-bruun/orb/services/internal/ticketmaster"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
 	"github.com/alexander-bruun/orb/services/internal/lyricfetch"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
 	"github.com/alexander-bruun/orb/services/internal/scrobble"
 	"github.com/alexander-bruun/orb/services/internal/store"
+	"github.com/alexander-bruun/orb/services/internal/ticketmaster"
 	"github.com/alexander-bruun/orb/services/internal/webhook"
 	"github.com/go-chi/chi/v5"
 )

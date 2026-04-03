@@ -947,7 +947,7 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, audioURL s
 		http.Error(w, "proxy error", http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Copy headers
 	for k, vv := range resp.Header {

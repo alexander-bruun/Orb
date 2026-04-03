@@ -10,10 +10,10 @@ import (
 
 // TrackInfo holds the minimal track metadata needed for scrobbling.
 type TrackInfo struct {
-	Title       string
-	Artist      string // main artist display name
-	Album       string
-	DurationMs  int
+	Title      string
+	Artist     string // main artist display name
+	Album      string
+	DurationMs int
 }
 
 // Scrobbler orchestrates now-playing and scrobble submissions for a user.

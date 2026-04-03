@@ -9,9 +9,9 @@ import (
 
 func TestParseASINFromFolder(t *testing.T) {
 	tests := []struct {
-		input       string
-		wantFolder  string
-		wantASIN    string
+		input      string
+		wantFolder string
+		wantASIN   string
 	}{
 		// Standard trailing ASIN
 		{"Book Title [B0015T963C]", "Book Title", "B0015T963C"},
@@ -48,9 +48,9 @@ func TestParseASINFromFolder(t *testing.T) {
 
 func TestParseNarratorsFromBraces(t *testing.T) {
 	tests := []struct {
-		input          string
-		wantTitle      string
-		wantNarrators  []string
+		input         string
+		wantTitle     string
+		wantNarrators []string
 	}{
 		// Single narrator
 		{
@@ -115,8 +115,8 @@ func TestParseNarratorsFromBraces(t *testing.T) {
 
 func TestParseNarratorFromParens(t *testing.T) {
 	tests := []struct {
-		input      string
-		wantFolder string
+		input        string
+		wantFolder   string
 		wantNarrator string
 	}{
 		// Single narrator with "read by"
@@ -255,9 +255,9 @@ func TestParseFolderPath(t *testing.T) {
 	ps := func(v string) *string { return &v }
 
 	tests := []struct {
-		name  string
-		path  string
-		want  FolderMetadata
+		name string
+		path string
+		want FolderMetadata
 	}{
 		{
 			name: "full 3-level hierarchy with all metadata",

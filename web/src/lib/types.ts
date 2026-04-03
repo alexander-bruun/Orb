@@ -159,56 +159,56 @@ export interface AudiobookProgress {
 }
 
 export interface AudiobookBookmark {
-  id: string;
-  user_id: string;
-  audiobook_id: string;
-  position_ms: number;
-  note?: string;
-  created_at: string;
+	id: string;
+	user_id: string;
+	audiobook_id: string;
+	position_ms: number;
+	note?: string;
+	created_at: string;
 }
 
 // ── Podcasts ──────────────────────────────────────────────────────────────────
 
 export interface Podcast {
-  id: string;
-  title: string;
-  description?: string;
-  author?: string;
-  rss_url: string;
-  link?: string;
-  cover_art_key?: string;
-  created_at: string;
-  updated_at: string;
+	id: string;
+	title: string;
+	description?: string;
+	author?: string;
+	rss_url: string;
+	link?: string;
+	cover_art_key?: string;
+	created_at: string;
+	updated_at: string;
 }
 
 export interface PodcastEpisode {
-  id: string;
-  podcast_id: string;
-  title: string;
-  description?: string;
-  pub_date: string;
-  guid: string;
-  link?: string;
-  audio_url: string;
-  duration_ms: number;
-  file_key?: string;
-  file_size: number;
-  format?: string;
-  created_at: string;
+	id: string;
+	podcast_id: string;
+	title: string;
+	description?: string;
+	pub_date: string;
+	guid: string;
+	link?: string;
+	audio_url: string;
+	duration_ms: number;
+	file_key?: string;
+	file_size: number;
+	format?: string;
+	created_at: string;
 }
 
 export interface PodcastSubscription {
-  user_id: string;
-  podcast_id: string;
-  created_at: string;
+	user_id: string;
+	podcast_id: string;
+	created_at: string;
 }
 
 export interface PodcastEpisodeProgress {
-  user_id: string;
-  episode_id: string;
-  position_ms: number;
-  completed: boolean;
-  updated_at: string;
+	user_id: string;
+	episode_id: string;
+	position_ms: number;
+	completed: boolean;
+	updated_at: string;
 }
 export interface Playlist {
 	id: string;

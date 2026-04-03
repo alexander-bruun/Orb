@@ -16,19 +16,19 @@ type SmartPlaylistRule struct {
 
 // SmartPlaylist is a dynamically-evaluated playlist driven by filter rules.
 type SmartPlaylist struct {
-	ID           string              `json:"id"`
-	UserID       string              `json:"user_id"`
-	Name         string              `json:"name"`
-	Description  string              `json:"description,omitempty"`
-	Rules        []SmartPlaylistRule `json:"rules"`
-	RuleMatch    string              `json:"rule_match"`
-	SortBy       string              `json:"sort_by"`
-	SortDir      string              `json:"sort_dir"`
-	LimitCount   *int                `json:"limit_count,omitempty"`
-	System       bool                `json:"system"`
-	LastBuiltAt  *time.Time          `json:"last_built_at,omitempty"`
-	CreatedAt    time.Time           `json:"created_at"`
-	UpdatedAt    time.Time           `json:"updated_at"`
+	ID          string              `json:"id"`
+	UserID      string              `json:"user_id"`
+	Name        string              `json:"name"`
+	Description string              `json:"description,omitempty"`
+	Rules       []SmartPlaylistRule `json:"rules"`
+	RuleMatch   string              `json:"rule_match"`
+	SortBy      string              `json:"sort_by"`
+	SortDir     string              `json:"sort_dir"`
+	LimitCount  *int                `json:"limit_count,omitempty"`
+	System      bool                `json:"system"`
+	LastBuiltAt *time.Time          `json:"last_built_at,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
 }
 
 // CreateSmartPlaylistParams holds the fields required to create a smart playlist.
@@ -71,19 +71,19 @@ type Playlist struct {
 
 // User represents a user in the database.
 type User struct {
-	ID                 string     `json:"id"`
-	Username           string     `json:"username"`
-	Email              string     `json:"email"`
-	PasswordHash       string     `json:"-"`
-	CreatedAt          time.Time  `json:"created_at"`
-	LastLoginAt        *time.Time `json:"last_login_at,omitempty"`
-	TOTPSecret         *string    `json:"-"`
-	TOTPEnabled        bool       `json:"totp_enabled"`
-	TOTPBackupCodes    *string    `json:"-"`
-	IsAdmin            bool       `json:"is_admin"`
-	IsActive           bool       `json:"is_active"`
-	StorageQuotaBytes  *int64     `json:"storage_quota_bytes,omitempty"`
-	EmailVerified      bool       `json:"email_verified"`
+	ID                string     `json:"id"`
+	Username          string     `json:"username"`
+	Email             string     `json:"email"`
+	PasswordHash      string     `json:"-"`
+	CreatedAt         time.Time  `json:"created_at"`
+	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`
+	TOTPSecret        *string    `json:"-"`
+	TOTPEnabled       bool       `json:"totp_enabled"`
+	TOTPBackupCodes   *string    `json:"-"`
+	IsAdmin           bool       `json:"is_admin"`
+	IsActive          bool       `json:"is_active"`
+	StorageQuotaBytes *int64     `json:"storage_quota_bytes,omitempty"`
+	EmailVerified     bool       `json:"email_verified"`
 }
 
 // Artist represents an artist in the database.
@@ -121,31 +121,31 @@ type Album struct {
 	TrackCount       int        `json:"track_count"`
 	// MaxChannels is the highest channel count among this album's tracks.
 	// 2 = stereo, 6 = 5.1, 8 = 7.1. Used to drive the channel badge in the UI.
-	MaxChannels      int        `json:"max_channels"`
-	CreatedAt        time.Time  `json:"created_at"`
+	MaxChannels int       `json:"max_channels"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // AudioFormat describes one available audio encoding for a track
 // (e.g. stereo Opus, 5.1 FLAC, Atmos E-AC-3 passthrough).
 type AudioFormat struct {
 	// Type is the layout name: "stereo", "5.1", "7.1", "atmos"
-	Type        string `json:"type"`
-	Codec       string `json:"codec"`
-	Channels    int    `json:"channels"`
+	Type     string `json:"type"`
+	Codec    string `json:"codec"`
+	Channels int    `json:"channels"`
 	// Passthrough means the stream is not decoded server-side (Atmos, DTS-HD, etc.)
-	Passthrough bool   `json:"passthrough,omitempty"`
+	Passthrough bool `json:"passthrough,omitempty"`
 	// FileKey is the object-store key for this encoding's audio file.
 	// Empty string means use the track's primary file_key (stereo fallback).
-	FileKey     string `json:"file_key,omitempty"`
+	FileKey string `json:"file_key,omitempty"`
 }
 
 // AudioCapabilities describes what a playback device can handle.
 type AudioCapabilities struct {
 	// MaxChannels is the maximum number of channels the device can render (2, 6, 8, …).
-	MaxChannels         int      `json:"max_channels"`
-	SupportsPassthrough bool     `json:"supports_passthrough"`
+	MaxChannels         int  `json:"max_channels"`
+	SupportsPassthrough bool `json:"supports_passthrough"`
 	// PassthroughCodecs lists codecs that can be passed through unmolested (e.g. "eac3", "truehd").
-	PassthroughCodecs   []string `json:"passthrough_codecs,omitempty"`
+	PassthroughCodecs []string `json:"passthrough_codecs,omitempty"`
 }
 
 // Track represents a track in the database.
@@ -175,10 +175,10 @@ type Track struct {
 	// Nil when no ReplayGain data is available.
 	ReplayGainTrack *float64 `json:"replay_gain_track,omitempty"`
 	// BPM is the track tempo in beats per minute (from track_features). Nil when unknown.
-	BPM        *float64 `json:"bpm,omitempty"`
-	ArtistName  *string `json:"artist_name,omitempty"`
-	AlbumName   *string `json:"album_name,omitempty"`
-	CoverArtKey string  `json:"cover_art_key,omitempty"`
+	BPM         *float64 `json:"bpm,omitempty"`
+	ArtistName  *string  `json:"artist_name,omitempty"`
+	AlbumName   *string  `json:"album_name,omitempty"`
+	CoverArtKey string   `json:"cover_art_key,omitempty"`
 	// Multi-channel audio fields (Phase 1)
 	AudioLayouts []string      `json:"audio_layouts,omitempty"`
 	HasAtmos     bool          `json:"has_atmos,omitempty"`
@@ -305,10 +305,10 @@ type RemoveTrackFromLibraryParams struct {
 type SearchTracksParams struct {
 	ToTsquery  string
 	Limit      int
-	Genre      string // filter by genre name (case-insensitive, empty = no filter)
-	YearFrom   *int   // filter by album release_year >= YearFrom
-	YearTo     *int   // filter by album release_year <= YearTo
-	Format     string // filter by format (flac/mp3/wav etc., empty = no filter)
+	Genre      string   // filter by genre name (case-insensitive, empty = no filter)
+	YearFrom   *int     // filter by album release_year >= YearFrom
+	YearTo     *int     // filter by album release_year <= YearTo
+	Format     string   // filter by format (flac/mp3/wav etc., empty = no filter)
 	BitrateMin *int     // filter by bitrate_kbps >= BitrateMin
 	BitrateMax *int     // filter by bitrate_kbps <= BitrateMax
 	BPMMin     *float64 // filter by bpm >= BPMMin
@@ -514,16 +514,16 @@ type RelatedArtistPair struct {
 // NULL fields mean "no limit". The top-level Max* fields are the "any network" defaults;
 // Wifi* and Mobile* fields override them when the client is on a specific network type.
 type UserStreamingPrefs struct {
-	UserID               string    `json:"user_id"`
-	MaxBitrateKbps       *int      `json:"max_bitrate_kbps"`        // NULL = unlimited (any network default)
-	MaxSampleRate        *int      `json:"max_sample_rate"`         // NULL = unlimited (advisory)
-	MaxBitDepth          *int      `json:"max_bit_depth"`           // NULL = unlimited (advisory)
-	WifiMaxBitrateKbps   *int      `json:"wifi_max_bitrate_kbps"`   // NULL = inherit default
-	WifiMaxSampleRate    *int      `json:"wifi_max_sample_rate"`    // NULL = inherit default
-	WifiMaxBitDepth      *int      `json:"wifi_max_bit_depth"`      // NULL = inherit default
-	MobileMaxBitrateKbps *int      `json:"mobile_max_bitrate_kbps"` // NULL = inherit default
-	MobileMaxSampleRate  *int      `json:"mobile_max_sample_rate"`  // NULL = inherit default
-	MobileMaxBitDepth    *int      `json:"mobile_max_bit_depth"`    // NULL = inherit default
+	UserID               string `json:"user_id"`
+	MaxBitrateKbps       *int   `json:"max_bitrate_kbps"`        // NULL = unlimited (any network default)
+	MaxSampleRate        *int   `json:"max_sample_rate"`         // NULL = unlimited (advisory)
+	MaxBitDepth          *int   `json:"max_bit_depth"`           // NULL = unlimited (advisory)
+	WifiMaxBitrateKbps   *int   `json:"wifi_max_bitrate_kbps"`   // NULL = inherit default
+	WifiMaxSampleRate    *int   `json:"wifi_max_sample_rate"`    // NULL = inherit default
+	WifiMaxBitDepth      *int   `json:"wifi_max_bit_depth"`      // NULL = inherit default
+	MobileMaxBitrateKbps *int   `json:"mobile_max_bitrate_kbps"` // NULL = inherit default
+	MobileMaxSampleRate  *int   `json:"mobile_max_sample_rate"`  // NULL = inherit default
+	MobileMaxBitDepth    *int   `json:"mobile_max_bit_depth"`    // NULL = inherit default
 	// TranscodeFormat enables server-side transcoding for each network tier.
 	// NULL = no transcoding (pass-through + throttle). Supported: "mp3", "aac", "opus".
 	TranscodeFormat       *string   `json:"transcode_format"`        // NULL = pass-through (any network default)
@@ -597,15 +597,15 @@ type UpdateEQProfileParams struct {
 
 // AdminSummary holds high-level server statistics.
 type AdminSummary struct {
-	TotalUsers        int   `json:"total_users"`
-	ActiveUsers       int   `json:"active_users"`
-	TotalTracks       int   `json:"total_tracks"`
-	TotalAlbums       int   `json:"total_albums"`
-	TotalArtists      int   `json:"total_artists"`
-	TotalPlays        int   `json:"total_plays"`
-	TotalPlayedMs     int   `json:"total_played_ms"`
-	TotalSizeBytes    int64 `json:"total_size_bytes"`
-	AlbumsNoCoverArt  int   `json:"albums_no_cover_art"`
+	TotalUsers       int   `json:"total_users"`
+	ActiveUsers      int   `json:"active_users"`
+	TotalTracks      int   `json:"total_tracks"`
+	TotalAlbums      int   `json:"total_albums"`
+	TotalArtists     int   `json:"total_artists"`
+	TotalPlays       int   `json:"total_plays"`
+	TotalPlayedMs    int   `json:"total_played_ms"`
+	TotalSizeBytes   int64 `json:"total_size_bytes"`
+	AlbumsNoCoverArt int   `json:"albums_no_cover_art"`
 }
 
 // InviteToken represents an admin-generated invite for a new user.
@@ -633,9 +633,9 @@ type AuditLog struct {
 
 // FormatStat holds track count and total size for a given audio format.
 type FormatStat struct {
-	Format     string `json:"format"`
-	Count      int    `json:"count"`
-	SizeBytes  int64  `json:"size_bytes"`
+	Format    string `json:"format"`
+	Count     int    `json:"count"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 // StorageStats holds disk usage statistics for the library.
@@ -745,30 +745,30 @@ type AudiobookNarrator struct {
 
 // Audiobook represents a full audiobook in the database.
 type Audiobook struct {
-	ID               string     `json:"id"`
-	Title            string     `json:"title"`
-	Subtitle         *string    `json:"subtitle,omitempty"`
-	Edition          *string    `json:"edition,omitempty"`
-	AuthorID         *string    `json:"author_id,omitempty"`
-	AuthorName       *string    `json:"author_name,omitempty"`
-	CoverArtKey      *string    `json:"cover_art_key,omitempty"`
-	Description      *string    `json:"description,omitempty"`
-	Series           *string    `json:"series,omitempty"`
-	SeriesIndex      *float64   `json:"series_index,omitempty"`
-	SeriesSource     *string    `json:"series_source,omitempty"`
-	SeriesConfidence *float64   `json:"series_confidence,omitempty"`
-	PublishedYear    *int       `json:"published_year,omitempty"`
-	ISBN             *string    `json:"isbn,omitempty"`
-	ASIN             *string    `json:"asin,omitempty"`
-	OLKey            *string    `json:"ol_key,omitempty"`
-	FileKey          *string    `json:"file_key,omitempty"`
-	FileSize         int64      `json:"file_size"`
-	Format           string     `json:"format"`
-	DurationMs       int64      `json:"duration_ms"`
-	Fingerprint      string     `json:"fingerprint,omitempty"`
+	ID               string              `json:"id"`
+	Title            string              `json:"title"`
+	Subtitle         *string             `json:"subtitle,omitempty"`
+	Edition          *string             `json:"edition,omitempty"`
+	AuthorID         *string             `json:"author_id,omitempty"`
+	AuthorName       *string             `json:"author_name,omitempty"`
+	CoverArtKey      *string             `json:"cover_art_key,omitempty"`
+	Description      *string             `json:"description,omitempty"`
+	Series           *string             `json:"series,omitempty"`
+	SeriesIndex      *float64            `json:"series_index,omitempty"`
+	SeriesSource     *string             `json:"series_source,omitempty"`
+	SeriesConfidence *float64            `json:"series_confidence,omitempty"`
+	PublishedYear    *int                `json:"published_year,omitempty"`
+	ISBN             *string             `json:"isbn,omitempty"`
+	ASIN             *string             `json:"asin,omitempty"`
+	OLKey            *string             `json:"ol_key,omitempty"`
+	FileKey          *string             `json:"file_key,omitempty"`
+	FileSize         int64               `json:"file_size"`
+	Format           string              `json:"format"`
+	DurationMs       int64               `json:"duration_ms"`
+	Fingerprint      string              `json:"fingerprint,omitempty"`
 	Narrators        []AudiobookNarrator `json:"narrators,omitempty"`
 	Chapters         []AudiobookChapter  `json:"chapters,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
+	CreatedAt        time.Time           `json:"created_at"`
 }
 
 // AudiobookChapter is a single chapter within an audiobook.
@@ -877,7 +877,6 @@ type ListAudiobooksParams struct {
 	SortDir string // "asc" | "desc"
 }
 
-
 // ── Podcast models ────────────────────────────────────────────────────────────
 
 // Podcast represents a subscribed RSS podcast feed.
@@ -895,19 +894,19 @@ type Podcast struct {
 
 // PodcastEpisode is a single item from a podcast feed.
 type PodcastEpisode struct {
-	ID          string     `json:"id"`
-	PodcastID   string     `json:"podcast_id"`
-	Title       string     `json:"title"`
-	Description *string    `json:"description,omitempty"`
-	PubDate     time.Time  `json:"pub_date"`
-	Guid        string     `json:"guid"`
-	Link        *string    `json:"link,omitempty"`
-	AudioUrl    string     `json:"audio_url"`
-	DurationMs  int64      `json:"duration_ms"`
-	FileKey     *string    `json:"file_key,omitempty"` // non-nil if downloaded to local store
-	FileSize    int64      `json:"file_size"`
-	Format      *string    `json:"format,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID          string    `json:"id"`
+	PodcastID   string    `json:"podcast_id"`
+	Title       string    `json:"title"`
+	Description *string   `json:"description,omitempty"`
+	PubDate     time.Time `json:"pub_date"`
+	Guid        string    `json:"guid"`
+	Link        *string   `json:"link,omitempty"`
+	AudioUrl    string    `json:"audio_url"`
+	DurationMs  int64     `json:"duration_ms"`
+	FileKey     *string   `json:"file_key,omitempty"` // non-nil if downloaded to local store
+	FileSize    int64     `json:"file_size"`
+	Format      *string   `json:"format,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // PodcastSubscription represents a user's subscription to a podcast.
@@ -1005,16 +1004,16 @@ type PlaylistInvite struct {
 
 // ActivityRow is a row from user_activity with denormalized metadata.
 type ActivityRow struct {
-	ID         string            `json:"id"`
-	UserID     string            `json:"user_id"`
-	Username   string            `json:"username"`
-	DisplayName *string          `json:"display_name,omitempty"`
-	AvatarKey  *string           `json:"avatar_key,omitempty"`
-	Type       string            `json:"type"`
-	EntityType string            `json:"entity_type"`
-	EntityID   string            `json:"entity_id"`
-	Metadata   map[string]any    `json:"metadata,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
+	ID          string         `json:"id"`
+	UserID      string         `json:"user_id"`
+	Username    string         `json:"username"`
+	DisplayName *string        `json:"display_name,omitempty"`
+	AvatarKey   *string        `json:"avatar_key,omitempty"`
+	Type        string         `json:"type"`
+	EntityType  string         `json:"entity_type"`
+	EntityID    string         `json:"entity_id"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
 }
 
 // PublicProfile is a denormalized public view of a user.
@@ -1033,8 +1032,8 @@ type PublicProfile struct {
 
 // UserStats holds aggregate listening stats for a public profile.
 type UserStats struct {
-	TotalPlays    int    `json:"total_plays"`
-	TotalPlayedMs int64  `json:"total_played_ms"`
+	TotalPlays    int             `json:"total_plays"`
+	TotalPlayedMs int64           `json:"total_played_ms"`
 	TopArtists    []TopArtistStat `json:"top_artists"`
 }
 
@@ -1058,13 +1057,13 @@ type InsertActivityParams struct {
 // ScrobbleSettings holds per-user Last.fm and ListenBrainz credentials.
 // Sensitive fields (session key, token) are stored but never serialised to JSON.
 type ScrobbleSettings struct {
-	UserID           string    `json:"user_id"`
-	LastFMEnabled    bool      `json:"lastfm_enabled"`
-	LastFMConnected  bool      `json:"lastfm_connected"`  // true when a session key is stored
-	LastFMUsername   string    `json:"lastfm_username,omitempty"`
-	LBEnabled        bool      `json:"lb_enabled"`
-	LBConnected      bool      `json:"lb_connected"`      // true when a token is stored
-	UpdatedAt        time.Time `json:"updated_at"`
+	UserID          string    `json:"user_id"`
+	LastFMEnabled   bool      `json:"lastfm_enabled"`
+	LastFMConnected bool      `json:"lastfm_connected"` // true when a session key is stored
+	LastFMUsername  string    `json:"lastfm_username,omitempty"`
+	LBEnabled       bool      `json:"lb_enabled"`
+	LBConnected     bool      `json:"lb_connected"` // true when a token is stored
+	UpdatedAt       time.Time `json:"updated_at"`
 	// Internal fields – populated by store but never marshalled.
 	lastFMSessionKey string
 	lbToken          string
@@ -1075,4 +1074,3 @@ func (s *ScrobbleSettings) LastFMSessionKey() string { return s.lastFMSessionKey
 
 // LBToken returns the stored ListenBrainz token (not exported via JSON).
 func (s *ScrobbleSettings) LBToken() string { return s.lbToken }
-

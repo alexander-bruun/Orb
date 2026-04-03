@@ -63,7 +63,7 @@ func (s *Service) AddPodcastByRSS(ctx context.Context, rssURL string) (store.Pod
 			if err := s.obj.Put(ctx, key, resp.Body, resp.ContentLength); err == nil {
 				p.CoverArtKey = &key
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}
 
@@ -188,7 +188,7 @@ func (s *Service) DownloadEpisode(ctx context.Context, episodeID string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status: %s", resp.Status)
@@ -207,7 +207,7 @@ func (s *Service) DownloadEpisode(ctx context.Context, episodeID string) error {
 	}
 
 	fileKey := fmt.Sprintf("podcasts/%s/%s%s", ep.PodcastID, ep.ID, ext)
-	
+
 	// We use Put which takes a reader.
 	if err := s.obj.Put(ctx, fileKey, resp.Body, resp.ContentLength); err != nil {
 		return fmt.Errorf("store file: %w", err)

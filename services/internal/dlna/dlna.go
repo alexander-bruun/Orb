@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,7 +133,9 @@ func parseBaseURL(u string) (ip string, port int) {
 		return "127.0.0.1", 8080
 	}
 	p := 8080
-	fmt.Sscanf(portStr, "%d", &p)
+	if parsed, err := strconv.Atoi(portStr); err == nil {
+		p = parsed
+	}
 	return host, p
 }
 
@@ -151,7 +154,7 @@ func generateUDN(lanIP string) string {
 
 // ssdpLoop handles periodic NOTIFY advertisements and M-SEARCH responses.
 func (s *Server) ssdpLoop(ctx context.Context, conn *net.UDPConn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	defer close(s.done)
 
 	// Initial advertisement burst (3 times per UPnP spec).
@@ -230,7 +233,7 @@ func (s *Server) handleMSearch(msg string, raddr *net.UDPAddr) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	location := s.baseURL + "/dlna/device.xml"
 
@@ -255,7 +258,7 @@ func (s *Server) sendAlive() error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	location := s.baseURL + "/dlna/device.xml"
 
@@ -276,7 +279,7 @@ func (s *Server) sendByeBye() error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	for _, nt := range s.ssdpTargets() {
 		msg := buildNotifyByeBye(nt, s.udn)

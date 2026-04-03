@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
+  import { transferPlayback } from "$lib/stores/player";
   import {
-    transferPlayback,
-  } from '$lib/stores/player';
-  import { activeDevices, deviceId, exclusiveMode } from '$lib/stores/player/deviceSession';
+    activeDevices,
+    deviceId,
+    exclusiveMode,
+  } from "$lib/stores/player/deviceSession";
   import {
     audioOutputDevices,
     selectedAudioOutputId,
@@ -15,7 +17,7 @@
     initCastSdk,
     startCast,
     stopCast,
-  } from '$lib/stores/player/casting';
+  } from "$lib/stores/player/casting";
 
   let castPickerOpen = false;
   let devicePickerOpen = false;
@@ -26,10 +28,14 @@
   });
 
   async function handleCastToggle() {
-    if ($castState === 'connected') {
+    if ($castState === "connected") {
       stopCast();
-    } else if ($castState === 'idle') {
-      try { await startCast(); } catch { /* user cancelled */ }
+    } else if ($castState === "idle") {
+      try {
+        await startCast();
+      } catch {
+        /* user cancelled */
+      }
     }
   }
 
@@ -40,65 +46,83 @@
 </script>
 
 <!-- Cast / audio output — hidden if no cast devices found -->
-{#if $castState !== 'unavailable'}
+{#if $castState !== "unavailable"}
   <div class="device-picker-wrap">
     <button
       class="ctrl-btn icon-btn cast-btn"
-      class:active={castPickerOpen || $castState === 'connected'}
-      on:click={() => { castPickerOpen = !castPickerOpen; devicePickerOpen = false; if (castPickerOpen) { refreshAudioOutputDevices(); } }}
+      class:active={castPickerOpen || $castState === "connected"}
+      on:click={() => {
+        castPickerOpen = !castPickerOpen;
+        devicePickerOpen = false;
+        if (castPickerOpen) {
+          refreshAudioOutputDevices();
+        }
+      }}
       title="Cast / audio output"
       aria-label="Cast to a device or change audio output"
     >
       <!-- Cast / screen-share icon -->
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/>
-        <path d="M2 15a7 7 0 0 1 7 7"/>
-        <path d="M2 15a3 3 0 0 1 3 3"/>
-        <line x1="2" y1="22" x2="2.01" y2="22"/>
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M2 8.5V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6" />
+        <path d="M2 15a7 7 0 0 1 7 7" />
+        <path d="M2 15a3 3 0 0 1 3 3" />
+        <line x1="2" y1="22" x2="2.01" y2="22" />
       </svg>
-      {#if $castState === 'connected'}
+      {#if $castState === "connected"}
         <span class="device-count cast-dot"></span>
       {/if}
     </button>
 
     {#if castPickerOpen}
-      
       <button
         type="button"
         class="device-picker-overlay"
         tabindex="-1"
         aria-label="Close cast picker"
-        on:click={() => castPickerOpen = false}
+        on:click={() => (castPickerOpen = false)}
       ></button>
       <div class="device-picker-popup">
-
         <!-- ── Chromecast section — only shown if available (though the whole button is hidden if unavailable) ─────────────── -->
         <div class="device-picker-header">Chromecast</div>
         <button
           class="device-item"
-          class:is-active={$castState === 'connected'}
+          class:is-active={$castState === "connected"}
           on:click={handleCastToggle}
-          disabled={$castState === 'connecting'}
+          disabled={$castState === "connecting"}
         >
           <div class="device-item-left">
-            {#if $castState === 'connected'}
+            {#if $castState === "connected"}
               <span class="device-active-dot"></span>
             {:else}
               <span class="device-idle-dot"></span>
             {/if}
             <div class="device-item-info">
               <span class="device-item-name">
-                {$castState === 'connected' ? $castDeviceName : 'Chromecast / Google TV'}
+                {$castState === "connected"
+                  ? $castDeviceName
+                  : "Chromecast / Google TV"}
               </span>
               <span class="device-item-track">
-                {#if $castState === 'connecting'}Connecting…
-                {:else if $castState === 'connected'}Casting now — click to stop
+                {#if $castState === "connecting"}Connecting…
+                {:else if $castState === "connected"}Casting now — click to stop
                 {:else}Click to cast to a nearby device{/if}
               </span>
             </div>
           </div>
-          {#if $castState === 'connected'}
-            <span class="device-transfer-hint" style="color:var(--error,#e55)">Stop</span>
+          {#if $castState === "connected"}
+            <span class="device-transfer-hint" style="color:var(--error,#e55)"
+              >Stop</span
+            >
           {:else}
             <span class="device-transfer-hint">Cast</span>
           {/if}
@@ -106,7 +130,9 @@
 
         <!-- ── Audio output section ──────────────────────────── -->
         {#if sinkIdSupported}
-          <div class="device-picker-header" style="margin-top:8px">Audio output</div>
+          <div class="device-picker-header" style="margin-top:8px">
+            Audio output
+          </div>
           {#if $audioOutputDevices.length === 0}
             <p class="device-picker-empty">No additional outputs found</p>
           {:else}
@@ -114,7 +140,10 @@
               <button
                 class="device-item"
                 class:is-active={$selectedAudioOutputId === out.deviceId}
-                on:click={() => { setAudioOutput(out.deviceId); castPickerOpen = false; }}
+                on:click={() => {
+                  setAudioOutput(out.deviceId);
+                  castPickerOpen = false;
+                }}
               >
                 <div class="device-item-left">
                   {#if $selectedAudioOutputId === out.deviceId}
@@ -124,7 +153,11 @@
                   {/if}
                   <div class="device-item-info">
                     <span class="device-item-name">{out.label}</span>
-                    <span class="device-item-track">{out.deviceId === 'default' ? 'System default' : 'Audio output'}</span>
+                    <span class="device-item-track"
+                      >{out.deviceId === "default"
+                        ? "System default"
+                        : "Audio output"}</span
+                    >
                   </div>
                 </div>
                 {#if $selectedAudioOutputId !== out.deviceId}
@@ -134,7 +167,6 @@
             {/each}
           {/if}
         {/if}
-
       </div>
     {/if}
   </div>
@@ -146,27 +178,39 @@
     <button
       class="ctrl-btn icon-btn device-btn"
       class:active={devicePickerOpen}
-      on:click={() => { devicePickerOpen = !devicePickerOpen; castPickerOpen = false; }}
+      on:click={() => {
+        devicePickerOpen = !devicePickerOpen;
+        castPickerOpen = false;
+      }}
       title="Orb sessions"
       aria-label="Switch to another active session"
     >
       <!-- Devices icon -->
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="2" y="3" width="20" height="14" rx="2"/>
-        <path d="M8 21h8"/>
-        <path d="M12 17v4"/>
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8" />
+        <path d="M12 17v4" />
       </svg>
       <span class="device-count">{$activeDevices.length}</span>
     </button>
 
     {#if devicePickerOpen}
-      
       <button
         type="button"
         class="device-picker-overlay"
         tabindex="-1"
         aria-label="Close session picker"
-        on:click={() => devicePickerOpen = false}
+        on:click={() => (devicePickerOpen = false)}
       ></button>
       <div class="device-picker-popup">
         <div class="device-picker-header">Sessions</div>
@@ -186,10 +230,12 @@
               <div class="device-item-info">
                 <span class="device-item-name">
                   {device.name}
-                  {#if device.id === deviceId}<span class="this-badge">this device</span>{/if}
+                  {#if device.id === deviceId}<span class="this-badge"
+                      >this device</span
+                    >{/if}
                 </span>
                 <span class="device-item-track">
-                  {device.state.track_title || 'Idle'}
+                  {device.state.track_title || "Idle"}
                 </span>
               </div>
             </div>
@@ -224,7 +270,9 @@
     align-items: center;
     justify-content: center;
   }
-  .ctrl-btn:hover { color: var(--text); }
+  .ctrl-btn:hover {
+    color: var(--text);
+  }
   .icon-btn {
     position: relative;
     display: inline-flex;
@@ -233,9 +281,11 @@
     font-size: 0;
     padding: 6px;
   }
-  .icon-btn.active { color: var(--accent); }
+  .icon-btn.active {
+    color: var(--accent);
+  }
   .icon-btn.active::after {
-    content: '';
+    content: "";
     position: absolute;
     bottom: 3px;
     left: 50%;
@@ -286,7 +336,7 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
     z-index: 1000;
     overflow: hidden;
   }
@@ -339,7 +389,7 @@
     opacity: 0.35;
     flex-shrink: 0;
   }
-.device-picker-empty {
+  .device-picker-empty {
     font-size: 0.8rem;
     color: var(--text-muted);
     padding: 6px 10px;

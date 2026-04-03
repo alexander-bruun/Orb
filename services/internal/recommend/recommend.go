@@ -89,4 +89,3 @@ func (s *Service) autoplay(w http.ResponseWriter, r *http.Request) {
 	}
 	httputil.WriteOK(w, tracks)
 }
-

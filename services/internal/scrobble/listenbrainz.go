@@ -53,7 +53,7 @@ func (c *LBClient) submit(token string, payload lbPayload) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("listenbrainz: HTTP %d: %s", resp.StatusCode, string(body))

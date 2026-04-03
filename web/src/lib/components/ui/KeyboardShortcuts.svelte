@@ -4,7 +4,10 @@
     description: string;
   }
 
-  let { open = $bindable(false), shortcuts }: { open: boolean; shortcuts: ShortcutEntry[] } = $props();
+  let {
+    open = $bindable(false),
+    shortcuts,
+  }: { open: boolean; shortcuts: ShortcutEntry[] } = $props();
 
   function close() {
     open = false;
@@ -15,19 +18,37 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') close();
+    if (e.key === "Escape") close();
   }
 </script>
 
 {#if open}
-  <div class="backdrop" role="presentation" onclick={onBackdropClick} onkeydown={onKeydown}>
-    <div class="sheet" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+  <div
+    class="backdrop"
+    role="presentation"
+    onclick={onBackdropClick}
+    onkeydown={onKeydown}
+  >
+    <div
+      class="sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+    >
       <div class="sheet-head">
         <span class="sheet-title">Keyboard Shortcuts</span>
         <button class="close-btn" onclick={close} aria-label="Close">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       </div>
@@ -91,7 +112,9 @@
     align-items: center;
     padding: 4px;
     border-radius: 6px;
-    transition: color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      background 0.15s;
   }
 
   .close-btn:hover {

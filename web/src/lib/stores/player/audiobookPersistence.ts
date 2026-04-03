@@ -21,7 +21,7 @@ export function persistProgress(completed = false) {
 	const pos = get(abPositionMs);
 	if (pos === _lastSavedMs && !completed) return;
 	_lastSavedMs = pos;
-	audiobooksApi.saveProgress(book.id, pos, completed).catch(() => {});
+	audiobooksApi.saveProgress(book.id, pos, completed).catch(() => { });
 }
 
 export function startSaveInterval() {

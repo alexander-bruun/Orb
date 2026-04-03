@@ -237,7 +237,7 @@ export async function syncNativePictureInPictureBridge(playing: boolean): Promis
 	// retains the rendered frame/text instead of showing a blank window.
 	// The `playing` flag is still used by callers for state semantics; teardown
 	// on true stop/idle is handled separately via audioEngine.isLoaded checks.
-	await video.play().catch(() => {});
+	await video.play().catch(() => { });
 }
 
 export async function openNativePictureInPicture(): Promise<void> {
@@ -252,14 +252,14 @@ export async function openNativePictureInPicture(): Promise<void> {
 export async function closeNativePictureInPicture(): Promise<void> {
 	if (typeof document === 'undefined') return;
 	if (!document.pictureInPictureElement) return;
-	await document.exitPictureInPicture().catch(() => {});
+	await document.exitPictureInPicture().catch(() => { });
 }
 
 export async function teardownNativePictureInPictureBridge(): Promise<void> {
 	stopDrawTimer();
 	if (!bridgeVideo) return;
 	if (typeof document !== 'undefined' && document.pictureInPictureElement === bridgeVideo) {
-		await document.exitPictureInPicture().catch(() => {});
+		await document.exitPictureInPicture().catch(() => { });
 	}
 	try {
 		bridgeVideo.pause();

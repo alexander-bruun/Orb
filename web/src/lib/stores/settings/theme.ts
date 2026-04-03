@@ -4,12 +4,12 @@ import { STORAGE_KEYS } from '$lib/constants';
 
 export const ACCENTS = [
 	{ name: 'Purple', value: '#c084fc', rgb: '192,132,252' },
-	{ name: 'Blue',   value: '#60a5fa', rgb: '96,165,250' },
-	{ name: 'Green',  value: '#4ade80', rgb: '74,222,128' },
+	{ name: 'Blue', value: '#60a5fa', rgb: '96,165,250' },
+	{ name: 'Green', value: '#4ade80', rgb: '74,222,128' },
 	{ name: 'Orange', value: '#fb923c', rgb: '251,146,60' },
-	{ name: 'Pink',   value: '#f472b6', rgb: '244,114,182' },
-	{ name: 'Cyan',   value: '#22d3ee', rgb: '34,211,238' },
-	{ name: 'Red',    value: '#f87171', rgb: '248,113,113' },
+	{ name: 'Pink', value: '#f472b6', rgb: '244,114,182' },
+	{ name: 'Cyan', value: '#22d3ee', rgb: '34,211,238' },
+	{ name: 'Red', value: '#f87171', rgb: '248,113,113' },
 	{ name: 'Yellow', value: '#facc15', rgb: '250,204,21' },
 ] as const;
 
@@ -21,7 +21,7 @@ interface ThemeState {
 }
 
 const STORAGE_KEY = STORAGE_KEYS.THEME;
-const AVATAR_KEY  = STORAGE_KEYS.AVATAR;
+const AVATAR_KEY = STORAGE_KEYS.AVATAR;
 
 function loadTheme(): ThemeState {
 	if (!browser) return { mode: 'dark', accent: '#c084fc' };
@@ -39,8 +39,8 @@ function applyTheme(state: ThemeState) {
 	html.setAttribute('data-theme', state.mode);
 
 	const accent = ACCENTS.find(a => a.value === state.accent) ?? ACCENTS[0];
-	html.style.setProperty('--accent',      accent.value);
-	html.style.setProperty('--accent-dim',  `rgba(${accent.rgb},0.12)`);
+	html.style.setProperty('--accent', accent.value);
+	html.style.setProperty('--accent-dim', `rgba(${accent.rgb},0.12)`);
 	html.style.setProperty('--accent-glow', `rgba(${accent.rgb},0.25)`);
 }
 
@@ -257,6 +257,6 @@ function createSleepTimerEnabledStore(key: string, defaultOn = true) {
 	};
 }
 
-export const musicSleepTimerEnabled     = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_MUSIC_ENABLED);
+export const musicSleepTimerEnabled = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_MUSIC_ENABLED);
 export const audiobookSleepTimerEnabled = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_AUDIOBOOK_ENABLED);
-export const podcastSleepTimerEnabled   = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_PODCAST_ENABLED);
+export const podcastSleepTimerEnabled = createSleepTimerEnabledStore(STORAGE_KEYS.SLEEP_TIMER_PODCAST_ENABLED);

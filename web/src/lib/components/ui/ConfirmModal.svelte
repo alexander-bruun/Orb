@@ -40,7 +40,7 @@
 </script>
 
 {#if open}
-  <div class="backdrop" on:click={handleBackdropClick} role="presentation">
+  <div class="backdrop" onclick={handleBackdropClick} role="presentation">
     <div class="modal">
       <div class="header">
         <h2>{title}</h2>
@@ -49,14 +49,18 @@
         {message}
       </div>
       <div class="footer">
-        <button class="btn btn-secondary" on:click={handleCancel} disabled={loading}>
+        <button
+          class="btn btn-secondary"
+          onclick={handleCancel}
+          disabled={loading}
+        >
           {cancelText}
         </button>
         <button
           class="btn"
           class:btn-danger={variant === "danger"}
           class:btn-primary={variant === "default"}
-          on:click={handleConfirm}
+          onclick={handleConfirm}
           disabled={loading}
         >
           {#if loading}

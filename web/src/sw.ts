@@ -8,20 +8,20 @@ declare const self: ServiceWorkerGlobalScope;
 
 /** Minimal interface for a Background Fetch record (non-standard, Chromium only). */
 interface BackgroundFetchRecord {
-	request: Request;
-	responseReady: Promise<Response>;
+  request: Request;
+  responseReady: Promise<Response>;
 }
 
 /** Minimal interface for a Background Fetch registration. */
 interface BackgroundFetchRegistration {
-	id: string;
-	matchAll(): Promise<BackgroundFetchRecord[]>;
+  id: string;
+  matchAll(): Promise<BackgroundFetchRecord[]>;
 }
 
 /** Minimal interface for Background Fetch events dispatched to the service worker. */
 interface BackgroundFetchEvent extends ExtendableEvent {
-	registration: BackgroundFetchRegistration;
-	updateUI(options: { title: string }): Promise<void>;
+  registration: BackgroundFetchRegistration;
+  updateUI(options: { title: string }): Promise<void>;
 }
 
 cleanupOutdatedCaches();

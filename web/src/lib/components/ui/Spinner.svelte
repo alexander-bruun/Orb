@@ -20,7 +20,15 @@
       role="status"
     >
       <!-- Outer ring -->
-      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.25" />
+      <circle
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        stroke-width="1.4"
+        fill="none"
+        opacity="0.25"
+      />
       <!-- Center dot -->
       <circle cx="12" cy="12" r="3.5" fill="currentColor" opacity="0.4" />
       <!-- Orbiting dot — sits on the outer ring (r=10, top = y:2) -->
@@ -37,7 +45,15 @@
     role="status"
   >
     <!-- Outer ring -->
-    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.25" />
+    <circle
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      stroke-width="1.4"
+      fill="none"
+      opacity="0.25"
+    />
     <!-- Center dot -->
     <circle cx="12" cy="12" r="3.5" fill="currentColor" opacity="0.4" />
     <!-- Orbiting dot — sits on the outer ring (r=10, top = y:2) -->

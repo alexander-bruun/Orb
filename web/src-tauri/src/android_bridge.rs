@@ -650,7 +650,12 @@ pub fn get_audio_output_max_channels() -> Result<i32, String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
         Ok(env
-            .call_static_method(cls, jni_str!("getAudioOutputMaxChannels"), jni_sig!("()I"), &[])?
+            .call_static_method(
+                cls,
+                jni_str!("getAudioOutputMaxChannels"),
+                jni_sig!("()I"),
+                &[],
+            )?
             .i()? as i32)
     })
 }

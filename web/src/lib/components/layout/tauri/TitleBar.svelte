@@ -4,7 +4,9 @@
 
     const appWindow = getCurrentWindow();
 
-    let title = $state(typeof document !== "undefined" ? document.title : "Orb");
+    let title = $state(
+        typeof document !== "undefined" ? document.title : "Orb",
+    );
 
     onMount(() => {
         const titleEl = document.querySelector("title");
@@ -31,10 +33,31 @@
 
 <div class="titlebar" data-tauri-drag-region aria-label="Window title bar">
     <div class="wordmark" data-tauri-drag-region>
-        <svg viewBox="0 0 52 28" height="18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <circle cx="12" cy="14" r="10" stroke="currentColor" stroke-width="1.4" opacity="0.3"/>
-            <circle cx="12" cy="14" r="4.5" fill="currentColor"/>
-            <text x="27" y="21" font-family="'Instrument Serif', Georgia, serif" font-style="italic" font-size="22" fill="currentColor" letter-spacing="-0.02em">orb</text>
+        <svg
+            viewBox="0 0 52 28"
+            height="18"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+        >
+            <circle
+                cx="12"
+                cy="14"
+                r="10"
+                stroke="currentColor"
+                stroke-width="1.4"
+                opacity="0.3"
+            />
+            <circle cx="12" cy="14" r="4.5" fill="currentColor" />
+            <text
+                x="27"
+                y="21"
+                font-family="'Instrument Serif', Georgia, serif"
+                font-style="italic"
+                font-size="22"
+                fill="currentColor"
+                letter-spacing="-0.02em">orb</text
+            >
         </svg>
     </div>
 

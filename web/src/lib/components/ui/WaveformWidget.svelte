@@ -11,10 +11,10 @@
    *   width        – canvas logical width  (default 300)
    *   height       – canvas logical height (default 80)
    */
-  import { onMount, onDestroy } from 'svelte';
-  import { audioEngine } from '$lib/audio/engine';
+  import { onMount, onDestroy } from "svelte";
+  import { audioEngine } from "$lib/audio/engine";
 
-  export let colorScheme: 'accent' | 'rainbow' | 'mono' = 'accent';
+  export let colorScheme: "accent" | "rainbow" | "mono" = "accent";
   export let width = 300;
   export let height = 80;
 
@@ -22,16 +22,18 @@
   let rafId: number | null = null;
 
   function getStrokeColor(x: number, totalWidth: number): string {
-    if (colorScheme === 'rainbow') {
+    if (colorScheme === "rainbow") {
       return `hsl(${(x / totalWidth) * 270}, 75%, 60%)`;
     }
-    if (colorScheme === 'mono') {
-      return 'rgba(200,200,200,0.85)';
+    if (colorScheme === "mono") {
+      return "rgba(200,200,200,0.85)";
     }
     // accent — CSS variable lookup
-    return typeof document !== 'undefined'
-      ? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#5b8dee'
-      : '#5b8dee';
+    return typeof document !== "undefined"
+      ? getComputedStyle(document.documentElement)
+          .getPropertyValue("--accent")
+          .trim() || "#5b8dee"
+      : "#5b8dee";
   }
 
   // Smoothed data for a nicer visualisation — lerp between frames.
@@ -39,9 +41,15 @@
   const SMOOTH = 0.55; // mixing weight for new data vs. previous frame
 
   function draw() {
-    if (!canvas) { rafId = requestAnimationFrame(draw); return; }
-    const ctx2d = canvas.getContext('2d');
-    if (!ctx2d) { rafId = requestAnimationFrame(draw); return; }
+    if (!canvas) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
+    const ctx2d = canvas.getContext("2d");
+    if (!ctx2d) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
 
     const dpr = window.devicePixelRatio ?? 1;
     if (canvas.width !== width * dpr) {
@@ -56,7 +64,7 @@
 
     if (!analyser) {
       // Draw silent centre-line.
-      ctx2d.strokeStyle = 'rgba(120,120,120,0.3)';
+      ctx2d.strokeStyle = "rgba(120,120,120,0.3)";
       ctx2d.lineWidth = 1.5;
       ctx2d.beginPath();
       ctx2d.moveTo(0, height / 2);
@@ -83,7 +91,7 @@
     // Downsample to canvas pixel grid for performance.
     const step = Math.ceil(bufLen / width);
 
-    if (colorScheme === 'rainbow') {
+    if (colorScheme === "rainbow") {
       // Segment-by-segment colour sweep.
       for (let i = 0; i < width - 1; i++) {
         const s0 = Math.floor(i * step);
@@ -102,8 +110,8 @@
       const accent = getStrokeColor(0, width);
       ctx2d.strokeStyle = accent;
       ctx2d.lineWidth = 1.5;
-      ctx2d.lineJoin = 'round';
-      ctx2d.lineCap = 'round';
+      ctx2d.lineJoin = "round";
+      ctx2d.lineCap = "round";
       ctx2d.beginPath();
 
       for (let i = 0; i < width; i++) {
@@ -141,9 +149,7 @@
   aria-label="Real-time audio waveform oscilloscope"
   style="width:{width}px;height:{height}px;margin:0;"
 >
-  <canvas
-    bind:this={canvas}
-    style="width:{width}px;height:{height}px;"
+  <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"
   ></canvas>
 </figure>
 

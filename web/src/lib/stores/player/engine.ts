@@ -375,7 +375,7 @@ export function pause(): void {
 
 	if (isAndroidNative) {
 		import('@tauri-apps/api/core').then(({ invoke }) => {
-			invoke('pause_music').catch(() => {});
+			invoke('pause_music').catch(() => { });
 		});
 		stopNativePositionPolling();
 	} else if (audioEngine.isLoaded) {
@@ -398,7 +398,7 @@ export function resume(): void {
 			return;
 		}
 		import('@tauri-apps/api/core').then(({ invoke }) => {
-			invoke('resume_music').catch(() => {});
+			invoke('resume_music').catch(() => { });
 		});
 		if (get(_mode) !== 'audiobook') startNativePositionPolling();
 	} else if (audioEngine.isLoaded) {
@@ -415,7 +415,7 @@ export function seek(ms: number): void {
 
 	if (isAndroidNative) {
 		import('@tauri-apps/api/core').then(({ invoke }) => {
-			invoke('seek_music', { positionMs: ms }).catch(() => {});
+			invoke('seek_music', { positionMs: ms }).catch(() => { });
 		});
 	} else if (audioEngine.isLoaded) {
 		audioEngine.seek(ms / 1000);
@@ -426,7 +426,7 @@ export function setSpeed(rate: number): void {
 	_speed.set(rate);
 	if (isAndroidNative) {
 		import('@tauri-apps/api/core').then(({ invoke }) => {
-			invoke('set_playback_speed', { speed: rate }).catch(() => {});
+			invoke('set_playback_speed', { speed: rate }).catch(() => { });
 		});
 	}
 	// HTMLAudioElement speed is managed by the audiobook provider for now.
@@ -439,7 +439,7 @@ export function setVolume(gain: number): void {
 		audioEngine.setVolume(gain);
 	} else {
 		import('@tauri-apps/api/core').then(({ invoke }) => {
-			invoke('set_volume', { volume: gain }).catch(() => {});
+			invoke('set_volume', { volume: gain }).catch(() => { });
 		});
 	}
 }
@@ -470,7 +470,7 @@ export function switchMode(newMode: PlaybackMode): void {
 	// 4. Reconfigure native notification surface.
 	if (isAndroidNative) {
 		import('@tauri-apps/api/core').then(({ invoke }) => {
-			invoke('set_audiobook_mode', { isAudiobook: newMode === 'audiobook' }).catch(() => {});
+			invoke('set_audiobook_mode', { isAudiobook: newMode === 'audiobook' }).catch(() => { });
 		});
 	}
 

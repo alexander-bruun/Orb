@@ -16,11 +16,11 @@
    *   width        – logical canvas width  (default 300)
    *   height       – logical canvas height (default 140)
    */
-  import { onMount, onDestroy } from 'svelte';
-  import { audioEngine } from '$lib/audio/engine';
+  import { onMount, onDestroy } from "svelte";
+  import { audioEngine } from "$lib/audio/engine";
 
-  export let colorScheme: 'accent' | 'rainbow' | 'mono' = 'accent';
-  export let width  = 300;
+  export let colorScheme: "accent" | "rainbow" | "mono" = "accent";
+  export let width = 300;
   export let height = 140;
 
   let canvas: HTMLCanvasElement | null = null;
@@ -46,23 +46,24 @@
   const AXIS_PAD = 8; // px kept clear at top/bottom so edge labels are visible
 
   function freqToY(hz: number, h: number): number {
-    const logMin  = Math.log10(MIN_FREQ);
-    const logMax  = Math.log10(MAX_FREQ);
+    const logMin = Math.log10(MIN_FREQ);
+    const logMax = Math.log10(MAX_FREQ);
     const logFreq = Math.log10(Math.max(hz, MIN_FREQ));
     const t = (logFreq - logMin) / (logMax - logMin); // 0=low, 1=high
     return AXIS_PAD + (1 - t) * (h - 2 * AXIS_PAD);
   }
 
   /** Visible kHz tick labels, filtered to avoid crowding at edges. */
-  $: freqLabels = FREQ_TICKS_HZ
-    .map((hz) => ({ text: formatHz(hz), y: freqToY(hz, height) }))
-    .filter((l) => l.y >= 7 && l.y <= height - 5);
+  $: freqLabels = FREQ_TICKS_HZ.map((hz) => ({
+    text: formatHz(hz),
+    y: freqToY(hz, height),
+  })).filter((l) => l.y >= 7 && l.y <= height - 5);
 
   /** 5 evenly-spaced dB labels across the analyser range. */
   $: dbLabels = Array.from({ length: 5 }, (_, i) => {
     const db = maxDb - (i / 4) * (maxDb - minDb); // maxDb at top → minDb at bottom
-    const t  = (db - minDb) / (maxDb - minDb);
-    const y  = (1 - t) * height;
+    const t = (db - minDb) / (maxDb - minDb);
+    const y = (1 - t) * height;
     return { text: `${Math.round(db)}`, y };
   }).filter((l) => l.y >= 7 && l.y <= height - 5);
 
@@ -87,71 +88,93 @@
     ];
   }
 
-  function buildColorLUT(scheme: 'accent' | 'rainbow' | 'mono'): Uint8ClampedArray {
+  function buildColorLUT(
+    scheme: "accent" | "rainbow" | "mono",
+  ): Uint8ClampedArray {
     const lut = new Uint8ClampedArray(256 * 3);
     for (let i = 0; i < 256; i++) {
       const t = i / 255;
-      let r = 0, g = 0, b = 0;
+      let r = 0,
+        g = 0,
+        b = 0;
 
-      if (scheme === 'mono') {
+      if (scheme === "mono") {
         r = g = b = Math.round(t * 255);
-      } else if (scheme === 'rainbow') {
+      } else if (scheme === "rainbow") {
         const hue = 240 - t * 240;
-        [r, g, b] = hslToRgb(hue, 0.9, 0.05 + t * 0.50);
+        [r, g, b] = hslToRgb(hue, 0.9, 0.05 + t * 0.5);
       } else {
         // Spek/SOX: black → navy → blue → cyan → green → yellow → orange → red/white
         if (t < 0.08) {
           const s = t / 0.08;
-          r = 0; g = 0; b = Math.round(s * 90);
+          r = 0;
+          g = 0;
+          b = Math.round(s * 90);
         } else if (t < 0.22) {
           const s = (t - 0.08) / 0.14;
-          r = 0; g = Math.round(s * 20); b = Math.round(90 + s * 165);
+          r = 0;
+          g = Math.round(s * 20);
+          b = Math.round(90 + s * 165);
         } else if (t < 0.42) {
-          const s = (t - 0.22) / 0.20;
-          r = 0; g = Math.round(20 + s * 235); b = 255;
+          const s = (t - 0.22) / 0.2;
+          r = 0;
+          g = Math.round(20 + s * 235);
+          b = 255;
         } else if (t < 0.62) {
-          const s = (t - 0.42) / 0.20;
-          r = 0; g = 255; b = Math.round(255 * (1 - s));
+          const s = (t - 0.42) / 0.2;
+          r = 0;
+          g = 255;
+          b = Math.round(255 * (1 - s));
         } else if (t < 0.77) {
           const s = (t - 0.62) / 0.15;
-          r = Math.round(s * 255); g = 255; b = 0;
+          r = Math.round(s * 255);
+          g = 255;
+          b = 0;
         } else if (t < 0.92) {
           const s = (t - 0.77) / 0.15;
-          r = 255; g = Math.round(255 - s * 175); b = 0;
+          r = 255;
+          g = Math.round(255 - s * 175);
+          b = 0;
         } else {
           const s = (t - 0.92) / 0.08;
-          r = 255; g = Math.round(80 + s * 175); b = Math.round(s * 255);
+          r = 255;
+          g = Math.round(80 + s * 175);
+          b = Math.round(s * 255);
         }
       }
 
-      lut[i * 3]     = r;
+      lut[i * 3] = r;
       lut[i * 3 + 1] = g;
       lut[i * 3 + 2] = b;
     }
     return lut;
   }
 
-  let colorLUT: Uint8ClampedArray = buildColorLUT('accent');
+  let colorLUT: Uint8ClampedArray = buildColorLUT("accent");
   $: colorLUT = buildColorLUT(colorScheme);
 
   // ---- Bin-to-row LUT (FFT bin → canvas pixel row) -------------------------
 
   let binLUT: Int32Array | null = null;
-  let lutBinCount   = 0;
+  let lutBinCount = 0;
   let lutSampleRate = 0;
-  let lutHeight     = 0;
+  let lutHeight = 0;
 
-  function buildBinLUT(binCount: number, sampleRate: number, ph: number): Int32Array {
-    const lut     = new Int32Array(ph);
+  function buildBinLUT(
+    binCount: number,
+    sampleRate: number,
+    ph: number,
+  ): Int32Array {
+    const lut = new Int32Array(ph);
     const nyquist = sampleRate / 2;
-    const logMin  = Math.log10(Math.max(1, MIN_FREQ));
-    const logMax  = Math.log10(Math.min(MAX_FREQ, nyquist));
+    const logMin = Math.log10(Math.max(1, MIN_FREQ));
+    const logMax = Math.log10(Math.min(MAX_FREQ, nyquist));
     for (let row = 0; row < ph; row++) {
-      const t       = row / Math.max(1, ph - 1);
+      const t = row / Math.max(1, ph - 1);
       const logFreq = logMax - t * (logMax - logMin);
-      const freq    = Math.pow(10, logFreq);
-      const bin     = Math.round((freq / nyquist) * (binCount - 1));
-      lut[row]      = Math.max(0, Math.min(binCount - 1, bin));
+      const freq = Math.pow(10, logFreq);
+      const bin = Math.round((freq / nyquist) * (binCount - 1));
+      lut[row] = Math.max(0, Math.min(binCount - 1, bin));
     }
     return lut;
   }
@@ -162,24 +185,30 @@
   let colImgData: ImageData | null = null;
 
   function draw() {
-    if (!canvas) { rafId = requestAnimationFrame(draw); return; }
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) { rafId = requestAnimationFrame(draw); return; }
+    if (!canvas) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
 
     const dpr = Math.max(1, Math.round(window.devicePixelRatio ?? 1));
-    const pw  = width  * dpr;
-    const ph  = height * dpr;
+    const pw = width * dpr;
+    const ph = height * dpr;
 
     if (canvas.width !== pw || canvas.height !== ph) {
-      canvas.width  = pw;
+      canvas.width = pw;
       canvas.height = ph;
-      colImgData    = null;
+      colImgData = null;
     }
 
     const analyser = audioEngine.getAnalyser();
 
     if (!analyser) {
-      ctx.fillStyle = '#050508';
+      ctx.fillStyle = "#050508";
       ctx.fillRect(0, 0, pw, ph);
       rafId = requestAnimationFrame(draw);
       return;
@@ -193,13 +222,17 @@
     }
 
     const sampleRate = analyser.context.sampleRate;
-    const binCount   = analyser.frequencyBinCount;
+    const binCount = analyser.frequencyBinCount;
 
-    if (binCount !== lutBinCount || sampleRate !== lutSampleRate || ph !== lutHeight) {
-      binLUT        = buildBinLUT(binCount, sampleRate, ph);
-      lutBinCount   = binCount;
+    if (
+      binCount !== lutBinCount ||
+      sampleRate !== lutSampleRate ||
+      ph !== lutHeight
+    ) {
+      binLUT = buildBinLUT(binCount, sampleRate, ph);
+      lutBinCount = binCount;
       lutSampleRate = sampleRate;
-      lutHeight     = ph;
+      lutHeight = ph;
     }
 
     if (!freqBuf || freqBuf.length !== binCount) {
@@ -214,10 +247,10 @@
     if (!colImgData) colImgData = ctx.createImageData(1, ph);
     const px = colImgData.data;
     for (let row = 0; row < ph; row++) {
-      const amp  = freqBuf[binLUT![row]];
-      const ci   = amp * 3;
-      const pi   = row * 4;
-      px[pi]     = colorLUT[ci];
+      const amp = freqBuf[binLUT![row]];
+      const ci = amp * 3;
+      const pi = row * 4;
+      px[pi] = colorLUT[ci];
       px[pi + 1] = colorLUT[ci + 1];
       px[pi + 2] = colorLUT[ci + 2];
       px[pi + 3] = 255;
@@ -227,8 +260,12 @@
     rafId = requestAnimationFrame(draw);
   }
 
-  onMount(() => { rafId = requestAnimationFrame(draw); });
-  onDestroy(() => { if (rafId !== null) cancelAnimationFrame(rafId); });
+  onMount(() => {
+    rafId = requestAnimationFrame(draw);
+  });
+  onDestroy(() => {
+    if (rafId !== null) cancelAnimationFrame(rafId);
+  });
 </script>
 
 <figure
@@ -236,7 +273,8 @@
   aria-label="Spek-style scrolling spectrogram — frequency over time"
   style="width:{width}px;height:{height}px;margin:0;"
 >
-  <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"></canvas>
+  <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"
+  ></canvas>
 
   <!-- kHz frequency axis (left) -->
   <div class="spk-axis spk-axis--left" aria-hidden="true">
@@ -281,14 +319,22 @@
 
   .spk-axis--left {
     left: 0;
-    background: linear-gradient(to right, rgba(5,5,8,0.72) 0%, rgba(5,5,8,0) 100%);
-    border-right: 1px solid rgba(255,255,255,0.06);
+    background: linear-gradient(
+      to right,
+      rgba(5, 5, 8, 0.72) 0%,
+      rgba(5, 5, 8, 0) 100%
+    );
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
   }
 
   .spk-axis--right {
     right: 0;
-    background: linear-gradient(to left, rgba(5,5,8,0.72) 0%, rgba(5,5,8,0) 100%);
-    border-left: 1px solid rgba(255,255,255,0.06);
+    background: linear-gradient(
+      to left,
+      rgba(5, 5, 8, 0.72) 0%,
+      rgba(5, 5, 8, 0) 100%
+    );
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
     text-align: right;
   }
 
@@ -319,7 +365,7 @@
     display: block;
     font-size: 7px;
     line-height: 1;
-    color: rgba(255, 255, 255, 0.30);
+    color: rgba(255, 255, 255, 0.3);
     padding: 0 3px;
     white-space: nowrap;
   }

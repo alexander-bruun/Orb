@@ -39,9 +39,15 @@
   import MobileAvatar from "$lib/components/layout/mobile/MobileAvatar.svelte";
   import AudiobookBottomBar from "$lib/components/layout/desktop/AudiobookBottomBar.svelte";
   import MobileAudiobookPlayer from "$lib/components/layout/mobile/MobileAudiobookPlayer.svelte";
-  import { currentAudiobook, abPlaybackState } from "$lib/stores/player/audiobookPlayer";
+  import {
+    currentAudiobook,
+    abPlaybackState,
+  } from "$lib/stores/player/audiobookPlayer";
   import PodcastBottomBar from "$lib/components/layout/desktop/PodcastBottomBar.svelte";
-  import { currentEpisode, podcastPlaybackState } from "$lib/stores/player/podcastPlayer";
+  import {
+    currentEpisode,
+    podcastPlaybackState,
+  } from "$lib/stores/player/podcastPlayer";
   import { activePlayer } from "$lib/stores/player/engine";
   // pauseLocal is no longer needed — engine.switchMode() handles mutual exclusion.
   import { scrollPositions } from "$lib/stores/ui/scroll";
@@ -65,6 +71,7 @@
   import { lyricsOpen } from "$lib/stores/player/lyrics";
   import KeyboardShortcuts from "$lib/components/ui/KeyboardShortcuts.svelte";
   import Spinner from "$lib/components/ui/Spinner.svelte";
+  import { sidebarWidth } from "$lib/stores/ui/sidebar";
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   let shortcutsOpen = $state(false);
@@ -93,7 +100,10 @@
         await tick();
         // Delay ensures the DOM has rendered children before we scroll.
         setTimeout(() => {
-          container.scrollTo({ top: saved, behavior: "instant" as ScrollBehavior });
+          container.scrollTo({
+            top: saved,
+            behavior: "instant" as ScrollBehavior,
+          });
         }, 20);
       } else {
         container.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
@@ -103,11 +113,12 @@
     // After navigation, child pages reset document.title via <svelte:head>.
     // If music/audiobook is playing, restore the track title.
     await tick();
-    const musicPlaying = get(playbackState) === 'playing';
-    const abPlaying = get(abPlaybackState) === 'playing';
+    const musicPlaying = get(playbackState) === "playing";
+    const abPlaying = get(abPlaybackState) === "playing";
     if (musicPlaying) {
       const track = get(currentTrack);
-      if (track) document.title = `${track.title} – ${track.artist_name || track.artist?.name || 'Orb'}`;
+      if (track)
+        document.title = `${track.title} – ${track.artist_name || track.artist?.name || "Orb"}`;
     } else if (abPlaying) {
       const book = get(currentAudiobook);
       if (book) document.title = `${book.title} – Orb`;
@@ -116,37 +127,84 @@
 
   // Keep tab title in sync with whatever is actively playing.
   $effect(() => {
-    if ($playbackState === 'playing' && $currentTrack) {
-      document.title = `${$currentTrack.title} – ${$currentTrack.artist_name || $currentTrack.artist?.name || 'Orb'}`;
-    } else if ($abPlaybackState === 'playing' && $currentAudiobook) {
+    if ($playbackState === "playing" && $currentTrack) {
+      document.title = `${$currentTrack.title} – ${$currentTrack.artist_name || $currentTrack.artist?.name || "Orb"}`;
+    } else if ($abPlaybackState === "playing" && $currentAudiobook) {
       document.title = `${$currentAudiobook.title} – Orb`;
     }
   });
 
-  const SHORTCUTS: { key: string; label: string; description: string; action: () => void }[] = [
-    { key: " ", label: "Space", description: "Play / Pause", action: togglePlayPause },
+  const SHORTCUTS: {
+    key: string;
+    label: string;
+    description: string;
+    action: () => void;
+  }[] = [
+    {
+      key: " ",
+      label: "Space",
+      description: "Play / Pause",
+      action: togglePlayPause,
+    },
     { key: "n", label: "N", description: "Next track", action: () => next() },
-    { key: "b", label: "B", description: "Previous track", action: () => previous() },
+    {
+      key: "b",
+      label: "B",
+      description: "Previous track",
+      action: () => previous(),
+    },
     {
       key: "m",
       label: "M",
       description: "Mute / Unmute",
       action: () => {
         const v = get(volume);
-        if (v > 0) { premuteVolume = v; setVolume(0); }
-        else setVolume(premuteVolume || 1);
+        if (v > 0) {
+          premuteVolume = v;
+          setVolume(0);
+        } else setVolume(premuteVolume || 1);
       },
     },
-    { key: "r", label: "R", description: "Cycle repeat mode", action: toggleRepeat },
-    { key: "s", label: "S", description: "Toggle shuffle", action: toggleShuffle },
-    { key: "q", label: "Q", description: "Toggle queue panel", action: () => queueModalOpen.update((v) => !v) },
-    { key: "l", label: "L", description: "Toggle lyrics", action: () => lyricsOpen.update((v) => !v) },
-    { key: "?", label: "?", description: "Show keyboard shortcuts", action: () => { shortcutsOpen = !shortcutsOpen; } },
+    {
+      key: "r",
+      label: "R",
+      description: "Cycle repeat mode",
+      action: toggleRepeat,
+    },
+    {
+      key: "s",
+      label: "S",
+      description: "Toggle shuffle",
+      action: toggleShuffle,
+    },
+    {
+      key: "q",
+      label: "Q",
+      description: "Toggle queue panel",
+      action: () => queueModalOpen.update((v) => !v),
+    },
+    {
+      key: "l",
+      label: "L",
+      description: "Toggle lyrics",
+      action: () => lyricsOpen.update((v) => !v),
+    },
+    {
+      key: "?",
+      label: "?",
+      description: "Show keyboard shortcuts",
+      action: () => {
+        shortcutsOpen = !shortcutsOpen;
+      },
+    },
   ];
 
   function onKeydown(e: KeyboardEvent) {
     // DevTools shortcut — F12 or Ctrl+Shift+I (Tauri desktop only).
-    if (isTauri() && (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I"))) {
+    if (
+      isTauri() &&
+      (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I"))
+    ) {
       e.preventDefault();
       invoke("open_devtools").catch(() => {});
       return;
@@ -177,6 +235,11 @@
   let dataLoaded = false;
 
   onMount(async () => {
+    const root = document.documentElement;
+    sidebarWidth.subscribe((width) => {
+      root.style.setProperty("--sidebar-w", `${width}px`);
+    });
+
     themeStore.init();
     syncNativeCrossfade();
     restoreDownloads();
@@ -192,7 +255,7 @@
     // /auth/setup round-trip entirely.  Without this, the app shows a blank
     // screen for up to 6 s (3 s API timeout + 3 s healthz timeout) before
     // finally landing on the offline downloads view.
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
       isOffline.set(true);
       setupRequired.set(false);
       return;
@@ -378,25 +441,22 @@
   {:else if !$setupRequired && $page.url.pathname === "/login"}
     {@render children()}
   {:else if !$setupRequired && $isAuthenticated}
-    <div
-      class="shell"
-      class:party-open={$lpPanelOpen && $lpRole === "host"}
-    >
+    <div class="shell" class:party-open={$lpPanelOpen && $lpRole === "host"}>
       <TopBar />
       <Sidebar />
       <main class="content">
         {@render children()}
       </main>
-      {#if $currentEpisode && $podcastPlaybackState !== 'idle'}
+      {#if $currentEpisode && $podcastPlaybackState !== "idle"}
         <PodcastBottomBar />
-      {:else if $currentAudiobook && $activePlayer === 'audiobook'}
+      {:else if $currentAudiobook && $activePlayer === "audiobook"}
         <AudiobookBottomBar />
       {:else}
         <BottomBar />
       {/if}
       <ListenPartyPanel />
     </div>
-    {#if $currentAudiobook && $activePlayer === 'audiobook'}
+    {#if $currentAudiobook && $activePlayer === "audiobook"}
       <MobileAudiobookPlayer />
     {:else}
       <MobilePlayer />
@@ -406,7 +466,13 @@
     <ContextMenu />
     <QueueModal />
     <LyricsModal />
-    <KeyboardShortcuts bind:open={shortcutsOpen} shortcuts={SHORTCUTS.map(({ label, description }) => ({ label, description }))} />
+    <KeyboardShortcuts
+      bind:open={shortcutsOpen}
+      shortcuts={SHORTCUTS.map(({ label, description }) => ({
+        label,
+        description,
+      }))}
+    />
     <ToastContainer />
   {/if}
 {/snippet}

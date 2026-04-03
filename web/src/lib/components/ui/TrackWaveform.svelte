@@ -12,11 +12,14 @@
    * provides keyboard accessibility (← → keys and screen-reader labelling)
    * at no visual cost.
    */
-  import { onMount, onDestroy } from 'svelte';
-  import { waveformPeaks, waveformLoading } from '$lib/stores/player/waveformPeaks';
-  import { positionMs, durationMs, seek } from '$lib/stores/player';
+  import { onMount, onDestroy } from "svelte";
+  import {
+    waveformPeaks,
+    waveformLoading,
+  } from "$lib/stores/player/waveformPeaks";
+  import { positionMs, durationMs, seek } from "$lib/stores/player";
 
-  export let colorScheme: 'accent' | 'rainbow' | 'mono' = 'accent';
+  export let colorScheme: "accent" | "rainbow" | "mono" = "accent";
   export let width = 300;
   export let height = 80;
 
@@ -25,15 +28,15 @@
 
   // ── animation state ──────────────────────────────────────────────────────────
   let animRaf = 0;
-  let shimmerPhase = 0;   // 0..1, advances during the placeholder phase
-  let transitionT = 1;    // 0 → 1: blends placeholder silhouette → real peaks
+  let shimmerPhase = 0; // 0..1, advances during the placeholder phase
+  let transitionT = 1; // 0 → 1: blends placeholder silhouette → real peaks
   let transitionStart = 0;
   let hadPeaks = false;
   const TRANSITION_MS = 700;
 
   // ── cursor smoothing state ───────────────────────────────────────────────────
-  let smoothPct = 0;      // visual cursor position (0..1), animated on seeks
-  let prevPct = 0;        // last known raw position — used to detect seek jumps
+  let smoothPct = 0; // visual cursor position (0..1), animated on seeks
+  let prevPct = 0; // last known raw position — used to detect seek jumps
   let cursorAnimFrom = 0;
   let cursorAnimTarget = 0;
   let cursorAnimStart = 0;
@@ -44,24 +47,25 @@
   // ── colour helpers ──────────────────────────────────────────────────────────
 
   function accentColor(): string {
-    return typeof document !== 'undefined'
+    return typeof document !== "undefined"
       ? getComputedStyle(document.documentElement)
-          .getPropertyValue('--accent').trim() || '#5b8dee'
-      : '#5b8dee';
+          .getPropertyValue("--accent")
+          .trim() || "#5b8dee"
+      : "#5b8dee";
   }
 
   function barColor(t: number, played: boolean, peak: number): string {
-    if (colorScheme === 'rainbow') {
+    if (colorScheme === "rainbow") {
       const l = played ? 60 : 28;
       return `hsl(${t * 270}, 70%, ${l}%)`;
     }
-    if (colorScheme === 'mono') {
+    if (colorScheme === "mono") {
       return played
         ? `rgba(200,200,200,${(0.45 + 0.55 * peak).toFixed(2)})`
         : `rgba(80,80,80,0.45)`;
     }
     // accent
-    return played ? accentColor() : 'rgba(120,120,120,0.28)';
+    return played ? accentColor() : "rgba(120,120,120,0.28)";
   }
 
   // ── animation helpers ────────────────────────────────────────────────────────
@@ -73,16 +77,25 @@
   /** Normalized placeholder bar height at position t ∈ [0,1] — same twin-sine
    *  formula used in drawPlaceholder, extracted so draw() can blend against it. */
   function placeholderPeakAt(t: number): number {
-    return Math.abs(Math.sin(t * Math.PI * 6)) * 0.4 +
-           Math.abs(Math.sin(t * Math.PI * 13)) * 0.25 + 0.05;
+    return (
+      Math.abs(Math.sin(t * Math.PI * 6)) * 0.4 +
+      Math.abs(Math.sin(t * Math.PI * 13)) * 0.25 +
+      0.05
+    );
   }
 
   function stopAnim() {
-    if (animRaf) { cancelAnimationFrame(animRaf); animRaf = 0; }
+    if (animRaf) {
+      cancelAnimationFrame(animRaf);
+      animRaf = 0;
+    }
   }
 
   function stopCursorAnim() {
-    if (cursorAnimRaf) { cancelAnimationFrame(cursorAnimRaf); cursorAnimRaf = 0; }
+    if (cursorAnimRaf) {
+      cancelAnimationFrame(cursorAnimRaf);
+      cursorAnimRaf = 0;
+    }
   }
 
   function startCursorAnim(from: number, to: number) {
@@ -93,7 +106,8 @@
     const loop = (now: number) => {
       if (!cursorAnimStart) cursorAnimStart = now;
       const t = Math.min((now - cursorAnimStart) / CURSOR_ANIM_MS, 1);
-      smoothPct = cursorAnimFrom + (cursorAnimTarget - cursorAnimFrom) * easeOutCubic(t);
+      smoothPct =
+        cursorAnimFrom + (cursorAnimTarget - cursorAnimFrom) * easeOutCubic(t);
       // Only draw directly if the main waveform animation isn't already looping.
       if (!animRaf) draw();
       if (t < 1) {
@@ -181,27 +195,27 @@
 
   function draw() {
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const dpr   = window.devicePixelRatio ?? 1;
-    const physW = Math.round(width  * dpr);
+    const dpr = window.devicePixelRatio ?? 1;
+    const physW = Math.round(width * dpr);
     const physH = Math.round(height * dpr);
 
     // Resize backing store when needed.
     if (canvas.width !== physW || canvas.height !== physH) {
-      canvas.width  = physW;
+      canvas.width = physW;
       canvas.height = physH;
     }
 
     ctx.clearRect(0, 0, physW, physH);
 
-    const peaks    = $waveformPeaks?.peaks ?? null;
-    const loading  = $waveformLoading;
-    const pct      = smoothPct;
+    const peaks = $waveformPeaks?.peaks ?? null;
+    const loading = $waveformLoading;
+    const pct = smoothPct;
     const cursorPx = Math.round(pct * physW);
-    const cy       = physH / 2;
-    const maxBarH  = Math.max(1, (physH - 4 * dpr) / 2);
+    const cy = physH / 2;
+    const maxBarH = Math.max(1, (physH - 4 * dpr) / 2);
 
     // Pure placeholder while loading with no peaks yet.
     if (loading && !peaks) {
@@ -211,7 +225,7 @@
 
     if (!peaks) {
       // Silent / no data: flat centre line.
-      ctx.fillStyle = 'rgba(120,120,120,0.2)';
+      ctx.fillStyle = "rgba(120,120,120,0.2)";
       ctx.fillRect(0, cy - 1, physW, 2);
       return;
     }
@@ -220,14 +234,15 @@
     const blend = easeOutCubic(transitionT);
 
     for (let px = 0; px < physW; px++) {
-      const t      = px / physW;
-      const idx    = Math.min(Math.floor(t * peaks.length), peaks.length - 1);
+      const t = px / physW;
+      const idx = Math.min(Math.floor(t * peaks.length), peaks.length - 1);
       const realPk = peaks[idx];
       // Morphs shape from placeholder → real while simultaneously fading in.
-      const peak   = blend < 1
-        ? placeholderPeakAt(t) + (realPk - placeholderPeakAt(t)) * blend
-        : realPk;
-      const barH   = Math.max(1 * dpr, peak * maxBarH);
+      const peak =
+        blend < 1
+          ? placeholderPeakAt(t) + (realPk - placeholderPeakAt(t)) * blend
+          : realPk;
+      const barH = Math.max(1 * dpr, peak * maxBarH);
       const played = px < cursorPx;
 
       ctx.globalAlpha = blend < 1 ? 0.18 + 0.82 * blend : 1;
@@ -242,12 +257,12 @@
     ctx.globalAlpha = 0.25;
     ctx.fillRect(Math.max(0, cursorPx - dpr), 0, dpr * 3, physH);
     ctx.globalAlpha = 1;
-    ctx.fillStyle = colorScheme === 'mono' ? 'rgba(255,255,255,0.9)' : accent;
+    ctx.fillStyle = colorScheme === "mono" ? "rgba(255,255,255,0.9)" : accent;
     ctx.fillRect(cursorPx, 0, Math.max(1, dpr), physH);
 
     // Dim overlay while peaks are still refining.
     if (loading) {
-      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
       ctx.fillRect(0, 0, physW, physH);
     }
   }
@@ -257,14 +272,19 @@
    * Uses the same twin-sine silhouette as placeholderPeakAt() with a
    * traveling shimmer sweep animated via the shimmer parameter (0..1).
    */
-  function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number, shimmer: number) {
-    const cy   = h / 2;
+  function drawPlaceholder(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    shimmer: number,
+  ) {
+    const cy = h / 2;
     const step = Math.ceil(w / 150);
 
     for (let i = 0, px = 0; px < w; i++, px += step) {
-      const t    = i / 150;
+      const t = i / 150;
       const barH = placeholderPeakAt(t) * (h / 2 - 4);
-      ctx.fillStyle = `rgba(120,120,120,${(0.10 + 0.05 * Math.sin(t * Math.PI)).toFixed(2)})`;
+      ctx.fillStyle = `rgba(120,120,120,${(0.1 + 0.05 * Math.sin(t * Math.PI)).toFixed(2)})`;
       ctx.fillRect(px, cy - barH, step - 1, barH * 2);
     }
 
@@ -272,11 +292,11 @@
     const sw = w * 0.28;
     const sx = shimmer * (w + sw) - sw;
     const grad = ctx.createLinearGradient(sx, 0, sx + sw, 0);
-    grad.addColorStop(0,    'rgba(255,255,255,0)');
-    grad.addColorStop(0.35, 'rgba(255,255,255,0.045)');
-    grad.addColorStop(0.5,  'rgba(255,255,255,0.085)');
-    grad.addColorStop(0.65, 'rgba(255,255,255,0.045)');
-    grad.addColorStop(1,    'rgba(255,255,255,0)');
+    grad.addColorStop(0, "rgba(255,255,255,0)");
+    grad.addColorStop(0.35, "rgba(255,255,255,0.045)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0.085)");
+    grad.addColorStop(0.65, "rgba(255,255,255,0.045)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
   }
@@ -345,16 +365,14 @@
   $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
 </script>
 
-<div
-  class="wf-root"
-  style="width:{width}px;height:{height}px;"
->
+<div class="wf-root" style="width:{width}px;height:{height}px;">
   <figure
     class="wf-figure"
     aria-label="Track waveform. Use the seek slider below to navigate."
     style="width:{width}px;height:{height}px;margin:0;"
   >
-    <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"></canvas>
+    <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"
+    ></canvas>
   </figure>
 
   <!--
@@ -400,7 +418,9 @@
     display: block;
   }
 
-  .wf-root { cursor: pointer; }
+  .wf-root {
+    cursor: pointer;
+  }
 
   /* Range input is invisible and ignores pointer events — used only for
      keyboard navigation (arrow keys) and screen-reader accessibility.
@@ -420,6 +440,10 @@
   }
   /* Keep the input itself focusable via keyboard but invisible — the wrapper
      .wf-focused class renders the visible focus ring instead. */
-  .wf-seek:focus { outline: none; }
-  .wf-seek:focus-visible { outline: none; }
+  .wf-seek:focus {
+    outline: none;
+  }
+  .wf-seek:focus-visible {
+    outline: none;
+  }
 </style>

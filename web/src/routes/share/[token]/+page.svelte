@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/stores';
-  import { share as shareApi, type RedeemShareResp } from '$lib/api/share';
-  import { getApiBase } from '$lib/api/base';
-  import type { Track } from '$lib/types';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { onMount } from "svelte";
+  import { page } from "$app/stores";
+  import { share as shareApi, type RedeemShareResp } from "$lib/api/share";
+  import { getApiBase } from "$lib/api/base";
+  import type { Track } from "$lib/types";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
-  let state: 'loading' | 'ready' | 'used' | 'error' = 'loading';
+  let state: "loading" | "ready" | "used" | "error" = "loading";
   let data: RedeemShareResp | null = null;
-  let errMsg = '';
+  let errMsg = "";
 
   // Playback state
   let audio: HTMLAudioElement | null = null;
@@ -17,42 +17,49 @@
   let posMs = 0;
   let durMs = 0;
   let volume = 1;
-  let streamSession = '';
+  let streamSession = "";
 
   // Lyrics
-  interface LyricLine { time_ms: number; text: string; }
+  interface LyricLine {
+    time_ms: number;
+    text: string;
+  }
   let lyricLines: LyricLine[] = [];
-  let lyricTrackId = '';
+  let lyricTrackId = "";
 
   async function fetchLyrics(trackId: string) {
     if (!streamSession || lyricTrackId === trackId) return;
     lyricTrackId = trackId;
     try {
-      const res = await fetch(`${getApiBase()}/share/lyrics/${streamSession}/${trackId}`);
+      const res = await fetch(
+        `${getApiBase()}/share/lyrics/${streamSession}/${trackId}`,
+      );
       if (res.ok) lyricLines = await res.json();
       else lyricLines = [];
-    } catch { lyricLines = []; }
+    } catch {
+      lyricLines = [];
+    }
   }
 
   onMount(async () => {
-    const token = $page.params.token ?? '';
+    const token = $page.params.token ?? "";
     try {
       data = await shareApi.redeem(token);
       streamSession = data.stream_session;
 
-      if (data.type === 'track' && data.track) {
+      if (data.type === "track" && data.track) {
         currentTrack = data.track;
-      } else if (data.type === 'album' && data.tracks?.length) {
+      } else if (data.type === "album" && data.tracks?.length) {
         currentTrack = data.tracks[0];
       }
-      state = 'ready';
-    if (currentTrack) fetchLyrics(currentTrack.id);
+      state = "ready";
+      if (currentTrack) fetchLyrics(currentTrack.id);
     } catch (e: any) {
       if (e?.status === 410) {
-        state = 'used';
+        state = "used";
       } else {
-        state = 'error';
-        errMsg = e?.message ?? 'Unknown error';
+        state = "error";
+        errMsg = e?.message ?? "Unknown error";
       }
     }
   });
@@ -68,7 +75,7 @@
 
   function playTrack(track: Track) {
     lyricLines = [];
-    lyricTrackId = '';
+    lyricTrackId = "";
     currentTrack = track;
     fetchLyrics(track.id);
     if (audio) {
@@ -104,16 +111,16 @@
     const durationSecs = durMs / 1000;
     const clamp = (value: number) => Math.max(0, Math.min(durationSecs, value));
     const step = 5;
-    if (e.key === 'ArrowRight') {
+    if (e.key === "ArrowRight") {
       e.preventDefault();
       audio.currentTime = clamp(audio.currentTime + step);
-    } else if (e.key === 'ArrowLeft') {
+    } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       audio.currentTime = clamp(audio.currentTime - step);
-    } else if (e.key === 'Home') {
+    } else if (e.key === "Home") {
       e.preventDefault();
       audio.currentTime = 0;
-    } else if (e.key === 'End') {
+    } else if (e.key === "End") {
       e.preventDefault();
       audio.currentTime = durationSecs;
     }
@@ -127,7 +134,7 @@
 
   function onEnded() {
     playing = false;
-    if (data?.type === 'album' && data.tracks && currentTrack) {
+    if (data?.type === "album" && data.tracks && currentTrack) {
       const idx = data.tracks.findIndex((t) => t.id === currentTrack!.id);
       if (idx >= 0 && idx < data.tracks.length - 1) {
         playTrack(data.tracks[idx + 1]);
@@ -141,37 +148,39 @@
   }
 
   function fmt(ms: number): string {
-    if (!ms || isNaN(ms)) return '0:00';
+    if (!ms || isNaN(ms)) return "0:00";
     const s = Math.floor(ms / 1000);
     const m = Math.floor(s / 60);
-    return `${m}:${String(s % 60).padStart(2, '0')}`;
+    return `${m}:${String(s % 60).padStart(2, "0")}`;
   }
 
   $: progressPct = durMs > 0 ? (posMs / durMs) * 100 : 0;
   $: tracks = data?.tracks ?? (data?.track ? [data.track] : []);
 
   $: activeLyric = (() => {
-    if (!lyricLines.length) return '';
+    if (!lyricLines.length) return "";
     let idx = -1;
     for (let i = 0; i < lyricLines.length; i++) {
       if (lyricLines[i].time_ms <= posMs) idx = i;
       else break;
     }
-    return idx >= 0 ? lyricLines[idx].text : '';
+    return idx >= 0 ? lyricLines[idx].text : "";
   })();
 
   // Cover art: prefer album cover, fall back to track's album_id
-  $: artUrl = data?.type === 'album' && data.album
-    ? coverUrl(data.album.id)
-    : data?.type === 'track' && data.track
-      ? coverUrl(data.track.album_id)
-      : null;
+  $: artUrl =
+    data?.type === "album" && data.album
+      ? coverUrl(data.album.id)
+      : data?.type === "track" && data.track
+        ? coverUrl(data.track.album_id)
+        : null;
 
-  $: pageTitle = data?.type === 'album' && data.album
-    ? `${data.album.title} — Shared Album · Orb`
-    : data?.type === 'track' && data.track
-      ? `${data.track.title} — Shared Track · Orb`
-      : 'Shared · Orb';
+  $: pageTitle =
+    data?.type === "album" && data.album
+      ? `${data.album.title} — Shared Album · Orb`
+      : data?.type === "track" && data.track
+        ? `${data.track.title} — Shared Track · Orb`
+        : "Shared · Orb";
 </script>
 
 <svelte:head>
@@ -188,37 +197,50 @@
 ></audio>
 
 <div class="page">
-  {#if state === 'loading'}
+  {#if state === "loading"}
     <div class="splash">
       <Spinner size={36} />
     </div>
-
-  {:else if state === 'used'}
+  {:else if state === "used"}
     <div class="center card">
       <div class="icon-wrap warn">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        <svg
+          width="36"
+          height="36"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
         </svg>
       </div>
       <h2>Link Already Used</h2>
       <p>This share link is one-time use and has already been redeemed.</p>
     </div>
-
-  {:else if state === 'error'}
+  {:else if state === "error"}
     <div class="center card">
       <div class="icon-wrap warn">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <circle cx="12" cy="16" r="0.5" fill="currentColor"/>
+        <svg
+          width="36"
+          height="36"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <circle cx="12" cy="16" r="0.5" fill="currentColor" />
         </svg>
       </div>
       <h2>Something went wrong</h2>
       <p class="muted">{errMsg}</p>
     </div>
-
-  {:else if state === 'ready' && data}
+  {:else if state === "ready" && data}
     <div class="share-card">
       <!-- Cover art -->
       <div class="cover-wrap">
@@ -226,10 +248,18 @@
           <img class="cover" src={artUrl} alt="Cover art" />
         {:else}
           <div class="cover cover-placeholder">
-            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true">
-              <circle cx="12" cy="12" r="10"/>
-              <circle cx="12" cy="12" r="3"/>
-              <line x1="12" y1="2" x2="12" y2="9"/>
+            <svg
+              width="52"
+              height="52"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="3" />
+              <line x1="12" y1="2" x2="12" y2="9" />
             </svg>
           </div>
         {/if}
@@ -239,21 +269,26 @@
       <div class="player-panel">
         <!-- Meta -->
         <div class="meta">
-          <span class="badge">{data.type === 'album' ? 'Album' : 'Track'}</span>
-          {#if data.type === 'album' && data.album}
+          <span class="badge">{data.type === "album" ? "Album" : "Track"}</span>
+          {#if data.type === "album" && data.album}
             <h1 class="title">{data.album.title}</h1>
-            {#if data.album.artist_name}<p class="sub">{data.album.artist_name}{data.album.release_year ? ` · ${data.album.release_year}` : ''}</p>{/if}
-          {:else if data.type === 'track' && data.track}
+            {#if data.album.artist_name}<p class="sub">
+                {data.album.artist_name}{data.album.release_year
+                  ? ` · ${data.album.release_year}`
+                  : ""}
+              </p>{/if}
+          {:else if data.type === "track" && data.track}
             <h1 class="title">{data.track.title}</h1>
-            {#if data.track.artist_name}<p class="sub">{data.track.artist_name}</p>{/if}
+            {#if data.track.artist_name}<p class="sub">
+                {data.track.artist_name}
+              </p>{/if}
           {/if}
         </div>
 
         <!-- Scrubber -->
         <div class="scrubber-row">
           <span class="time-label">{fmt(posMs)}</span>
-          
-          
+
           <div
             class="scrubber"
             on:click={seek}
@@ -275,38 +310,77 @@
 
         <!-- Controls row: play + volume -->
         <div class="controls-row">
-          <button class="play-btn" on:click={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
+          <button
+            class="play-btn"
+            on:click={togglePlay}
+            aria-label={playing ? "Pause" : "Play"}
+          >
             {#if playing}
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <rect x="6" y="4" width="4" height="16" rx="1"/>
-                <rect x="14" y="4" width="4" height="16" rx="1"/>
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <rect x="6" y="4" width="4" height="16" rx="1" />
+                <rect x="14" y="4" width="4" height="16" rx="1" />
               </svg>
             {:else}
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <polygon points="5,3 19,12 5,21"/>
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <polygon points="5,3 19,12 5,21" />
               </svg>
             {/if}
           </button>
 
           <div class="vol-row">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
               {#if volume === 0}
-                <polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor" stroke="none"/>
-                <line x1="23" y1="9" x2="17" y2="15"/>
-                <line x1="17" y1="9" x2="23" y2="15"/>
+                <polygon
+                  points="11,5 6,9 2,9 2,15 6,15 11,19"
+                  fill="currentColor"
+                  stroke="none"
+                />
+                <line x1="23" y1="9" x2="17" y2="15" />
+                <line x1="17" y1="9" x2="23" y2="15" />
               {:else if volume < 0.5}
-                <polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor" stroke="none"/>
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                <polygon
+                  points="11,5 6,9 2,9 2,15 6,15 11,19"
+                  fill="currentColor"
+                  stroke="none"
+                />
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
               {:else}
-                <polygon points="11,5 6,9 2,9 2,15 6,15 11,19" fill="currentColor" stroke="none"/>
-                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                <polygon
+                  points="11,5 6,9 2,9 2,15 6,15 11,19"
+                  fill="currentColor"
+                  stroke="none"
+                />
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
               {/if}
             </svg>
             <input
               class="vol-slider"
               type="range"
-              min="0" max="1" step="0.02"
+              min="0"
+              max="1"
+              step="0.02"
               value={volume}
               on:input={onVolumeInput}
               aria-label="Volume"
@@ -320,7 +394,7 @@
         {/if}
 
         <!-- Track list (album mode) -->
-        {#if data.type === 'album' && tracks.length > 0}
+        {#if data.type === "album" && tracks.length > 0}
           <div class="track-list">
             {#each tracks as track (track.id)}
               <button
@@ -330,12 +404,18 @@
               >
                 <span class="track-num">
                   {#if currentTrack?.id === track.id && playing}
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <rect x="4" y="4" width="4" height="16" rx="1"/>
-                      <rect x="16" y="4" width="4" height="16" rx="1"/>
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <rect x="4" y="4" width="4" height="16" rx="1" />
+                      <rect x="16" y="4" width="4" height="16" rx="1" />
                     </svg>
                   {:else}
-                    {track.track_number ?? ''}
+                    {track.track_number ?? ""}
                   {/if}
                 </span>
                 <span class="track-title">{track.title}</span>
@@ -352,12 +432,14 @@
 </div>
 
 <style>
-  :global(*, *::before, *::after) { box-sizing: border-box; }
+  :global(*, *::before, *::after) {
+    box-sizing: border-box;
+  }
   :global(body) {
     margin: 0;
     background: #0f0f13;
     color: #e2e2e8;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     min-height: 100dvh;
   }
 
@@ -372,21 +454,44 @@
   }
 
   /* Loading */
-  .splash { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .splash {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
 
   /* Status cards */
-  .center { text-align: center; max-width: 380px; width: 100%; }
-  .muted { color: #888; }
+  .center {
+    text-align: center;
+    max-width: 380px;
+    width: 100%;
+  }
+  .muted {
+    color: #888;
+  }
   .card {
     background: #1a1a22;
     border: 1px solid #2a2a38;
     border-radius: 20px;
     padding: 40px 32px;
   }
-  .card h2 { margin: 14px 0 8px; font-size: 1.15rem; }
-  .card p  { margin: 0; font-size: 0.88rem; color: #888; }
-  .icon-wrap { display: flex; justify-content: center; }
-  .icon-wrap.warn { color: #888; }
+  .card h2 {
+    margin: 14px 0 8px;
+    font-size: 1.15rem;
+  }
+  .card p {
+    margin: 0;
+    font-size: 0.88rem;
+    color: #888;
+  }
+  .icon-wrap {
+    display: flex;
+    justify-content: center;
+  }
+  .icon-wrap.warn {
+    color: #888;
+  }
 
   /* Main card */
   .share-card {
@@ -399,15 +504,22 @@
     padding: 32px;
     max-width: 780px;
     width: 100%;
-    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   }
 
   @media (max-width: 620px) {
-    .share-card { flex-direction: column; align-items: center; padding: 24px 18px; gap: 24px; }
+    .share-card {
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 18px;
+      gap: 24px;
+    }
   }
 
   /* Cover */
-  .cover-wrap { flex-shrink: 0; }
+  .cover-wrap {
+    flex-shrink: 0;
+  }
   .cover {
     width: 200px;
     height: 200px;
@@ -415,7 +527,7 @@
     object-fit: cover;
     display: block;
     background: #252530;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
   .cover-placeholder {
     display: flex;
@@ -425,7 +537,10 @@
     color: #555;
   }
   @media (max-width: 620px) {
-    .cover { width: 160px; height: 160px; }
+    .cover {
+      width: 160px;
+      height: 160px;
+    }
   }
 
   /* Player panel */
@@ -437,7 +552,11 @@
     gap: 18px;
   }
 
-  .meta { display: flex; flex-direction: column; gap: 5px; }
+  .meta {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
 
   .badge {
     display: inline-block;
@@ -474,7 +593,9 @@
     min-width: 34px;
     font-variant-numeric: tabular-nums;
   }
-  .time-label:last-child { text-align: right; }
+  .time-label:last-child {
+    text-align: right;
+  }
 
   .scrubber {
     flex: 1;
@@ -511,11 +632,15 @@
     background: #fff;
     border-radius: 50%;
     transform: translate(-50%, -50%);
-    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     transition: left 0.15s linear;
   }
-  .scrubber:hover .scrubber-fill { background: #9585ff; }
-  .scrubber:hover .scrubber-thumb { transform: translate(-50%, -50%) scale(1.2); }
+  .scrubber:hover .scrubber-fill {
+    background: #9585ff;
+  }
+  .scrubber:hover .scrubber-thumb {
+    transform: translate(-50%, -50%) scale(1.2);
+  }
 
   /* Controls */
   .controls-row {
@@ -536,10 +661,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s, transform 0.1s;
+    transition:
+      background 0.15s,
+      transform 0.1s;
   }
-  .play-btn:hover { background: #9585ff; }
-  .play-btn:active { transform: scale(0.94); }
+  .play-btn:hover {
+    background: #9585ff;
+  }
+  .play-btn:active {
+    transform: scale(0.94);
+  }
 
   /* Volume */
   .vol-row {
@@ -566,7 +697,7 @@
     height: 12px;
     border-radius: 50%;
     background: #fff;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     cursor: pointer;
   }
   .vol-slider::-moz-range-thumb {
@@ -575,10 +706,12 @@
     border: none;
     border-radius: 50%;
     background: #fff;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     cursor: pointer;
   }
-  .vol-slider:hover { background: #3e3e52; }
+  .vol-slider:hover {
+    background: #3e3e52;
+  }
 
   /* Track list */
   .track-list {
@@ -607,8 +740,13 @@
     transition: background 0.1s;
     width: 100%;
   }
-  .track-row:hover { background: #222230; color: #f0f0f5; }
-  .track-row.active { color: #7c6af7; }
+  .track-row:hover {
+    background: #222230;
+    color: #f0f0f5;
+  }
+  .track-row.active {
+    color: #7c6af7;
+  }
 
   .track-num {
     width: 22px;
@@ -620,7 +758,9 @@
     align-items: center;
     justify-content: flex-end;
   }
-  .track-row.active .track-num { color: #7c6af7; }
+  .track-row.active .track-num {
+    color: #7c6af7;
+  }
 
   .track-title {
     flex: 1;
@@ -650,8 +790,14 @@
     animation: lyric-in 0.3s ease;
   }
   @keyframes lyric-in {
-    from { opacity: 0; transform: translateY(4px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   /* Branding */
@@ -660,5 +806,7 @@
     color: #444;
     margin: 0;
   }
-  .branding strong { color: #666; }
+  .branding strong {
+    color: #666;
+  }
 </style>

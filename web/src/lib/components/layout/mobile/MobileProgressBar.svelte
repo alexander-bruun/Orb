@@ -6,10 +6,10 @@
     formattedDuration,
     bufferedPct,
     seek,
-  } from '$lib/stores/player';
-  import { waveformEnabled } from '$lib/stores/settings/theme';
-  import TrackWaveform from '$lib/components/ui/TrackWaveform.svelte';
-  import { waveformFailed } from '$lib/stores/player/waveformPeaks';
+  } from "$lib/stores/player";
+  import { waveformEnabled } from "$lib/stores/settings/theme";
+  import TrackWaveform from "$lib/components/ui/TrackWaveform.svelte";
+  import { waveformFailed } from "$lib/stores/player/waveformPeaks";
 
   $: progress = $durationMs > 0 ? ($positionMs / $durationMs) * 100 : 0;
 
@@ -29,7 +29,6 @@
 
 <div class="fs-seek">
   {#if $waveformEnabled && !$waveformFailed}
-    
     <div
       class="waveform-wrap"
       role="presentation"
@@ -45,7 +44,10 @@
     <div class="seek-bar-wrap">
       <div class="seek-track">
         <div class="seek-buffered" style="width: {$bufferedPct}%"></div>
-        <div class="seek-fill" style="width: {seekDragValue !== null ? seekDragValue : progress}%"></div>
+        <div
+          class="seek-fill"
+          style="width: {seekDragValue !== null ? seekDragValue : progress}%"
+        ></div>
       </div>
       <input
         type="range"
@@ -90,7 +92,8 @@
 
     .seek-track {
       position: absolute;
-      left: 0; right: 0;
+      left: 0;
+      right: 0;
       height: 4px;
       background: rgba(255, 255, 255, 0.2);
       border-radius: 2px;
@@ -113,7 +116,8 @@
 
     .seek-input {
       position: absolute;
-      left: -8px; right: -8px;
+      left: -8px;
+      right: -8px;
       width: calc(100% + 16px);
       height: 28px;
       margin: 0;

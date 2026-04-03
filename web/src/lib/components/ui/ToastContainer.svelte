@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { toasts, dismissToast } from '$lib/stores/ui/toast';
+  import { toasts, dismissToast } from "$lib/stores/ui/toast";
 </script>
 
 {#if $toasts.length > 0}
@@ -7,7 +7,11 @@
     {#each $toasts as toast (toast.id)}
       <div class="toast toast--{toast.type}" role="alert">
         <span class="toast-message">{toast.message}</span>
-        <button class="toast-close" onclick={() => dismissToast(toast.id)} aria-label="Dismiss">×</button>
+        <button
+          class="toast-close"
+          onclick={() => dismissToast(toast.id)}
+          aria-label="Dismiss">×</button
+        >
       </div>
     {/each}
   </div>
@@ -80,7 +84,13 @@
   }
 
   @keyframes slide-in {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

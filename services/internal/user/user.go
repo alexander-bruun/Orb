@@ -84,10 +84,10 @@ func (s *Service) getStreamingPrefs(w http.ResponseWriter, r *http.Request) {
 // override them when the client reports it is on that specific network type.
 type updateStreamingPrefsReq struct {
 	// Any-network defaults
-	MaxBitrateKbps  *int    `json:"max_bitrate_kbps"`  // kbps, null = unlimited
-	MaxSampleRate   *int    `json:"max_sample_rate"`   // Hz, null = unlimited (advisory)
-	MaxBitDepth     *int    `json:"max_bit_depth"`     // e.g. 16/24, null = unlimited (advisory)
-	TranscodeFormat *string `json:"transcode_format"`  // null = no transcoding; "mp3"/"aac"/"opus"
+	MaxBitrateKbps  *int    `json:"max_bitrate_kbps"` // kbps, null = unlimited
+	MaxSampleRate   *int    `json:"max_sample_rate"`  // Hz, null = unlimited (advisory)
+	MaxBitDepth     *int    `json:"max_bit_depth"`    // e.g. 16/24, null = unlimited (advisory)
+	TranscodeFormat *string `json:"transcode_format"` // null = no transcoding; "mp3"/"aac"/"opus"
 	// Wi-Fi specific overrides (nil = inherit default)
 	WifiMaxBitrateKbps  *int    `json:"wifi_max_bitrate_kbps"`
 	WifiMaxSampleRate   *int    `json:"wifi_max_sample_rate"`

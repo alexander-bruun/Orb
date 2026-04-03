@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { derived } from 'svelte/store';
-  import { lpPanelOpen, lpRole } from '$lib/stores/social/listenParty';
+  import { derived } from "svelte/store";
+  import { lpPanelOpen, lpRole } from "$lib/stores/social/listenParty";
 
   export let keys: string[] = [];
-  export let activeKey: string = '';
+  export let activeKey: string = "";
   export let scrollEl: HTMLElement | null = null;
 
   // Shift the bar left on desktop when the listen party panel is open
-  const partyOpen = derived([lpPanelOpen, lpRole], ([$open, $role]) => $open && $role === 'host');
+  const partyOpen = derived(
+    [lpPanelOpen, lpRole],
+    ([$open, $role]) => $open && $role === "host",
+  );
 
   function jumpTo(key: string) {
     if (!scrollEl) return;
@@ -16,12 +19,16 @@
     const sectionRect = (section as HTMLElement).getBoundingClientRect();
     const containerRect = scrollEl.getBoundingClientRect();
     const offset = sectionRect.top - containerRect.top + scrollEl.scrollTop - 8;
-    scrollEl.scrollTo({ top: offset, behavior: 'smooth' });
+    scrollEl.scrollTo({ top: offset, behavior: "smooth" });
   }
 </script>
 
 {#if keys.length > 0}
-  <nav class="alpha-bar" aria-label="Quick navigation" style="right: {$partyOpen ? '280px' : '0'}">
+  <nav
+    class="alpha-bar"
+    aria-label="Quick navigation"
+    style="right: {$partyOpen ? '280px' : '0'}"
+  >
     {#each keys as key}
       <button
         class="key-item"
@@ -63,12 +70,14 @@
     cursor: pointer;
     font-size: 10px;
     font-weight: 600;
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
     color: var(--text-2);
     line-height: 1;
     width: 100%;
     text-align: center;
-    transition: color 0.1s, transform 0.1s;
+    transition:
+      color 0.1s,
+      transform 0.1s;
   }
 
   .key-item:hover {

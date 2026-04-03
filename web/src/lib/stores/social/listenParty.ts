@@ -73,35 +73,35 @@ export interface SyncState {
 // Stores
 // ---------------------------------------------------------------------------
 
-export const lpRole        = writable<'host' | 'guest' | null>(null);
-export const lpSessionId   = writable<string | null>(null);
+export const lpRole = writable<'host' | 'guest' | null>(null);
+export const lpSessionId = writable<string | null>(null);
 export const lpParticipants = writable<Participant[]>([]);
-export const lpPanelOpen   = writable(false);
-export const lpConnected   = writable(false);
+export const lpPanelOpen = writable(false);
+export const lpConnected = writable(false);
 
 /** Host-only: whether access code protection is enabled */
 export const lpCodeEnabled = writable(false);
 /** Host-only: the current 4-digit access code (null when disabled) */
-export const lpAccessCode  = writable<string | null>(null);
+export const lpAccessCode = writable<string | null>(null);
 
 /** Guest-only: auth token for stream URLs */
-export const lpGuestToken     = writable<string | null>(null);
+export const lpGuestToken = writable<string | null>(null);
 /** Guest-only: currently playing item type */
-export const lpGuestItemType  = writable<'track' | 'audiobook' | null>(null);
+export const lpGuestItemType = writable<'track' | 'audiobook' | null>(null);
 /** Guest-only: currently playing track metadata */
-export const lpGuestTrack     = writable<TrackInfo | null>(null);
+export const lpGuestTrack = writable<TrackInfo | null>(null);
 /** Guest-only: currently playing audiobook metadata */
 export const lpGuestAudiobook = writable<AudiobookInfo | null>(null);
 /** Guest-only: latest position in ms (updated from audio + ticks) */
 export const lpGuestPositionMs = writable(0);
 /** Guest-only: whether the host is playing */
-export const lpGuestPlaying   = writable(false);
+export const lpGuestPlaying = writable(false);
 /** Guest-only: duration ms of the current track/book */
 export const lpGuestDurationMs = writable(0);
 /** True when the guest has been kicked */
-export const lpKicked         = writable(false);
+export const lpKicked = writable(false);
 /** True when the host ended the session */
-export const lpSessionEnded   = writable(false);
+export const lpSessionEnded = writable(false);
 /** Guest-only: the participant ID assigned by the server (used to filter self from participants list) */
 export const lpGuestParticipantId = writable<string | null>(null);
 
@@ -203,7 +203,7 @@ function _connectHost(sessionId: string) {
 		_stopPlayerWatch();
 	};
 
-	ws.onerror = () => {};
+	ws.onerror = () => { };
 }
 
 function _handleHostMessage(msg: Record<string, unknown>) {
@@ -259,7 +259,7 @@ function _watchPlayerForHost() {
 			_wsSend({ type: 'sync_state', state: { item_type: 'audiobook', item_id: bid, position_ms: 0, playing: true } });
 		}
 	});
-	
+
 	const unsubChapter = abCurrentChapter.subscribe((ch) => {
 		if (get(activePlayer) !== 'audiobook') return;
 		const cid = ch?.id ?? '';
@@ -332,12 +332,12 @@ function _wsSend(payload: Record<string, unknown>): boolean {
 function _hostSendSync() {
 	if (!ws || ws.readyState !== WebSocket.OPEN) return;
 	const mode = get(activePlayer);
-	
+
 	if (mode === 'music') {
-		const track  = get(currentTrack);
-		const state  = get(playbackState);
+		const track = get(currentTrack);
+		const state = get(playbackState);
 		if (state === 'loading') return;
-		const posMs  = get(playerPositionMs);
+		const posMs = get(playerPositionMs);
 		const trackId = track?.id ?? '';
 		if (trackId === lastSentItemId && state === 'idle') return;
 		lastSentItemId = trackId;
@@ -378,7 +378,7 @@ export function hostKick(participantId: string) {
 export async function hostEndSession() {
 	const sessionId = get(lpSessionId);
 	disconnect();
-	if (sessionId) await listenPartyApi.endSession(sessionId).catch(() => {});
+	if (sessionId) await listenPartyApi.endSession(sessionId).catch(() => { });
 	_resetState();
 }
 
@@ -431,7 +431,7 @@ export async function connectAsGuest(sessionId: string, nickname: string, code?:
 					lpGuestParticipantId.set((msg.participant_id as string) ?? null);
 					if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
 					if (msg.audiobook_info) lpGuestAudiobook.set(msg.audiobook_info as AudiobookInfo);
-					
+
 					if (msg.current_state) {
 						_applyGuestSync(
 							msg.current_state as SyncState,
@@ -481,7 +481,7 @@ function _handleGuestMessage(msg: Record<string, unknown>, sessionId: string) {
 			if (msg.state) {
 				if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
 				if (msg.audiobook_info) lpGuestAudiobook.set(msg.audiobook_info as AudiobookInfo);
-				
+
 				_applyGuestSync(
 					msg.state as SyncState,
 					(msg.track_info as TrackInfo) ?? null,
@@ -591,7 +591,7 @@ function _applyGuestSync(
 		}
 		// Sync play/pause state.
 		if (state.playing && guestAudio.paused) {
-			guestAudio.play().catch(() => {});
+			guestAudio.play().catch(() => { });
 		} else if (!state.playing && !guestAudio.paused) {
 			guestAudio.pause();
 		}
@@ -642,7 +642,7 @@ function _guestPlay(url: string, startSeconds: number, shouldPlay: boolean) {
 		if (startSeconds > 0) audio.currentTime = startSeconds;
 		// Read the module-level flag, not the closure-captured shouldPlay, so
 		// that a pause sync received while the audio was loading is respected.
-		if (guestWantsPlaying) audio.play().catch(() => {});
+		if (guestWantsPlaying) audio.play().catch(() => { });
 		lpGuestPlaying.set(guestWantsPlaying);
 	};
 	audio.addEventListener('loadedmetadata', onMeta);

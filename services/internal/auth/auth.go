@@ -928,4 +928,3 @@ func UserIDFromCtx(ctx context.Context) string {
 	v, _ := ctx.Value(ctxUserID).(string)
 	return v
 }
-

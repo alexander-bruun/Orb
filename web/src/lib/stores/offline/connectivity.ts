@@ -48,12 +48,12 @@ export async function checkConnectivity(): Promise<boolean> {
     // healthz always returns 200 when the server is up.
     const nowOffline = !res.ok;
     const wasOffline = get(isOffline);
-    
+
     isOffline.set(nowOffline);
 
     if (wasOffline && !nowOffline) {
       // Transitioned from offline to online - sync data
-      syncProgressToServer().catch(() => {});
+      syncProgressToServer().catch(() => { });
     }
 
     return nowOffline;

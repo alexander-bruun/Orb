@@ -142,7 +142,7 @@ if (browser) {
 			prevTrackId = track.id;
 			// Only sync if we already have an active cast session.
 			if (get(castState) === 'connected') {
-				syncCastTrack(track.id, 0).catch(() => {});
+				syncCastTrack(track.id, 0).catch(() => { });
 			}
 		});
 	});
@@ -291,7 +291,7 @@ export async function startCast(): Promise<void> {
 				castDeviceName.set(session.receiver.friendlyName);
 				castState.set('connected');
 				// Immediately sync the current track to the Cast receiver.
-				syncCastTrack().catch(() => {});
+				syncCastTrack().catch(() => { });
 				resolve();
 			},
 			(err: unknown) => {
@@ -307,7 +307,7 @@ export async function startCast(): Promise<void> {
  */
 export function stopCast(): void {
 	if (_castSession) {
-		_castSession.stop(() => {}, () => {});
+		_castSession.stop(() => { }, () => { });
 		_castSession = null;
 	}
 	castState.set('idle');

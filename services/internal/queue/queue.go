@@ -156,4 +156,3 @@ func (s *Service) cacheQueue(r *http.Request, userID string, tracks []store.Trac
 	}
 	s.kv.Set(r.Context(), kvkeys.UserQueue(userID), b, queueCacheTTL)
 }
-

@@ -9,22 +9,22 @@
   import { goto } from "$app/navigation";
   import Spinner from "$lib/components/ui/Spinner.svelte";
 
-  type SortMode = 'title' | 'author' | 'year' | 'series';
+  type SortMode = "title" | "author" | "year" | "series";
 
   const SORT_MODES: { mode: SortMode; label: string }[] = [
-    { mode: 'title',  label: 'Title'  },
-    { mode: 'author', label: 'Author' },
-    { mode: 'year',   label: 'Year'   },
-    { mode: 'series', label: 'Series' },
+    { mode: "title", label: "Title" },
+    { mode: "author", label: "Author" },
+    { mode: "year", label: "Year" },
+    { mode: "series", label: "Series" },
   ];
 
   let books: Audiobook[] = [];
   let loading = true;
   let loadingMore = false;
   let hasMore = true;
-  let sortBy: SortMode = 'title';
-  let sortDir: 'asc' | 'desc' = 'asc';
-  let activeKey = '';
+  let sortBy: SortMode = "title";
+  let sortDir: "asc" | "desc" = "asc";
+  let activeKey = "";
   let scrollEl: HTMLElement | null = null;
   let sentinel: HTMLElement;
   let observer: IntersectionObserver | null = null;
@@ -32,16 +32,19 @@
   let isRestoring = false;
   const PAGE = 48;
 
-  const SORT_BY_KEY = 'audiobooks_sort_by';
-  const SORT_DIR_KEY = 'audiobooks_sort_dir';
+  const SORT_BY_KEY = "audiobooks_sort_by";
+  const SORT_DIR_KEY = "audiobooks_sort_dir";
 
-  if (typeof localStorage !== 'undefined') {
+  if (typeof localStorage !== "undefined") {
     const savedSortBy = localStorage.getItem(SORT_BY_KEY);
-    if (savedSortBy && ['title', 'author', 'year', 'series'].includes(savedSortBy)) {
+    if (
+      savedSortBy &&
+      ["title", "author", "year", "series"].includes(savedSortBy)
+    ) {
       sortBy = savedSortBy as SortMode;
     }
     const savedSortDir = localStorage.getItem(SORT_DIR_KEY);
-    if (savedSortDir === 'asc' || savedSortDir === 'desc') {
+    if (savedSortDir === "asc" || savedSortDir === "desc") {
       sortDir = savedSortDir;
     }
   }
@@ -53,7 +56,7 @@
       sortBy,
       sortDir,
       activeKey,
-      lastSortBy
+      lastSortBy,
     }),
     restore: (value) => {
       books = value.books;
@@ -64,7 +67,7 @@
       lastSortBy = value.lastSortBy;
       isRestoring = true;
       loading = false;
-    }
+    },
   };
 
   function fmtDuration(ms: number): string {
@@ -76,23 +79,32 @@
 
   function getSortKey(book: Audiobook, mode: SortMode): string {
     switch (mode) {
-      case 'title': {
-        const first = book.title.replace(/^(the |a |an )\s*/i, '').charAt(0).toUpperCase();
-        return /[A-Z]/.test(first) ? first : '#';
+      case "title": {
+        const first = book.title
+          .replace(/^(the |a |an )\s*/i, "")
+          .charAt(0)
+          .toUpperCase();
+        return /[A-Z]/.test(first) ? first : "#";
       }
-      case 'author': {
-        const name = book.author_name ?? '';
-        const first = name.replace(/^(the |a |an )\s*/i, '').charAt(0).toUpperCase();
-        return first && /[A-Z]/.test(first) ? first : '#';
+      case "author": {
+        const name = book.author_name ?? "";
+        const first = name
+          .replace(/^(the |a |an )\s*/i, "")
+          .charAt(0)
+          .toUpperCase();
+        return first && /[A-Z]/.test(first) ? first : "#";
       }
-      case 'year':
-        return book.published_year ? String(book.published_year) : '?';
-      case 'series':
-        return book.series ?? 'Standalone';
+      case "year":
+        return book.published_year ? String(book.published_year) : "?";
+      case "series":
+        return book.series ?? "Standalone";
     }
   }
 
-  function computeGrouped(list: Audiobook[], mode: SortMode): Map<string, Audiobook[]> {
+  function computeGrouped(
+    list: Audiobook[],
+    mode: SortMode,
+  ): Map<string, Audiobook[]> {
     const map = new Map<string, Audiobook[]>();
     for (const book of list) {
       const key = getSortKey(book, mode);
@@ -102,7 +114,10 @@
     return map;
   }
 
-  function computeKeys(map: Map<string, Audiobook[]>, mode: SortMode): string[] {
+  function computeKeys(
+    map: Map<string, Audiobook[]>,
+    mode: SortMode,
+  ): string[] {
     // The backend now returns the items in the correct sort order,
     // so we can just return the keys in their insertion order from the map.
     return [...map.keys()];
@@ -114,7 +129,7 @@
   $: if (sortBy !== lastSortBy) {
     lastSortBy = sortBy;
     if (!isRestoring) {
-      activeKey = keys[0] ?? '';
+      activeKey = keys[0] ?? "";
       scrollEl?.scrollTo({ top: 0 });
     }
   }
@@ -125,13 +140,13 @@
 
   function updateActive() {
     if (!scrollEl) return;
-    const sections = scrollEl.querySelectorAll('[data-scroll-key]');
+    const sections = scrollEl.querySelectorAll("[data-scroll-key]");
     const containerTop = scrollEl.getBoundingClientRect().top;
-    let current = keys[0] ?? '';
+    let current = keys[0] ?? "";
     for (const section of sections) {
       const top = section.getBoundingClientRect().top - containerTop;
       if (top <= 64) {
-        current = section.getAttribute('data-scroll-key') ?? current;
+        current = section.getAttribute("data-scroll-key") ?? current;
       }
     }
     activeKey = current;
@@ -160,21 +175,23 @@
     observer?.disconnect();
     if (!sentinel || !hasMore) return;
     observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadMore(); },
-      { root: scrollEl, rootMargin: '200px' }
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { root: scrollEl, rootMargin: "200px" },
     );
     observer.observe(sentinel);
   }
 
   async function changeSort(mode: SortMode) {
     if (mode === sortBy) {
-      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      sortDir = sortDir === "asc" ? "desc" : "asc";
     } else {
       sortBy = mode;
-      sortDir = 'asc';
+      sortDir = "asc";
     }
 
-    if (typeof localStorage !== 'undefined') {
+    if (typeof localStorage !== "undefined") {
       localStorage.setItem(SORT_BY_KEY, sortBy);
       localStorage.setItem(SORT_DIR_KEY, sortDir);
     }
@@ -204,14 +221,17 @@
   }
 
   onMount(async () => {
-    scrollEl = document.querySelector('main.content');
-    if (scrollEl) scrollEl.addEventListener('scroll', updateActive, { passive: true });
+    scrollEl = document.querySelector("main.content");
+    if (scrollEl)
+      scrollEl.addEventListener("scroll", updateActive, { passive: true });
 
     if (isRestoring && books.length > 0) {
       loading = false;
       setTimeout(setupObserver, 0);
       // Let the reactive block skip one tick
-      setTimeout(() => { isRestoring = false; }, 0);
+      setTimeout(() => {
+        isRestoring = false;
+      }, 0);
       return;
     }
 
@@ -228,7 +248,7 @@
   });
 
   onDestroy(() => {
-    scrollEl?.removeEventListener('scroll', updateActive);
+    scrollEl?.removeEventListener("scroll", updateActive);
     observer?.disconnect();
   });
 </script>
@@ -240,7 +260,11 @@
     <div class="title-row">
       <h1 class="page-title">Audiobooks</h1>
       {#if !loading}
-        <span class="count">{books.length}{hasMore ? "+" : ""} book{books.length === 1 ? "" : "s"}</span>
+        <span class="count"
+          >{books.length}{hasMore ? "+" : ""} book{books.length === 1
+            ? ""
+            : "s"}</span
+        >
       {/if}
     </div>
     <div class="sort-controls">
@@ -253,7 +277,7 @@
         >
           {label}
           {#if sortBy === mode}
-            <span class="dir-icon">{sortDir === 'asc' ? '↑' : '↓'}</span>
+            <span class="dir-icon">{sortDir === "asc" ? "↑" : "↓"}</span>
           {/if}
         </button>
       {/each}
@@ -272,9 +296,19 @@
     </div>
   {:else if books.length === 0}
     <div class="empty">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      <svg
+        width="48"
+        height="48"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
       </svg>
       <p>No audiobooks yet.</p>
       <p class="muted">Set <code>AUDIOBOOK_DIRS</code> and trigger a scan.</p>
@@ -285,8 +319,6 @@
         <h2 class="group-label">{key}</h2>
         <div class="grid">
           {#each grouped.get(key) ?? [] as book (book.id)}
-            
-            
             <div
               class="book-card"
               role="button"
@@ -305,9 +337,19 @@
                   />
                 {:else}
                   <div class="cover placeholder">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                    <svg
+                      width="40"
+                      height="40"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
                     </svg>
                   </div>
                 {/if}
@@ -316,32 +358,44 @@
                   aria-label="Play {book.title}"
                   on:click|stopPropagation={() => playAudiobook(book)}
                 >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <path d="M4 2.5l10 5.5-10 5.5V2.5z"/>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 2.5l10 5.5-10 5.5V2.5z" />
                   </svg>
                 </button>
               </div>
               <div class="info">
                 <span class="title" title={book.title}>{book.title}</span>
                 {#if book.author_name}
-                  <span class="author" title={book.author_name}>{book.author_name}</span>
+                  <span class="author" title={book.author_name}
+                    >{book.author_name}</span
+                  >
                 {/if}
                 <div class="meta-row">
                   {#if book.series}
-                    
-                    
                     <button
                       type="button"
                       class="series"
                       title="View series: {book.series}"
                       aria-label={`View series ${book.series}`}
-                      on:click|stopPropagation={() => goto(`/audiobooks/series/${encodeURIComponent(book.series!)}`)}
+                      on:click|stopPropagation={() =>
+                        goto(
+                          `/audiobooks/series/${encodeURIComponent(book.series!)}`,
+                        )}
                     >
-                      {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+                      {book.series}{book.series_index != null
+                        ? ` #${book.series_index}`
+                        : ""}
                     </button>
                   {/if}
                   {#if book.duration_ms}
-                    <span class="duration">{fmtDuration(book.duration_ms)}</span>
+                    <span class="duration">{fmtDuration(book.duration_ms)}</span
+                    >
                   {/if}
                 </div>
               </div>
@@ -374,12 +428,6 @@
     width: 100%;
   }
 
-  .loading-text {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    padding: 16px 0;
-  }
-
   .page-header {
     display: flex;
     align-items: center;
@@ -393,8 +441,15 @@
     align-items: baseline;
     gap: 12px;
   }
-  .page-title { font-size: 1.5rem; font-weight: 700; margin: 0; }
-  .count { font-size: 0.8rem; color: var(--text-muted); }
+  .page-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+  }
+  .count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
 
   .sort-controls {
     display: flex;
@@ -417,12 +472,22 @@
     border-radius: 4px;
     color: var(--text-muted);
     border: 1px solid transparent;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    transition:
+      color 0.15s,
+      border-color 0.15s,
+      background 0.15s;
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-  .sort-btn:hover { color: var(--text); border-color: var(--border); }
-  .sort-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+  .sort-btn:hover {
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .sort-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
 
   .dir-icon {
     display: inline-block;
@@ -472,8 +537,12 @@
     animation: shimmer 1.4s ease-in-out infinite;
   }
   @keyframes shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 
   /* real book cards */
@@ -502,7 +571,9 @@
     display: block;
     transition: transform 0.25s;
   }
-  .book-card:hover .cover { transform: scale(1.03); }
+  .book-card:hover .cover {
+    transform: scale(1.03);
+  }
 
   .placeholder {
     position: absolute;
@@ -530,14 +601,18 @@
     cursor: pointer;
     opacity: 0;
     transform: translateY(4px);
-    transition: opacity 0.2s, transform 0.2s;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   }
   .book-card:hover .play-btn {
     opacity: 1;
     transform: translateY(0);
   }
-  .play-btn:hover { filter: brightness(1.1); }
+  .play-btn:hover {
+    filter: brightness(1.1);
+  }
 
   .info {
     display: flex;
@@ -579,7 +654,9 @@
     max-width: 120px;
     cursor: pointer;
   }
-  .series:hover { text-decoration: underline; }
+  .series:hover {
+    text-decoration: underline;
+  }
 
   .duration {
     font-size: 0.72rem;
@@ -597,8 +674,13 @@
     color: var(--text-muted);
     text-align: center;
   }
-  .empty svg { opacity: 0.35; }
-  .empty p { margin: 0; font-size: 0.95rem; }
+  .empty svg {
+    opacity: 0.35;
+  }
+  .empty p {
+    margin: 0;
+    font-size: 0.95rem;
+  }
   .empty code {
     font-size: 0.85rem;
     background: var(--bg-elevated);
@@ -606,7 +688,9 @@
     border-radius: 4px;
     padding: 1px 5px;
   }
-  .muted { color: var(--text-muted); }
+  .muted {
+    color: var(--text-muted);
+  }
 
   /* load more */
   .load-more {
@@ -616,7 +700,12 @@
   }
 
   @media (max-width: 640px) {
-    .page { padding-right: 36px; }
-    .grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px 12px; }
+    .page {
+      padding-right: 36px;
+    }
+    .grid {
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 16px 12px;
+    }
   }
 </style>

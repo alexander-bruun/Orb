@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { volume, setVolume } from '$lib/stores/player';
+  import { volume, setVolume } from "$lib/stores/player";
 
   function onVolumeChange(e: Event) {
     setVolume(parseFloat((e.target as HTMLInputElement).value));
@@ -7,8 +7,17 @@
 </script>
 
 <div class="fs-volume">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    aria-hidden="true"
+  >
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
   </svg>
   <input
     type="range"
@@ -21,12 +30,22 @@
     on:touchmove|stopPropagation={() => {}}
     class="volume-slider"
     aria-label="Volume"
-    style="background: linear-gradient(to right, rgba(255,255,255,0.85) {$volume * 100}%, rgba(255,255,255,0.25) {$volume * 100}%)"
+    style="background: linear-gradient(to right, rgba(255,255,255,0.85) {$volume *
+      100}%, rgba(255,255,255,0.25) {$volume * 100}%)"
   />
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    aria-hidden="true"
+  >
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
   </svg>
 </div>
 

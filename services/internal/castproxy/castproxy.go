@@ -156,19 +156,19 @@ func (s *Service) handleArt(w http.ResponseWriter, r *http.Request) {
 // castMetadata is the JSON response for /cast/metadata/{track_id}, providing
 // all the information a Chromecast sender needs to build a MediaInfo object.
 type castMetadata struct {
-	TrackID     string  `json:"track_id"`
-	Title       string  `json:"title"`
-	Artist      string  `json:"artist,omitempty"`
-	Album       string  `json:"album,omitempty"`
-	AlbumArtURL string  `json:"album_art_url,omitempty"`
-	MediaURL    string  `json:"media_url"`
-	ContentType string  `json:"content_type"`
-	DurationMs  int     `json:"duration_ms"`
-	TrackNumber *int    `json:"track_number,omitempty"`
-	BitDepth    *int    `json:"bit_depth,omitempty"`
-	SampleRate  int     `json:"sample_rate"`
-	Channels    int     `json:"channels"`
-	BitrateKbps *int    `json:"bitrate_kbps,omitempty"`
+	TrackID     string   `json:"track_id"`
+	Title       string   `json:"title"`
+	Artist      string   `json:"artist,omitempty"`
+	Album       string   `json:"album,omitempty"`
+	AlbumArtURL string   `json:"album_art_url,omitempty"`
+	MediaURL    string   `json:"media_url"`
+	ContentType string   `json:"content_type"`
+	DurationMs  int      `json:"duration_ms"`
+	TrackNumber *int     `json:"track_number,omitempty"`
+	BitDepth    *int     `json:"bit_depth,omitempty"`
+	SampleRate  int      `json:"sample_rate"`
+	Channels    int      `json:"channels"`
+	BitrateKbps *int     `json:"bitrate_kbps,omitempty"`
 	BPM         *float64 `json:"bpm,omitempty"`
 }
 

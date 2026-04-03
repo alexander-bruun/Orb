@@ -62,13 +62,20 @@
 
   async function transferToDevice(targetId: string) {
     devicePickerOpen = false;
-    const { transferAudiobookPlayback } = await import('$lib/stores/player/audiobookPlayer');
+    const { transferAudiobookPlayback } = await import(
+      "$lib/stores/player/audiobookPlayer"
+    );
     await transferAudiobookPlayback(targetId);
   }
 </script>
 
-
-<div class="ab-right" role="presentation" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+<div
+  class="ab-right"
+  role="presentation"
+  tabindex="-1"
+  on:click|stopPropagation
+  on:keydown|stopPropagation
+>
   <!-- Speed picker -->
   <div class="picker-wrap">
     <button
@@ -104,61 +111,61 @@
 
   <!-- Sleep timer -->
   {#if $audiobookSleepTimerEnabled}
-  <div class="picker-wrap">
-    <button
-      class="ctrl-btn icon-btn"
-      class:active={$sleepTimerMins > 0}
-      on:click|stopPropagation={() => {
-        sleepOpen = !sleepOpen;
-        speedOpen = false;
-        chapterOpen = false;
-        bookmarkOpen = false;
-      }}
-      title={$sleepTimerMins > 0
-        ? `Sleep in ${$sleepTimerMins} min`
-        : "Sleep timer"}
-      aria-label="Sleep timer"
-    >
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+    <div class="picker-wrap">
+      <button
+        class="ctrl-btn icon-btn"
+        class:active={$sleepTimerMins > 0}
+        on:click|stopPropagation={() => {
+          sleepOpen = !sleepOpen;
+          speedOpen = false;
+          chapterOpen = false;
+          bookmarkOpen = false;
+        }}
+        title={$sleepTimerMins > 0
+          ? `Sleep in ${$sleepTimerMins} min`
+          : "Sleep timer"}
+        aria-label="Sleep timer"
       >
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      </svg>
-      {#if $sleepTimerMins > 0}
-        <span class="sleep-badge">{$sleepTimerMins}</span>
-      {/if}
-    </button>
-    {#if sleepOpen}
-      <div class="picker-popup">
-        <div class="picker-header">Sleep timer</div>
-        <button
-          class="picker-item"
-          class:is-active={$sleepTimerMins === 0}
-          on:click={() => {
-            setSleepTimer(0);
-            sleepOpen = false;
-          }}>Off</button
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-        {#each SLEEP_PRESETS as mins (mins)}
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+        {#if $sleepTimerMins > 0}
+          <span class="sleep-badge">{$sleepTimerMins}</span>
+        {/if}
+      </button>
+      {#if sleepOpen}
+        <div class="picker-popup">
+          <div class="picker-header">Sleep timer</div>
           <button
             class="picker-item"
-            class:is-active={$sleepTimerMins === mins}
+            class:is-active={$sleepTimerMins === 0}
             on:click={() => {
-              setSleepTimer(mins);
+              setSleepTimer(0);
               sleepOpen = false;
-            }}>{mins} min</button
+            }}>Off</button
           >
-        {/each}
-      </div>
-    {/if}
-  </div>
+          {#each SLEEP_PRESETS as mins (mins)}
+            <button
+              class="picker-item"
+              class:is-active={$sleepTimerMins === mins}
+              on:click={() => {
+                setSleepTimer(mins);
+                sleepOpen = false;
+              }}>{mins} min</button
+            >
+          {/each}
+        </div>
+      {/if}
+    </div>
   {/if}
 
   <!-- Listen Along button -->
@@ -236,21 +243,29 @@
         title="Sessions"
         aria-label="Sessions"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="14" rx="2"/>
-          <path d="M8 21h8"/>
-          <path d="M12 17v4"/>
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <path d="M8 21h8" />
+          <path d="M12 17v4" />
         </svg>
         <span class="device-count">{$activeDevices.length}</span>
       </button>
       {#if devicePickerOpen}
-        
         <button
           type="button"
           class="device-picker-overlay"
           aria-label="Close session picker"
           tabindex="-1"
-          on:click={() => devicePickerOpen = false}
+          on:click={() => (devicePickerOpen = false)}
         ></button>
         <div class="picker-popup device-picker-popup">
           <div class="picker-header">Sessions</div>
@@ -260,13 +275,20 @@
               class:is-active={device.is_active}
               on:click={() => transferToDevice(device.id)}
             >
-              <span class="device-dot" class:dot-active={device.is_active} class:dot-this={device.id === deviceId}></span>
+              <span
+                class="device-dot"
+                class:dot-active={device.is_active}
+                class:dot-this={device.id === deviceId}
+              ></span>
               <span class="device-item-name">
                 {device.name}
-                {#if device.id === deviceId}<span class="this-badge">this</span>{/if}
+                {#if device.id === deviceId}<span class="this-badge">this</span
+                  >{/if}
               </span>
               <span class="device-item-sub">
-                {device.state.audiobook_title || device.state.track_title || 'Idle'}
+                {device.state.audiobook_title ||
+                  device.state.track_title ||
+                  "Idle"}
               </span>
               {#if device.id !== deviceId}
                 <span class="device-transfer-hint">Transfer</span>

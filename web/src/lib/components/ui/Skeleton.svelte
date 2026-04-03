@@ -1,9 +1,9 @@
 <script lang="ts">
   let {
-    width = '100%',
-    height = '1rem',
-    radius = '4px',
-    class: klass = '',
+    width = "100%",
+    height = "1rem",
+    radius = "4px",
+    class: klass = "",
   }: {
     width?: string;
     height?: string;
@@ -32,7 +32,11 @@
   }
 
   @keyframes shimmer {
-    0%   { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
   }
 </style>

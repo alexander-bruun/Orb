@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount } from "svelte";
   import {
     currentAudiobook,
     abPlaybackState,
@@ -15,13 +15,17 @@
     setABVolume,
     closeAudiobook,
     abFormattedFormat,
-  } from '$lib/stores/player/audiobookPlayer';
-  import { getApiBase } from '$lib/api/base';
-  import { goto } from '$app/navigation';
-  import { activeDevices, deviceId, exclusiveMode } from '$lib/stores/player/deviceSession';
-  import { devices as devicesApi } from '$lib/api/devices';
-  import MobileAudiobookSheets from './MobileAudiobookSheets.svelte';
-  import MobileAudiobookSeekBar from './MobileAudiobookSeekBar.svelte';
+  } from "$lib/stores/player/audiobookPlayer";
+  import { getApiBase } from "$lib/api/base";
+  import { goto } from "$app/navigation";
+  import {
+    activeDevices,
+    deviceId,
+    exclusiveMode,
+  } from "$lib/stores/player/deviceSession";
+  import { devices as devicesApi } from "$lib/api/devices";
+  import MobileAudiobookSheets from "./MobileAudiobookSheets.svelte";
+  import MobileAudiobookSeekBar from "./MobileAudiobookSeekBar.svelte";
 
   let playerOpen = false;
   let playerHistoryPushed = false;
@@ -37,8 +41,8 @@
         dismissing = false;
       }
     }
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   });
 
   // Touch-swipe to dismiss
@@ -53,7 +57,7 @@
   let miniStartX = 0;
   let miniStartY = 0;
   let miniDeltaX = 0;
-  let miniSwipeAxis: 'h' | 'v' | null = null;
+  let miniSwipeAxis: "h" | "v" | null = null;
   let miniIsSwiping = false;
   let miniDidSwipe = false;
 
@@ -72,10 +76,10 @@
     const dy = e.touches[0].clientY - miniStartY;
 
     if (!miniSwipeAxis && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-      miniSwipeAxis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+      miniSwipeAxis = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
     }
 
-    if (miniSwipeAxis === 'h') {
+    if (miniSwipeAxis === "h") {
       e.preventDefault();
       miniDeltaX = dx;
     }
@@ -85,12 +89,13 @@
     if (!miniIsSwiping) return;
     miniIsSwiping = false;
 
-    if (miniSwipeAxis === 'h' && Math.abs(miniDeltaX) > 55) {
+    if (miniSwipeAxis === "h" && Math.abs(miniDeltaX) > 55) {
       miniDidSwipe = true;
       const goForward = miniDeltaX > 0;
       miniDeltaX = 0;
       miniSwipeAxis = null;
-      if (goForward) skipForward(30); else skipBackward(10);
+      if (goForward) skipForward(30);
+      else skipBackward(10);
     } else {
       miniDeltaX = 0;
       miniSwipeAxis = null;
@@ -106,7 +111,7 @@
   }
 
   function onMiniKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onMiniClick();
     }
@@ -114,7 +119,7 @@
 
   function openPlayer() {
     playerOpen = true;
-    history.pushState({ orbPlayer: true }, '');
+    history.pushState({ orbPlayer: true }, "");
     playerHistoryPushed = true;
   }
 
@@ -154,7 +159,7 @@
     if (rawDelta > 100) {
       dismissing = true;
       swipeDelta = window.innerHeight * 1.1;
-      await new Promise<void>(r => setTimeout(r, 400));
+      await new Promise<void>((r) => setTimeout(r, 400));
       dismissing = false;
       playerOpen = false;
       rawDelta = 0;
@@ -170,29 +175,31 @@
   }
 
   function handleFullscreenKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       e.preventDefault();
       closePlayer();
     }
   }
 
   let showChapters = false;
-  let showSpeed    = false;
-  let showSleep    = false;
+  let showSpeed = false;
+  let showSleep = false;
   let showBookmarks = false;
   let devicePickerOpen = false;
 
   function closeSheets() {
     showChapters = false;
-    showSpeed    = false;
-    showSleep    = false;
+    showSpeed = false;
+    showSleep = false;
     showBookmarks = false;
     devicePickerOpen = false;
   }
 
   async function transferToDevice(targetId: string) {
     devicePickerOpen = false;
-    const { transferAudiobookPlayback } = await import('$lib/stores/player/audiobookPlayer');
+    const { transferAudiobookPlayback } = await import(
+      "$lib/stores/player/audiobookPlayer"
+    );
     await transferAudiobookPlayback(targetId);
   }
 
@@ -206,9 +213,12 @@
 
 {#if $currentAudiobook}
   <!-- ── Mini player (shown above bottom nav) ──────────────────────────────── -->
-  
-  
-  <section class="mini-player-wrap" role="complementary" aria-label="Now playing">
+
+  <section
+    class="mini-player-wrap"
+    role="complementary"
+    aria-label="Now playing"
+  >
     <div
       class="mini-player"
       role="button"
@@ -219,82 +229,99 @@
       on:touchstart={onMiniTouchStart}
       on:touchmove|nonpassive={onMiniTouchMove}
       on:touchend={onMiniTouchEnd}
-      style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX * 0.015}deg);
-             transition: {miniIsSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
+      style="transform: translateX({miniDeltaX * 0.42}px) rotate({miniDeltaX *
+        0.015}deg);
+             transition: {miniIsSwiping
+        ? 'none'
+        : 'transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)'};"
     >
-    <!-- Thin progress line at top -->
-    <div class="mini-progress-track">
-      <div class="mini-progress-fill" style="width: {$abProgress}%"></div>
-    </div>
+      <!-- Thin progress line at top -->
+      <div class="mini-progress-track">
+        <div class="mini-progress-fill" style="width: {$abProgress}%"></div>
+      </div>
 
-    <!-- Content row -->
-    <div class="mini-content">
-      <!-- Cover art -->
-      {#if $currentAudiobook.id}
-        <img
-          src="{getApiBase()}/covers/audiobook/{$currentAudiobook.id}"
-          alt="cover"
-          class="mini-cover"
-        />
-      {:else}
-        <div class="mini-cover mini-cover--placeholder"></div>
-      {/if}
-
-      <!-- Track info -->
-      <div class="mini-info">
-        <span class="mini-title">{$currentAudiobook.title}</span>
-        {#if $abCurrentChapter}
-          <span class="mini-artist">{$abCurrentChapter.title}</span>
-        {:else if $currentAudiobook.author_name}
-          <span class="mini-artist">{$currentAudiobook.author_name}</span>
+      <!-- Content row -->
+      <div class="mini-content">
+        <!-- Cover art -->
+        {#if $currentAudiobook.id}
+          <img
+            src="{getApiBase()}/covers/audiobook/{$currentAudiobook.id}"
+            alt="cover"
+            class="mini-cover"
+          />
+        {:else}
+          <div class="mini-cover mini-cover--placeholder"></div>
         {/if}
-      </div>
 
-      <!-- Controls -->
-      <div class="mini-controls">
-        <button
-          class="mini-btn"
-          on:click|stopPropagation={() => skipBackward(10)}
-          aria-label="Back 10 seconds"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-          </svg>
-        </button>
-        <button
-          class="mini-btn"
-          on:click|stopPropagation={toggleABPlayPause}
-          aria-label={$abPlaybackState === 'playing' ? 'Pause' : 'Play'}
-        >
-          {#if $abPlaybackState === 'playing'}
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <rect x="6" y="4" width="4" height="16" rx="1"/>
-              <rect x="14" y="4" width="4" height="16" rx="1"/>
-            </svg>
-          {:else}
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <polygon points="5,3 19,12 5,21"/>
-            </svg>
+        <!-- Track info -->
+        <div class="mini-info">
+          <span class="mini-title">{$currentAudiobook.title}</span>
+          {#if $abCurrentChapter}
+            <span class="mini-artist">{$abCurrentChapter.title}</span>
+          {:else if $currentAudiobook.author_name}
+            <span class="mini-artist">{$currentAudiobook.author_name}</span>
           {/if}
-        </button>
-        <button
-          class="mini-btn"
-          on:click|stopPropagation={() => skipForward(30)}
-          aria-label="Forward 30 seconds"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/>
-          </svg>
-        </button>
+        </div>
+
+        <!-- Controls -->
+        <div class="mini-controls">
+          <button
+            class="mini-btn"
+            on:click|stopPropagation={() => skipBackward(10)}
+            aria-label="Back 10 seconds"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+              />
+            </svg>
+          </button>
+          <button
+            class="mini-btn"
+            on:click|stopPropagation={toggleABPlayPause}
+            aria-label={$abPlaybackState === "playing" ? "Pause" : "Play"}
+          >
+            {#if $abPlaybackState === "playing"}
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <rect x="6" y="4" width="4" height="16" rx="1" />
+                <rect x="14" y="4" width="4" height="16" rx="1" />
+              </svg>
+            {:else}
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
+            {/if}
+          </button>
+          <button
+            class="mini-btn"
+            on:click|stopPropagation={() => skipForward(30)}
+            aria-label="Forward 30 seconds"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
-  </div>
   </section>
 
   <!-- ── Full-screen player ─────────────────────────────────────────────────── -->
   {#if playerOpen}
-    
-    
     <div
       class="fullscreen-player"
       role="dialog"
@@ -304,7 +331,9 @@
         transform: translateY({swipeDelta}px) scale({1 - swipeDelta * 0.00032});
         opacity: {Math.max(0.12, 1 - swipeDelta / 310)};
         border-radius: {Math.min(swipeDelta * 0.22, 20)}px;
-        transition: {swiping ? 'none' : dismissing
+        transition: {swiping
+        ? 'none'
+        : dismissing
           ? 'transform 0.4s cubic-bezier(0.4, 0, 1, 1), opacity 0.4s cubic-bezier(0.4, 0, 1, 1), border-radius 0.4s cubic-bezier(0.4, 0, 1, 1)'
           : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.55s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
       "
@@ -320,8 +349,11 @@
           class="fs-bg"
           style="
             background-image: url('{getApiBase()}/covers/audiobook/{$currentAudiobook.id}');
-            transform: translateY({-swipeDelta * 0.38}px) scale({1 + swipeDelta * 0.00045});
-            transition: {swiping ? 'none' : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
+            transform: translateY({-swipeDelta * 0.38}px) scale({1 +
+            swipeDelta * 0.00045});
+            transition: {swiping
+            ? 'none'
+            : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)'};
           "
         ></div>
       {/if}
@@ -333,9 +365,22 @@
         <div class="fs-topbar">
           <div class="fs-topbar-spacer"></div>
           <div class="swipe-handle"></div>
-          <button class="fs-close-btn" on:click={() => closePlayer()} aria-label="Close player">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
-              <polyline points="6 9 12 15 18 9"/>
+          <button
+            class="fs-close-btn"
+            on:click={() => closePlayer()}
+            aria-label="Close player"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
         </div>
@@ -373,26 +418,44 @@
             <div class="fs-title">{$currentAudiobook.title}</div>
             <div class="fs-sub">
               {#if $currentAudiobook.author_name}
-                
                 <span
                   class="fs-artist"
                   on:click={goToAudiobook}
                   on:keydown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       goToAudiobook();
                     }
                   }}
                   role="link"
-                  tabindex="0"
-                >{$currentAudiobook.author_name}</span>
+                  tabindex="0">{$currentAudiobook.author_name}</span
+                >
               {/if}
             </div>
           </div>
           <div class="fs-actions">
-            <button class="fs-close-btn" on:click|stopPropagation={closeAudiobook} aria-label="Stop playback" title="Stop playback" style="background:none">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            <button
+              class="fs-close-btn"
+              on:click|stopPropagation={closeAudiobook}
+              aria-label="Stop playback"
+              title="Stop playback"
+              style="background:none"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" /><line
+                  x1="6"
+                  y1="6"
+                  x2="18"
+                  y2="18"
+                />
               </svg>
             </button>
           </div>
@@ -406,15 +469,26 @@
           <button
             class="fs-btn fs-btn--icon"
             class:active={$abSpeed !== 1.0}
-            on:click|stopPropagation={() => { showSpeed = !showSpeed; showSleep = false; showChapters = false; showBookmarks = false; }}
+            on:click|stopPropagation={() => {
+              showSpeed = !showSpeed;
+              showSleep = false;
+              showChapters = false;
+              showBookmarks = false;
+            }}
             aria-label="Playback speed"
           >
             <span class="util-speed-label">{$abSpeed}×</span>
           </button>
 
-          <button class="fs-btn fs-btn--prev" on:click|stopPropagation={() => skipBackward(10)} aria-label="Back 10 seconds">
+          <button
+            class="fs-btn fs-btn--prev"
+            on:click|stopPropagation={() => skipBackward(10)}
+            aria-label="Back 10 seconds"
+          >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+              <path
+                d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+              />
             </svg>
             <span class="skip-label-fs">10</span>
           </button>
@@ -422,25 +496,43 @@
           <button
             class="fs-btn fs-btn--play"
             on:click={toggleABPlayPause}
-            aria-label={$abPlaybackState === 'playing' ? 'Pause' : 'Play'}
+            aria-label={$abPlaybackState === "playing" ? "Pause" : "Play"}
           >
-            {#if $abPlaybackState === 'loading'}
+            {#if $abPlaybackState === "loading"}
               <div class="spin-ring-fs"></div>
-            {:else if $abPlaybackState === 'playing'}
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <rect x="6" y="4" width="4" height="16" rx="1.5"/>
-                <rect x="14" y="4" width="4" height="16" rx="1.5"/>
+            {:else if $abPlaybackState === "playing"}
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <rect x="6" y="4" width="4" height="16" rx="1.5" />
+                <rect x="14" y="4" width="4" height="16" rx="1.5" />
               </svg>
             {:else}
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <polygon points="5,3 19,12 5,21"/>
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <polygon points="5,3 19,12 5,21" />
               </svg>
             {/if}
           </button>
 
-          <button class="fs-btn fs-btn--next" on:click|stopPropagation={() => skipForward(30)} aria-label="Forward 30 seconds">
+          <button
+            class="fs-btn fs-btn--next"
+            on:click|stopPropagation={() => skipForward(30)}
+            aria-label="Forward 30 seconds"
+          >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/>
+              <path
+                d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"
+              />
             </svg>
             <span class="skip-label-fs">30</span>
           </button>
@@ -448,11 +540,25 @@
           <button
             class="fs-btn fs-btn--icon"
             class:active={$sleepTimerMins > 0}
-            on:click|stopPropagation={() => { showSleep = !showSleep; showSpeed = false; showChapters = false; showBookmarks = false; }}
+            on:click|stopPropagation={() => {
+              showSleep = !showSleep;
+              showSpeed = false;
+              showChapters = false;
+              showBookmarks = false;
+            }}
             aria-label="Sleep timer"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
             </svg>
             {#if $sleepTimerMins > 0}
               <span class="sleep-badge-fs">{$sleepTimerMins}</span>
@@ -462,18 +568,31 @@
 
         <!-- Volume row -->
         <div class="fs-volume">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
           </svg>
           <div class="volume-slider-wrap">
-            <div class="volume-slider-fill" style="width: {$abVolume * 100}%"></div>
+            <div
+              class="volume-slider-fill"
+              style="width: {$abVolume * 100}%"
+            ></div>
             <input
               type="range"
               min="0"
               max="1"
               step="0.01"
               value={$abVolume}
-              on:input={(e) => setABVolume(parseFloat((e.target as HTMLInputElement).value))}
+              on:input={(e) =>
+                setABVolume(parseFloat((e.target as HTMLInputElement).value))}
               on:touchstart|stopPropagation
               on:touchmove|stopPropagation
               on:touchend|stopPropagation
@@ -481,10 +600,19 @@
               aria-label="Volume"
             />
           </div>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
           </svg>
         </div>
 
@@ -493,13 +621,42 @@
           <button
             class="fs-extra-btn"
             class:active={showChapters}
-            on:click|stopPropagation={() => { showChapters = !showChapters; showSpeed = false; showSleep = false; showBookmarks = false; }}
+            on:click|stopPropagation={() => {
+              showChapters = !showChapters;
+              showSpeed = false;
+              showSleep = false;
+              showBookmarks = false;
+            }}
             aria-label="Chapters"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
-              <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
-              <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="8" y1="6" x2="21" y2="6" /><line
+                x1="8"
+                y1="12"
+                x2="21"
+                y2="12"
+              />
+              <line x1="8" y1="18" x2="21" y2="18" /><line
+                x1="3"
+                y1="6"
+                x2="3.01"
+                y2="6"
+              />
+              <line x1="3" y1="12" x2="3.01" y2="12" /><line
+                x1="3"
+                y1="18"
+                x2="3.01"
+                y2="18"
+              />
             </svg>
             <span>Chapters</span>
           </button>
@@ -507,11 +664,26 @@
           <button
             class="fs-extra-btn"
             class:active={showBookmarks}
-            on:click|stopPropagation={() => { showBookmarks = !showBookmarks; showSpeed = false; showSleep = false; showChapters = false; devicePickerOpen = false; }}
+            on:click|stopPropagation={() => {
+              showBookmarks = !showBookmarks;
+              showSpeed = false;
+              showSleep = false;
+              showChapters = false;
+              devicePickerOpen = false;
+            }}
             aria-label="Bookmarks"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill={$abBookmarks.length > 0 ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill={$abBookmarks.length > 0 ? "currentColor" : "none"}
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
             </svg>
             <span>Bookmarks</span>
           </button>
@@ -521,20 +693,39 @@
               <button
                 class="fs-extra-btn"
                 class:active={devicePickerOpen}
-                on:click|stopPropagation={() => { devicePickerOpen = !devicePickerOpen; showSpeed = false; showSleep = false; showChapters = false; showBookmarks = false; }}
+                on:click|stopPropagation={() => {
+                  devicePickerOpen = !devicePickerOpen;
+                  showSpeed = false;
+                  showSleep = false;
+                  showChapters = false;
+                  showBookmarks = false;
+                }}
                 aria-label="Switch playback device"
                 title="Switch device"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="2" y="3" width="20" height="14" rx="2"/>
-                  <path d="M8 21h8"/>
-                  <path d="M12 17v4"/>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <path d="M8 21h8" />
+                  <path d="M12 17v4" />
                 </svg>
-                <span>Devices{#if $activeDevices.length > 1}&nbsp;<span class="queue-count">{$activeDevices.length}</span>{/if}</span>
+                <span
+                  >Devices{#if $activeDevices.length > 1}&nbsp;<span
+                      class="queue-count">{$activeDevices.length}</span
+                    >{/if}</span
+                >
               </button>
 
               {#if devicePickerOpen}
-                
                 <button
                   type="button"
                   class="sheet-overlay"
@@ -544,7 +735,7 @@
                   on:touchstart|stopPropagation={() => {}}
                   on:touchmove|stopPropagation={() => {}}
                 ></button>
-                
+
                 <div
                   class="bottom-sheet"
                   role="dialog"
@@ -564,13 +755,22 @@
                       on:click={() => transferToDevice(device.id)}
                     >
                       <div class="fs-device-left">
-                        <span class="fs-device-dot" class:fs-device-dot--active={device.is_active}></span>
+                        <span
+                          class="fs-device-dot"
+                          class:fs-device-dot--active={device.is_active}
+                        ></span>
                         <div class="fs-device-info">
                           <span class="fs-device-name">
                             {device.name}
-                            {#if device.id === deviceId}<span class="fs-this-badge">this device</span>{/if}
+                            {#if device.id === deviceId}<span
+                                class="fs-this-badge">this device</span
+                              >{/if}
                           </span>
-                          <span class="fs-device-track">{device.state.audiobook_title || device.state.track_title || 'Idle'}</span>
+                          <span class="fs-device-track"
+                            >{device.state.audiobook_title ||
+                              device.state.track_title ||
+                              "Idle"}</span
+                          >
                         </div>
                       </div>
                       {#if device.id !== deviceId}
@@ -618,7 +818,9 @@
       background: var(--bg-elevated);
       border: 1px solid var(--border);
       border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.18);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.28),
+        0 2px 8px rgba(0, 0, 0, 0.18);
       overflow: hidden;
       z-index: 39;
       cursor: pointer;
@@ -894,7 +1096,8 @@
 
     .volume-input {
       position: absolute;
-      left: -8px; right: -8px;
+      left: -8px;
+      right: -8px;
       width: calc(100% + 16px);
       height: 28px;
       margin: 0;
@@ -916,10 +1119,18 @@
     }
     .volume-input::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px; height: 16px; border-radius: 50%; background: #fff; margin-top: -6px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      margin-top: -6px;
     }
     .volume-input::-moz-range-thumb {
-      width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
     }
 
     .fs-controls {
@@ -944,31 +1155,67 @@
       -webkit-tap-highlight-color: transparent;
     }
 
-    .fs-btn:active { background: rgba(255, 255, 255, 0.1); }
+    .fs-btn:active {
+      background: rgba(255, 255, 255, 0.1);
+    }
 
-    .fs-btn--icon { color: rgba(255, 255, 255, 0.5); }
-    .fs-btn--icon.active { color: var(--accent); }
+    .fs-btn--icon {
+      color: rgba(255, 255, 255, 0.5);
+    }
+    .fs-btn--icon.active {
+      color: var(--accent);
+    }
 
-    .util-speed-label { font-size: 0.9rem; font-weight: 700; }
+    .util-speed-label {
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
 
-    .fs-btn--prev, .fs-btn--next { color: #fff; flex-direction: column; gap: 2px; }
-    .skip-label-fs { font-size: 9px; font-weight: 800; }
+    .fs-btn--prev,
+    .fs-btn--next {
+      color: #fff;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .skip-label-fs {
+      font-size: 9px;
+      font-weight: 800;
+    }
 
     .fs-btn--play {
-      width: 68px; height: 68px; background: #fff; color: #000; border-radius: 50%;
+      width: 68px;
+      height: 68px;
+      background: #fff;
+      color: #000;
+      border-radius: 50%;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
-    .fs-btn--play:active { background: rgba(255, 255, 255, 0.85); }
+    .fs-btn--play:active {
+      background: rgba(255, 255, 255, 0.85);
+    }
 
     .sleep-badge-fs {
-      position: absolute; bottom: 3px; right: 2px; font-size: 9px; font-weight: 800; color: var(--accent);
+      position: absolute;
+      bottom: 3px;
+      right: 2px;
+      font-size: 9px;
+      font-weight: 800;
+      color: var(--accent);
     }
 
     .spin-ring-fs {
-      width: 28px; height: 28px; border: 3px solid rgba(0,0,0,0.1); border-top-color: #000; border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      border: 3px solid rgba(0, 0, 0, 0.1);
+      border-top-color: #000;
+      border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
 
     .fs-volume {
       flex-shrink: 0;
@@ -980,16 +1227,34 @@
     }
 
     .volume-slider-wrap {
-      flex: 1; height: 28px; display: flex; align-items: center; position: relative;
+      flex: 1;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      position: relative;
     }
     .volume-slider-fill {
-      position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 4px; background: rgba(255, 255, 255, 0.85); border-radius: 2px; pointer-events: none; z-index: 1;
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 4px;
+      background: rgba(255, 255, 255, 0.85);
+      border-radius: 2px;
+      pointer-events: none;
+      z-index: 1;
     }
 
     .volume-slider-wrap::before {
-      content: '';
-      position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
-      height: 4px; background: rgba(255, 255, 255, 0.25); border-radius: 2px;
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 4px;
+      background: rgba(255, 255, 255, 0.25);
+      border-radius: 2px;
       pointer-events: none;
     }
 
@@ -1003,18 +1268,38 @@
     }
 
     .fs-extra-btn {
-      background: none; border: none; color: rgba(255, 255, 255, 0.45); cursor: pointer;
-      display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px;
-      padding: 8px; border-radius: 8px; -webkit-tap-highlight-color: transparent;
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.45);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      padding: 8px;
+      border-radius: 8px;
+      -webkit-tap-highlight-color: transparent;
     }
-    .fs-extra-btn.active { color: var(--accent); }
+    .fs-extra-btn.active {
+      color: var(--accent);
+    }
 
     /* ── Device picker (uses shared .bottom-sheet styling) ──────────── */
-    .fs-device-wrap { position: relative; }
+    .fs-device-wrap {
+      position: relative;
+    }
     .fs-device-item {
-      width: 100%; background: none; border: none; color: var(--text);
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 8px; border-radius: 8px; cursor: pointer;
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 8px;
+      border-radius: 8px;
+      cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
     .fs-device-item:active,
@@ -1022,49 +1307,79 @@
       background: var(--bg-hover);
     }
     .fs-device-item.is-active {
-      background: rgba(var(--accent-rgb, 100,100,255), 0.08);
+      background: rgba(var(--accent-rgb, 100, 100, 255), 0.08);
     }
     .fs-device-left {
-      display: flex; align-items: center; gap: 10px;
-      overflow: hidden; min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      overflow: hidden;
+      min-width: 0;
     }
     .fs-device-dot {
-      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-      background: var(--text-muted); opacity: 0.3;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--text-muted);
+      opacity: 0.3;
     }
     .fs-device-dot--active {
-      background: var(--accent); opacity: 1;
+      background: var(--accent);
+      opacity: 1;
     }
     .fs-device-info {
-      display: flex; flex-direction: column; gap: 2px;
-      overflow: hidden; min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+      min-width: 0;
     }
     .fs-device-name {
-      font-size: 0.85rem; font-weight: 500;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      font-size: 0.85rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .fs-device-track {
-      font-size: 0.72rem; color: var(--text-muted);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .fs-this-badge {
-      font-size: 0.65rem; color: var(--accent); font-weight: 600;
-      margin-left: 6px; text-transform: uppercase; letter-spacing: 0.04em;
+      font-size: 0.65rem;
+      color: var(--accent);
+      font-weight: 600;
+      margin-left: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
     .fs-transfer-hint {
-      font-size: 0.72rem; color: var(--accent); font-weight: 600;
-      white-space: nowrap; flex-shrink: 0; padding-left: 8px;
+      font-size: 0.72rem;
+      color: var(--accent);
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding-left: 8px;
     }
     .queue-count {
-      font-size: 0.65rem; background: var(--accent); color: var(--bg);
-      border-radius: 8px; padding: 0 5px; font-weight: 700; vertical-align: middle;
+      font-size: 0.65rem;
+      background: var(--accent);
+      color: var(--bg);
+      border-radius: 8px;
+      padding: 0 5px;
+      font-weight: 700;
+      vertical-align: middle;
     }
 
     /* ── Sheets ────────────────────────────────────────────────────────── */
     .sheet-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.45);
+      background: rgba(0, 0, 0, 0.45);
       z-index: 700;
       border: none;
       padding: 0;
@@ -1074,12 +1389,32 @@
       display: block;
     }
     .bottom-sheet {
-      position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg-elevated);
-      border-radius: 20px 20px 0 0; padding: 12px 24px calc(24px + env(safe-area-inset-bottom, 0px));
-      z-index: 800; border-top: 1px solid var(--border);
-      box-shadow: 0 -8px 32px rgba(0,0,0,0.4);
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg-elevated);
+      border-radius: 20px 20px 0 0;
+      padding: 12px 24px calc(24px + env(safe-area-inset-bottom, 0px));
+      z-index: 800;
+      border-top: 1px solid var(--border);
+      box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
     }
-    .sheet-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 16px; }
-    .sheet-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 18px; text-align: center; }
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      margin: 0 auto 16px;
+    }
+    .sheet-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 0 0 18px;
+      text-align: center;
+    }
   }
 </style>

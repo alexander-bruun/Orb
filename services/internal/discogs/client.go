@@ -146,15 +146,15 @@ type SearchResponse struct {
 
 // SearchResult is a single entry from a Discogs database search.
 type SearchResult struct {
-	ID          int      `json:"id"`
-	Type        string   `json:"type"`
-	Title       string   `json:"title"`
-	Thumb       string   `json:"thumb"`
-	CoverImage  string   `json:"cover_image"`
-	Genres      []string `json:"genre"`
-	Styles      []string `json:"style"`
-	Year        string   `json:"year"`
-	Country     string   `json:"country"`
+	ID         int      `json:"id"`
+	Type       string   `json:"type"`
+	Title      string   `json:"title"`
+	Thumb      string   `json:"thumb"`
+	CoverImage string   `json:"cover_image"`
+	Genres     []string `json:"genre"`
+	Styles     []string `json:"style"`
+	Year       string   `json:"year"`
+	Country    string   `json:"country"`
 }
 
 // ArtistResult is the response from GET /artists/{id}.
@@ -176,13 +176,13 @@ type ArtistResult struct {
 
 // MasterResult is the response from GET /masters/{id}.
 type MasterResult struct {
-	ID         int          `json:"id"`
-	Title      string       `json:"title"`
-	Year       int          `json:"year"`
-	Genres     []string     `json:"genres"`
-	Styles     []string     `json:"styles"`
-	Images     []ImageEntry `json:"images"`
-	Artists    []struct {
+	ID      int          `json:"id"`
+	Title   string       `json:"title"`
+	Year    int          `json:"year"`
+	Genres  []string     `json:"genres"`
+	Styles  []string     `json:"styles"`
+	Images  []ImageEntry `json:"images"`
+	Artists []struct {
 		Name string `json:"name"`
 		ID   int    `json:"id"`
 	} `json:"artists"`
@@ -194,8 +194,8 @@ type ReleaseResult struct {
 	Title  string `json:"title"`
 	Year   int    `json:"year"`
 	Labels []struct {
-		Name   string `json:"name"`
-		CatNo  string `json:"catno"`
+		Name  string `json:"name"`
+		CatNo string `json:"catno"`
 	} `json:"labels"`
 	Genres  []string     `json:"genres"`
 	Styles  []string     `json:"styles"`

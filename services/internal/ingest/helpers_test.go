@@ -87,9 +87,9 @@ func TestAlbumEditionFromDir(t *testing.T) {
 		{"[Just Brackets]", "[Just Brackets]"},
 		{"{Just Braces}", "{Just Braces}"},
 		{"Normal (Feat. Someone) [Live]", "[Live]"},
-	// Edition embedded in album tag (not just dir name)
-	{"12 Notes [16 Notes]", "[16 Notes]"},
-	{"12 Notes (Deluxe) [16 Notes]", "[16 Notes]"},
+		// Edition embedded in album tag (not just dir name)
+		{"12 Notes [16 Notes]", "[16 Notes]"},
+		{"12 Notes (Deluxe) [16 Notes]", "[16 Notes]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

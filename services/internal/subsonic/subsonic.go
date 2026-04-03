@@ -915,7 +915,7 @@ func (s *Service) streamTrackHandler() http.HandlerFunc {
 			writeResponse(w, format, errResponse(70, "File not found."))
 			return
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 
 		w.Header().Set("Content-Type", mimeForFormat(track.Format))
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
@@ -966,7 +966,7 @@ func (s *Service) getCoverArtHandler() http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))

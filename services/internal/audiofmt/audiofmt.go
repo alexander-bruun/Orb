@@ -21,7 +21,7 @@ type FormatResult struct {
 	Channels    int    `json:"channels"`
 	Passthrough bool   `json:"passthrough"`
 	// LayoutType is the selected layout name: "stereo", "5.1", "7.1", "atmos"
-	LayoutType  string `json:"layout_type"`
+	LayoutType string `json:"layout_type"`
 }
 
 // SelectFormat returns the best audio format for the given device capabilities

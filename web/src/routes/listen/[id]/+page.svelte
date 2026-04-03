@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-  import { onMount, onDestroy } from 'svelte';
-  import { listenPartyApi } from '$lib/api/listenParty';
-  import type { SessionInfo } from '$lib/api/listenParty';
+  import { page } from "$app/stores";
+  import { onMount, onDestroy } from "svelte";
+  import { listenPartyApi } from "$lib/api/listenParty";
+  import type { SessionInfo } from "$lib/api/listenParty";
   import {
     connectAsGuest,
     leaveSession,
@@ -22,20 +22,22 @@
     lpGuestChapterProgress,
     lpGuestPreviousChapter,
     lpGuestNextChapter,
-  } from '$lib/stores/social/listenParty';
+  } from "$lib/stores/social/listenParty";
 
-  import { getApiBase } from '$lib/api/base';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
-  const sessionId: string = $page.params.id ?? '';
+  import { getApiBase } from "$lib/api/base";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
+  const sessionId: string = $page.params.id ?? "";
 
   // Page phases: 'loading' | 'join' | 'playing' | 'kicked' | 'ended' | 'error'
-  let phase = $state<'loading' | 'join' | 'playing' | 'kicked' | 'ended' | 'error'>('loading');
+  let phase = $state<
+    "loading" | "join" | "playing" | "kicked" | "ended" | "error"
+  >("loading");
   let session = $state<SessionInfo | null>(null);
-  let errorMsg = $state('');
-  let nickname = $state('');
-  let nicknameError = $state('');
-  let code = $state('');
-  let codeError = $state('');
+  let errorMsg = $state("");
+  let nickname = $state("");
+  let nicknameError = $state("");
+  let code = $state("");
+  let codeError = $state("");
   // True when the server rejects a join due to a missing/wrong code — shows the
   // code input even if the session was loaded before the host enabled it.
   let requiresCode = $state(false);
@@ -46,7 +48,7 @@
   type LyricLine = { time_ms: number; text: string };
   let lyricsLines = $state<LyricLine[]>([]);
   let lyricsOpen = $state(true);
-  let lyricsTrackId = $state('');
+  let lyricsTrackId = $state("");
 
   // Audiobook chapters
   let abChaptersOpen = $state(true);
@@ -76,7 +78,9 @@
 
   // Derived progress percentage.
   let progress = $derived(
-    $lpGuestDurationMs > 0 ? ($lpGuestPositionMs / $lpGuestDurationMs) * 100 : 0
+    $lpGuestDurationMs > 0
+      ? ($lpGuestPositionMs / $lpGuestDurationMs) * 100
+      : 0,
   );
 
   function formatTime(ms: number): string {
@@ -84,23 +88,28 @@
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
-    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-    return `${m}:${(sec).toString().padStart(2, '0')}`;
+    if (h > 0)
+      return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
   }
 
   onMount(async () => {
     try {
       session = await listenPartyApi.getSession(sessionId);
-      phase = 'join';
+      phase = "join";
     } catch {
-      phase = 'error';
-      errorMsg = 'This listen-along session does not exist or has ended.';
+      phase = "error";
+      errorMsg = "This listen-along session does not exist or has ended.";
     }
   });
 
   // React to kicked / ended states from the store.
-  $effect(() => { if ($lpKicked) phase = 'kicked'; });
-  $effect(() => { if ($lpSessionEnded) phase = 'ended'; });
+  $effect(() => {
+    if ($lpKicked) phase = "kicked";
+  });
+  $effect(() => {
+    if ($lpSessionEnded) phase = "ended";
+  });
 
   // Fetch lyrics when track changes
   $effect(() => {
@@ -109,10 +118,16 @@
     if (!track?.id || !token || track.id === lyricsTrackId) return;
     lyricsTrackId = track.id;
     lyricsLines = [];
-    fetch(`${getApiBase()}/listen/${sessionId}/lyrics/${track.id}?guest_token=${encodeURIComponent(token)}`)
-      .then(r => r.ok ? r.json() : [])
-      .then((lines: LyricLine[]) => { lyricsLines = lines ?? []; })
-      .catch(() => { lyricsLines = []; });
+    fetch(
+      `${getApiBase()}/listen/${sessionId}/lyrics/${track.id}?guest_token=${encodeURIComponent(token)}`,
+    )
+      .then((r) => (r.ok ? r.json() : []))
+      .then((lines: LyricLine[]) => {
+        lyricsLines = lines ?? [];
+      })
+      .catch(() => {
+        lyricsLines = [];
+      });
   });
 
   // ── Smooth scroll (identical to LyricsModal approach) ──
@@ -127,7 +142,10 @@
   const LERP_SPEED = 0.08;
 
   function scrollTick() {
-    if (!lyricsListEl || !lyricsOpen) { rafId = null; return; }
+    if (!lyricsListEl || !lyricsOpen) {
+      rafId = null;
+      return;
+    }
     if (!userScrolling) {
       const diff = targetScrollTop - currentScrollTop;
       if (Math.abs(diff) > 0.5) {
@@ -151,7 +169,10 @@
   }
 
   function stopScrollLoop() {
-    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
   }
 
   function onLyricsWheel() {
@@ -171,8 +192,12 @@
     // Use getBoundingClientRect for accurate position relative to scroll container
     const containerRect = lyricsListEl.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    const elTopInContainer = elRect.top - containerRect.top + lyricsListEl.scrollTop;
-    targetScrollTop = Math.max(0, elTopInContainer - containerH / 2 + el.offsetHeight / 2);
+    const elTopInContainer =
+      elRect.top - containerRect.top + lyricsListEl.scrollTop;
+    targetScrollTop = Math.max(
+      0,
+      elTopInContainer - containerH / 2 + el.offsetHeight / 2,
+    );
   }
 
   // Re-target when active line changes
@@ -215,42 +240,63 @@
     if (idx >= 0 && idx < lines.length - 1) {
       const nextTime = lines[idx + 1].time_ms;
       const fadeStart = Math.max(lines[idx].time_ms, nextTime - 600);
-      if (pos >= fadeStart) return Math.min(1, (pos - fadeStart) / (nextTime - fadeStart));
+      if (pos >= fadeStart)
+        return Math.min(1, (pos - fadeStart) / (nextTime - fadeStart));
     }
     return 0;
   });
 
   async function join() {
     const name = nickname.trim();
-    if (!name) { nicknameError = 'Please enter a nickname.'; return; }
-    if (name.length > 32) { nicknameError = 'Nickname must be 32 characters or fewer.'; return; }
-    nicknameError = '';
+    if (!name) {
+      nicknameError = "Please enter a nickname.";
+      return;
+    }
+    if (name.length > 32) {
+      nicknameError = "Nickname must be 32 characters or fewer.";
+      return;
+    }
+    nicknameError = "";
 
     // Re-fetch session to pick up the latest code_enabled state — the host may
     // have enabled the code after this page was first loaded.
-    try { session = await listenPartyApi.getSession(sessionId); } catch { /* use cached */ }
+    try {
+      session = await listenPartyApi.getSession(sessionId);
+    } catch {
+      /* use cached */
+    }
 
-    const needsCode = !!(session?.code_enabled) || requiresCode;
+    const needsCode = !!session?.code_enabled || requiresCode;
 
     // Validate access code if required.
     if (needsCode) {
       const c = code.trim();
-      if (!c) { codeError = 'Please enter the access code.'; return; }
-      if (!/^\d{4}$/.test(c)) { codeError = 'Code must be exactly 4 digits.'; return; }
-      codeError = '';
+      if (!c) {
+        codeError = "Please enter the access code.";
+        return;
+      }
+      if (!/^\d{4}$/.test(c)) {
+        codeError = "Code must be exactly 4 digits.";
+        return;
+      }
+      codeError = "";
     }
 
     joining = true;
     try {
-      await connectAsGuest(sessionId, name, needsCode ? code.trim() : undefined);
-      phase = 'playing';
+      await connectAsGuest(
+        sessionId,
+        name,
+        needsCode ? code.trim() : undefined,
+      );
+      phase = "playing";
     } catch (e: unknown) {
-      const err = e instanceof Error ? e.message : 'Could not connect.';
-      if (err === 'invalid_code') {
+      const err = e instanceof Error ? e.message : "Could not connect.";
+      if (err === "invalid_code") {
         requiresCode = true;
         codeError = code.trim()
-          ? 'Incorrect access code. Please try again.'
-          : 'This session requires an access code.';
+          ? "Incorrect access code. Please try again."
+          : "This session requires an access code.";
       } else {
         nicknameError = err;
       }
@@ -276,18 +322,16 @@
 </svelte:head>
 
 <div class="guest-shell">
-  {#if phase === 'loading'}
+  {#if phase === "loading"}
     <div class="center-card">
       <p class="muted"><Spinner size={24} /></p>
     </div>
-
-  {:else if phase === 'error'}
+  {:else if phase === "error"}
     <div class="center-card">
       <div class="orb-logo">Orb</div>
       <p class="error-msg">{errorMsg}</p>
     </div>
-
-  {:else if phase === 'join'}
+  {:else if phase === "join"}
     <div class="center-card join-card">
       <div class="orb-logo">Orb</div>
       <h1 class="join-heading">You're invited to listen along</h1>
@@ -296,7 +340,7 @@
       {/if}
       <div class="nickname-field">
         <label for="nickname-input" class="field-label">Your nickname</label>
-        
+
         <input
           id="nickname-input"
           type="text"
@@ -305,7 +349,7 @@
           bind:value={nickname}
           placeholder="e.g. Alice"
           maxlength="32"
-          onkeydown={(e) => e.key === 'Enter' && join()}
+          onkeydown={(e) => e.key === "Enter" && join()}
           disabled={joining}
         />
         {#if nicknameError}
@@ -325,7 +369,7 @@
             bind:value={code}
             placeholder="0000"
             maxlength="4"
-            onkeydown={(e) => e.key === 'Enter' && join()}
+            onkeydown={(e) => e.key === "Enter" && join()}
             disabled={joining}
           />
           {#if codeError}
@@ -334,40 +378,69 @@
         </div>
       {/if}
       <button class="join-btn" onclick={join} disabled={joining}>
-        {joining ? 'Joining…' : 'Join'}
+        {joining ? "Joining…" : "Join"}
       </button>
     </div>
-
-  {:else if phase === 'playing'}
+  {:else if phase === "playing"}
     <div class="player-layout">
       <!-- Track/Book cover with overlays -->
       <div class="cover-area">
-        {#if $lpGuestItemType === 'track'}
+        {#if $lpGuestItemType === "track"}
           {#if $lpGuestTrack?.album_id && $lpGuestToken}
             <img
               class="cover-art"
-              src="{getApiBase()}/listen/{sessionId}/cover/{$lpGuestTrack.album_id}?guest_token={encodeURIComponent($lpGuestToken)}"
+              src="{getApiBase()}/listen/{sessionId}/cover/{$lpGuestTrack.album_id}?guest_token={encodeURIComponent(
+                $lpGuestToken,
+              )}"
               alt="Album art"
             />
           {:else}
             <div class="cover-placeholder">
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
-                <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                opacity="0.3"
+              >
+                <circle cx="12" cy="12" r="10" /><circle
+                  cx="12"
+                  cy="12"
+                  r="3"
+                />
               </svg>
             </div>
           {/if}
-        {:else if $lpGuestItemType === 'audiobook'}
+        {:else if $lpGuestItemType === "audiobook"}
           {#if $lpGuestAudiobook?.id && $lpGuestToken}
             <img
               class="cover-art"
-              src="{getApiBase()}/listen/{sessionId}/cover/audiobook/{$lpGuestAudiobook.id}?guest_token={encodeURIComponent($lpGuestToken)}"
+              src="{getApiBase()}/listen/{sessionId}/cover/audiobook/{$lpGuestAudiobook.id}?guest_token={encodeURIComponent(
+                $lpGuestToken,
+              )}"
               alt="Book cover"
             />
           {:else}
             <div class="cover-placeholder">
-              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                opacity="0.3"
+              >
                 <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                <path
+                  d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
+                ></path>
               </svg>
             </div>
           {/if}
@@ -386,42 +459,55 @@
           {/if}
         </div>
         <!-- Format badge overlay — top right (tracks only) -->
-        {#if $lpGuestItemType === 'track' && $lpGuestTrack}
-          {@const bd = $lpGuestTrack.bit_depth ? `${$lpGuestTrack.bit_depth}bit` : ''}
+        {#if $lpGuestItemType === "track" && $lpGuestTrack}
+          {@const bd = $lpGuestTrack.bit_depth
+            ? `${$lpGuestTrack.bit_depth}bit`
+            : ""}
           {@const sr = `${($lpGuestTrack.sample_rate / 1000).toFixed(1)}kHz`}
           <div class="cover-overlay-tr">
-            <span class="format-badge">{[bd, sr].filter(Boolean).join(' · ')}</span>
+            <span class="format-badge"
+              >{[bd, sr].filter(Boolean).join(" · ")}</span
+            >
           </div>
         {/if}
       </div>
 
       <!-- Item info -->
       <div class="track-info">
-        {#if $lpGuestItemType === 'track'}
-          <div class="track-title">{$lpGuestTrack?.title ?? '—'}</div>
-          <div class="track-artist">{$lpGuestTrack?.artist_name ?? ''}</div>
+        {#if $lpGuestItemType === "track"}
+          <div class="track-title">{$lpGuestTrack?.title ?? "—"}</div>
+          <div class="track-artist">{$lpGuestTrack?.artist_name ?? ""}</div>
         {:else}
-          <div class="track-title">{$lpGuestAudiobook?.title ?? '—'}</div>
-          <div class="track-artist">{$lpGuestAudiobook?.author_name ?? ''}</div>
+          <div class="track-title">{$lpGuestAudiobook?.title ?? "—"}</div>
+          <div class="track-artist">{$lpGuestAudiobook?.author_name ?? ""}</div>
         {/if}
       </div>
 
       <!-- Progress bar (read-only) -->
       <div class="progress-area">
         <span class="time">{formatTime($lpGuestPositionMs)}</span>
-        {#if $lpGuestItemType === 'audiobook' && $lpGuestCurrentChapter}
+        {#if $lpGuestItemType === "audiobook" && $lpGuestCurrentChapter}
           <!-- Chapter-aware progress for audiobooks -->
           <div class="progress-wrap chapter-progress-wrap">
             {#if $lpGuestPreviousChapter}
-              <div class="chapter-label prev-chapter-label" title={$lpGuestPreviousChapter.title}>
+              <div
+                class="chapter-label prev-chapter-label"
+                title={$lpGuestPreviousChapter.title}
+              >
                 {$lpGuestPreviousChapter.title}
               </div>
             {/if}
             <div class="progress-track">
-              <div class="progress-fill" style="width:{$lpGuestChapterProgress}%"></div>
+              <div
+                class="progress-fill"
+                style="width:{$lpGuestChapterProgress}%"
+              ></div>
             </div>
             {#if $lpGuestNextChapter}
-              <div class="chapter-label next-chapter-label" title={$lpGuestNextChapter.title}>
+              <div
+                class="chapter-label next-chapter-label"
+                title={$lpGuestNextChapter.title}
+              >
                 {$lpGuestNextChapter.title}
               </div>
             {/if}
@@ -438,17 +524,29 @@
       </div>
 
       <!-- Current chapter info (audiobook only) -->
-      {#if $lpGuestItemType === 'audiobook' && activeChapterIndex >= 0}
+      {#if $lpGuestItemType === "audiobook" && activeChapterIndex >= 0}
         <div class="chapter-info">
-          Chapter {activeChapterIndex + 1}: {$lpGuestAudiobook?.chapters?.[activeChapterIndex]?.title ?? ''}
+          Chapter {activeChapterIndex + 1}: {$lpGuestAudiobook?.chapters?.[
+            activeChapterIndex
+          ]?.title ?? ""}
         </div>
       {/if}
 
       <!-- Volume control (below progress) -->
       <div class="volume-row">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
         </svg>
         <input
           type="range"
@@ -463,28 +561,51 @@
       </div>
 
       <!-- Lyrics (tracks) -->
-      {#if $lpGuestItemType === 'track' && lyricsLines.length > 0}
+      {#if $lpGuestItemType === "track" && lyricsLines.length > 0}
         <div class="lyrics-section">
-          <button class="lyrics-toggle" onclick={() => lyricsOpen = !lyricsOpen}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          <button
+            class="lyrics-toggle"
+            onclick={() => (lyricsOpen = !lyricsOpen)}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle
+                cx="18"
+                cy="16"
+                r="3"
+              />
             </svg>
             Lyrics
-            <span class="chevron" class:open={lyricsOpen}>{@html '&#9662;'}</span>
+            <span class="chevron" class:open={lyricsOpen}
+              >{@html "&#9662;"}</span
+            >
           </button>
           {#if lyricsOpen}
-            
-            <div class="lyrics-list" bind:this={lyricsListEl} onwheel={onLyricsWheel}>
-              {#each lyricsLines as line, i (line.time_ms + '-' + i)}
+            <div
+              class="lyrics-list"
+              bind:this={lyricsListEl}
+              onwheel={onLyricsWheel}
+            >
+              {#each lyricsLines as line, i (line.time_ms + "-" + i)}
                 <div
                   class="lyric-line"
                   class:active={i === activeLyricIndex}
                   class:past={i < activeLyricIndex}
                   class:next={i === activeLyricIndex + 1}
-                  style={i === activeLyricIndex + 1 ? `opacity: ${0.55 + 0.45 * nextLineFade}` : ''}
+                  style={i === activeLyricIndex + 1
+                    ? `opacity: ${0.55 + 0.45 * nextLineFade}`
+                    : ""}
                   data-idx={i}
                 >
-                  {line.text || '\u00A0'}
+                  {line.text || "\u00A0"}
                 </div>
               {/each}
             </div>
@@ -493,20 +614,39 @@
       {/if}
 
       <!-- Chapters (audiobooks) -->
-      {#if $lpGuestItemType === 'audiobook' && $lpGuestAudiobook?.chapters && $lpGuestAudiobook.chapters.length > 0}
+      {#if $lpGuestItemType === "audiobook" && $lpGuestAudiobook?.chapters && $lpGuestAudiobook.chapters.length > 0}
         <div class="lyrics-section">
-          <button class="lyrics-toggle" onclick={() => abChaptersOpen = !abChaptersOpen}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <button
+            class="lyrics-toggle"
+            onclick={() => (abChaptersOpen = !abChaptersOpen)}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+              <path
+                d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"
+              ></path>
             </svg>
             Chapters
-            <span class="chevron" class:open={abChaptersOpen}>{@html '&#9662;'}</span>
+            <span class="chevron" class:open={abChaptersOpen}
+              >{@html "&#9662;"}</span
+            >
           </button>
           {#if abChaptersOpen}
             <div class="lyrics-list chapters-list">
               {#each $lpGuestAudiobook.chapters as ch, i}
-                <div class="chapter-item" class:active={i === activeChapterIndex}>
+                <div
+                  class="chapter-item"
+                  class:active={i === activeChapterIndex}
+                >
                   <span class="ch-num">{i + 1}</span>
                   <span class="ch-title">{ch.title}</span>
                   <span class="ch-time">{formatTime(ch.start_ms)}</span>
@@ -524,17 +664,19 @@
           <!-- Host entry -->
           {#if session?.host_name}
             <li class="participant-item host">
-              <span class="avatar">{session.host_name[0]?.toUpperCase() ?? '?'}</span>
+              <span class="avatar"
+                >{session.host_name[0]?.toUpperCase() ?? "?"}</span
+              >
               <span class="pname">{session.host_name} <em>(host)</em></span>
             </li>
           {/if}
           <!-- Self entry -->
           <li class="participant-item self">
-            <span class="avatar">{nickname[0]?.toUpperCase() ?? '?'}</span>
+            <span class="avatar">{nickname[0]?.toUpperCase() ?? "?"}</span>
             <span class="pname">{nickname} <em>(you)</em></span>
           </li>
           <!-- Other guests — exclude own entry which the server also broadcasts -->
-          {#each $lpParticipants.filter(p => p.id !== $lpGuestParticipantId) as p (p.id)}
+          {#each $lpParticipants.filter((p) => p.id !== $lpGuestParticipantId) as p (p.id)}
             <li class="participant-item">
               <span class="avatar">{p.nickname[0].toUpperCase()}</span>
               <span class="pname">{p.nickname}</span>
@@ -543,15 +685,15 @@
         </ul>
       </div>
     </div>
-
-  {:else if phase === 'kicked'}
+  {:else if phase === "kicked"}
     <div class="center-card">
       <div class="orb-logo">Orb</div>
       <h2 class="status-heading">You've been removed</h2>
-      <p class="muted">The host has removed you from this listen-along session.</p>
+      <p class="muted">
+        The host has removed you from this listen-along session.
+      </p>
     </div>
-
-  {:else if phase === 'ended'}
+  {:else if phase === "ended"}
     <div class="center-card">
       <div class="orb-logo">Orb</div>
       <h2 class="status-heading">Session ended</h2>
@@ -590,7 +732,9 @@
     letter-spacing: -0.04em;
   }
 
-  .join-card { gap: 20px; }
+  .join-card {
+    gap: 20px;
+  }
 
   .join-heading {
     font-size: 1.3rem;
@@ -631,11 +775,15 @@
     outline: none;
     transition: border-color 0.15s;
   }
-  .nickname-input:focus { border-color: var(--accent, #7c3aed); }
-  .nickname-input.invalid { border-color: #ef4444; }
+  .nickname-input:focus {
+    border-color: var(--accent, #7c3aed);
+  }
+  .nickname-input.invalid {
+    border-color: #ef4444;
+  }
 
   .code-input {
-    font-family: 'DM Mono', monospace, monospace;
+    font-family: "DM Mono", monospace, monospace;
     font-size: 1.4rem;
     letter-spacing: 0.5em;
     text-align: center;
@@ -660,11 +808,26 @@
     cursor: pointer;
     transition: opacity 0.15s;
   }
-  .join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .join-btn:not(:disabled):hover { opacity: 0.88; }
+  .join-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .join-btn:not(:disabled):hover {
+    opacity: 0.88;
+  }
 
-  .error-msg, .muted { font-size: 0.9rem; color: var(--text-muted, #888); margin: 0; }
-  .status-heading { font-size: 1.2rem; font-weight: 700; color: var(--text, #fff); margin: 0; }
+  .error-msg,
+  .muted {
+    font-size: 0.9rem;
+    color: var(--text-muted, #888);
+    margin: 0;
+  }
+  .status-heading {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text, #fff);
+    margin: 0;
+  }
 
   /* Player layout */
   .player-layout {
@@ -685,7 +848,7 @@
     aspect-ratio: 1;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
   .cover-art {
     width: 100%;
@@ -703,13 +866,18 @@
   }
 
   /* Overlays on cover art */
-  .cover-overlay-tl, .cover-overlay-tr {
+  .cover-overlay-tl,
+  .cover-overlay-tr {
     position: absolute;
     top: 8px;
     z-index: 2;
   }
-  .cover-overlay-tl { left: 8px; }
-  .cover-overlay-tr { right: 8px; }
+  .cover-overlay-tl {
+    left: 8px;
+  }
+  .cover-overlay-tr {
+    right: 8px;
+  }
 
   .overlay-badge {
     display: flex;
@@ -723,8 +891,12 @@
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
   }
-  .overlay-badge.playing { color: #22c55e; }
-  .overlay-badge.paused  { color: #ef4444; }
+  .overlay-badge.playing {
+    color: #22c55e;
+  }
+  .overlay-badge.paused {
+    color: #ef4444;
+  }
 
   .status-dot {
     width: 7px;
@@ -742,7 +914,7 @@
   }
 
   .format-badge {
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
     font-size: 9px;
     letter-spacing: 0.08em;
     color: #fff;
@@ -754,7 +926,14 @@
     white-space: nowrap;
   }
 
-  .track-info { text-align: center; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .track-info {
+    text-align: center;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
   .track-title {
     font-size: 1.2rem;
     font-weight: 700;
@@ -776,7 +955,13 @@
     align-items: center;
     gap: 8px;
   }
-  .time { font-size: 0.75rem; color: var(--text-muted, #888); width: 36px; flex-shrink: 0; text-align: center; }
+  .time {
+    font-size: 0.75rem;
+    color: var(--text-muted, #888);
+    width: 36px;
+    flex-shrink: 0;
+    text-align: center;
+  }
   .progress-wrap {
     flex: 1;
     position: relative;
@@ -845,8 +1030,15 @@
   }
 
   @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.4); opacity: 0.6; }
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.4);
+      opacity: 0.6;
+    }
   }
 
   .volume-row {
@@ -857,9 +1049,14 @@
     max-width: 200px;
     color: var(--text-muted, #888);
   }
-  .volume-slider { flex: 1; accent-color: var(--accent, #7c3aed); }
+  .volume-slider {
+    flex: 1;
+    accent-color: var(--accent, #7c3aed);
+  }
 
-  .participants-area { width: 100%; }
+  .participants-area {
+    width: 100%;
+  }
   .participants-heading {
     font-size: 0.75rem;
     font-weight: 600;
@@ -897,8 +1094,8 @@
     flex-shrink: 0;
     border: 1px solid var(--border, #333);
   }
-  .pname { 
-    font-size: 0.85rem; 
+  .pname {
+    font-size: 0.85rem;
     color: var(--text, #fff);
     white-space: nowrap;
     overflow: hidden;
@@ -906,9 +1103,17 @@
     min-width: 0;
     flex: 1;
   }
-  .pname em { color: var(--text-muted, #888); font-style: normal; }
-  .self .avatar { border-color: var(--accent, #7c3aed); }
-  .host .avatar { border-color: #f59e0b; color: #f59e0b; }
+  .pname em {
+    color: var(--text-muted, #888);
+    font-style: normal;
+  }
+  .self .avatar {
+    border-color: var(--accent, #7c3aed);
+  }
+  .host .avatar {
+    border-color: #f59e0b;
+    color: #f59e0b;
+  }
 
   /* Lyrics — mirrors LyricsModal styling exactly */
   .lyrics-section {
@@ -936,7 +1141,10 @@
     color: var(--text-muted, #888);
     width: 100%;
   }
-  .lyrics-toggle:hover { background: var(--bg-hover, #ffffff08); color: var(--text, #fff); }
+  .lyrics-toggle:hover {
+    background: var(--bg-hover, #ffffff08);
+    color: var(--text, #fff);
+  }
   .chevron {
     font-size: 0.7rem;
     transition: transform 0.2s;
@@ -944,7 +1152,9 @@
     margin-left: auto;
     color: var(--text-muted, #888);
   }
-  .chevron.open { transform: rotate(180deg); }
+  .chevron.open {
+    transform: rotate(180deg);
+  }
 
   .lyrics-list {
     flex: 1;
@@ -955,9 +1165,16 @@
     gap: 2px;
     max-height: 280px;
   }
-  .lyrics-list::-webkit-scrollbar { width: 4px; }
-  .lyrics-list::-webkit-scrollbar-track { background: transparent; }
-  .lyrics-list::-webkit-scrollbar-thumb { background: var(--border, #333); border-radius: 2px; }
+  .lyrics-list::-webkit-scrollbar {
+    width: 4px;
+  }
+  .lyrics-list::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .lyrics-list::-webkit-scrollbar-thumb {
+    background: var(--border, #333);
+    border-radius: 2px;
+  }
 
   .lyric-line {
     padding: 6px 10px;
@@ -965,7 +1182,11 @@
     line-height: 1.5;
     color: var(--text-muted, #888);
     border-radius: 6px;
-    transition: color 0.3s ease, background 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
+    transition:
+      color 0.3s ease,
+      background 0.3s ease,
+      opacity 0.3s ease,
+      transform 0.3s ease;
     cursor: default;
     opacity: 0.55;
   }
@@ -976,7 +1197,7 @@
   .lyric-line.active {
     font-size: 1rem;
     font-weight: 600;
-    background: var(--accent-dim, rgba(192,132,252,0.12));
+    background: var(--accent-dim, rgba(192, 132, 252, 0.12));
     color: var(--accent, #7c3aed);
     opacity: 1;
     transform: scale(1.01);
@@ -997,16 +1218,18 @@
     padding: 10px 16px;
     font-size: 0.85rem;
     color: var(--text-muted, #888);
-    transition: background 0.2s, color 0.2s;
+    transition:
+      background 0.2s,
+      color 0.2s;
     border-left: 3px solid transparent;
   }
   .chapter-item.active {
-    background: var(--accent-dim, rgba(192,132,252,0.12));
+    background: var(--accent-dim, rgba(192, 132, 252, 0.12));
     color: var(--accent, #7c3aed);
     border-left-color: var(--accent, #7c3aed);
   }
   .ch-num {
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
     font-size: 0.75rem;
     opacity: 0.5;
     width: 20px;

@@ -19,12 +19,12 @@ import type { ContentProvider } from './engine';
 
 export type PodcastPlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
-export const currentEpisode   = writable<PodcastEpisode | null>(null);
-export const currentPodcast   = writable<Podcast | null>(null);
+export const currentEpisode = writable<PodcastEpisode | null>(null);
+export const currentPodcast = writable<Podcast | null>(null);
 export const podcastPlaybackState = writable<PodcastPlaybackState>('idle');
-export const podcastPositionMs    = writable(0);
-export const podcastDurationMs    = writable(0);
-export const podcastBufferedPct   = writable(0);
+export const podcastPositionMs = writable(0);
+export const podcastDurationMs = writable(0);
+export const podcastBufferedPct = writable(0);
 
 // ── Internal ──────────────────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ function _stopSaveInterval() {
 function _saveProgress(completed: boolean) {
 	const ep = get(currentEpisode);
 	if (!ep) return;
-	podcastsApi.updateProgress(ep.id, get(podcastPositionMs), completed).catch(() => {});
+	podcastsApi.updateProgress(ep.id, get(podcastPositionMs), completed).catch(() => { });
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

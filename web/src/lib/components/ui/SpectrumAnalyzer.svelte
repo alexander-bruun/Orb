@@ -12,10 +12,10 @@
    *   width        – canvas logical width  (default 300)
    *   height       – canvas logical height (default 80)
    */
-  import { onMount, onDestroy } from 'svelte';
-  import { audioEngine } from '$lib/audio/engine';
+  import { onMount, onDestroy } from "svelte";
+  import { audioEngine } from "$lib/audio/engine";
 
-  export let colorScheme: 'accent' | 'rainbow' | 'mono' = 'accent';
+  export let colorScheme: "accent" | "rainbow" | "mono" = "accent";
   export let width = 300;
   export let height = 80;
 
@@ -26,28 +26,41 @@
   const BAR_COUNT = 64;
   const BAR_GAP = 1;
 
-  function getBarColor(i: number, value: number, ctx2d: CanvasRenderingContext2D): string | CanvasGradient {
-    if (colorScheme === 'rainbow') {
+  function getBarColor(
+    i: number,
+    value: number,
+    ctx2d: CanvasRenderingContext2D,
+  ): string | CanvasGradient {
+    if (colorScheme === "rainbow") {
       return `hsl(${(i / BAR_COUNT) * 270}, 80%, 60%)`;
     }
-    if (colorScheme === 'mono') {
+    if (colorScheme === "mono") {
       const alpha = 0.4 + 0.6 * (value / 255);
       return `rgba(200, 200, 200, ${alpha.toFixed(2)})`;
     }
     // 'accent' — read the CSS variable so it always matches the theme.
-    const accentHex = typeof document !== 'undefined'
-      ? getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#5b8dee'
-      : '#5b8dee';
+    const accentHex =
+      typeof document !== "undefined"
+        ? getComputedStyle(document.documentElement)
+            .getPropertyValue("--accent")
+            .trim() || "#5b8dee"
+        : "#5b8dee";
     const grad = ctx2d.createLinearGradient(0, height, 0, 0);
     grad.addColorStop(0, accentHex);
-    grad.addColorStop(1, accentHex + '66'); // 40% alpha at top
+    grad.addColorStop(1, accentHex + "66"); // 40% alpha at top
     return grad;
   }
 
   function draw() {
-    if (!canvas) { rafId = requestAnimationFrame(draw); return; }
-    const ctx2d = canvas.getContext('2d');
-    if (!ctx2d) { rafId = requestAnimationFrame(draw); return; }
+    if (!canvas) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
+    const ctx2d = canvas.getContext("2d");
+    if (!ctx2d) {
+      rafId = requestAnimationFrame(draw);
+      return;
+    }
 
     const analyser = audioEngine.getAnalyser();
 
@@ -63,7 +76,7 @@
 
     if (!analyser) {
       // Draw flat baseline when no audio data is available.
-      ctx2d.fillStyle = 'rgba(120,120,120,0.15)';
+      ctx2d.fillStyle = "rgba(120,120,120,0.15)";
       ctx2d.fillRect(0, height - 2, width, 2);
       rafId = requestAnimationFrame(draw);
       return;
@@ -82,7 +95,7 @@
       const t0 = Math.pow(i / BAR_COUNT, 1.6);
       const t1 = Math.pow((i + 1) / BAR_COUNT, 1.6);
       const binStart = Math.floor(t0 * maxBin);
-      const binEnd   = Math.max(binStart + 1, Math.floor(t1 * maxBin));
+      const binEnd = Math.max(binStart + 1, Math.floor(t1 * maxBin));
 
       // Average the bins in this range.
       let sum = 0;
@@ -125,9 +138,7 @@
   aria-label="Real-time frequency spectrum analyzer"
   style="width:{width}px;height:{height}px;margin:0;"
 >
-  <canvas
-    bind:this={canvas}
-    style="width:{width}px;height:{height}px;"
+  <canvas bind:this={canvas} style="width:{width}px;height:{height}px;"
   ></canvas>
 </figure>
 

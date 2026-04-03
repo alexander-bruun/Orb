@@ -175,11 +175,11 @@ func (s *Store) GetUserStreamingPrefs(ctx context.Context, userID string) (UserS
 		        updated_at
 		   FROM user_streaming_prefs WHERE user_id = $1`, userID)
 	var (
-		maxBitrate, maxSR, maxBD                   sql.NullInt64
-		wifiMaxBitrate, wifiMaxSR, wifiMaxBD       sql.NullInt64
-		mobileMaxBitrate, mobileMaxSR, mobileMaxBD sql.NullInt64
+		maxBitrate, maxSR, maxBD                           sql.NullInt64
+		wifiMaxBitrate, wifiMaxSR, wifiMaxBD               sql.NullInt64
+		mobileMaxBitrate, mobileMaxSR, mobileMaxBD         sql.NullInt64
 		transcodeFmt, wifiTranscodeFmt, mobileTranscodeFmt sql.NullString
-		updatedAt                                  time.Time
+		updatedAt                                          time.Time
 	)
 	err := row.Scan(
 		&maxBitrate, &maxSR, &maxBD,

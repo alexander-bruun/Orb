@@ -12,24 +12,28 @@
    *   - All interactive controls have aria-label attributes.
    *   - The canvas has role="img" with a descriptive aria-label.
    */
-  import { onMount, onDestroy } from 'svelte';
-  import SpectrumAnalyzer from './SpectrumAnalyzer.svelte';
-  import WaveformWidget from './WaveformWidget.svelte';
-  import TrackWaveform from './TrackWaveform.svelte';
-  import Spectrogram from './Spectrogram.svelte';
-  import { visualizerStore } from '$lib/stores/player/visualizer';
-  import type { VisualizerPosition, VisualizerColorScheme, VisualizerType } from '$lib/stores/player/visualizer';
+  import { onMount, onDestroy } from "svelte";
+  import SpectrumAnalyzer from "./SpectrumAnalyzer.svelte";
+  import WaveformWidget from "./WaveformWidget.svelte";
+  import TrackWaveform from "./TrackWaveform.svelte";
+  import Spectrogram from "./Spectrogram.svelte";
+  import { visualizerStore } from "$lib/stores/player/visualizer";
+  import type {
+    VisualizerPosition,
+    VisualizerColorScheme,
+    VisualizerType,
+  } from "$lib/stores/player/visualizer";
 
   // ---- dimensions -----------------------------------------------------------
   const WIDGET_W = 300;
   // Canvas heights per type; total widget height = canvas + drag handle (20) + controls (28)
   const CANVAS_HEIGHTS: Record<VisualizerType, number> = {
-    spectrum:         72,
-    waveform:         72,
-    'track-waveform': 80,
-    spectrogram:      140,
+    spectrum: 72,
+    waveform: 72,
+    "track-waveform": 80,
+    spectrogram: 140,
   };
-  $: canvasH  = CANVAS_HEIGHTS[state.type] ?? 72;
+  $: canvasH = CANVAS_HEIGHTS[state.type] ?? 72;
   $: WIDGET_H = canvasH + 20 + 28;
 
   // ---- position helpers -----------------------------------------------------
@@ -42,22 +46,37 @@
     ww: number,
     wh: number,
     margin: number,
-    widgetH: number
+    widgetH: number,
   ): { left: number; top: number } {
     // Reserve bottom-bar height (CSS var fallback to 64px) so the widget
     // doesn't overlap the playback bar.
-    const barH = typeof document !== 'undefined'
-      ? parseInt(getComputedStyle(document.documentElement).getPropertyValue('--bottom-h'), 10) || 64
-      : 64;
+    const barH =
+      typeof document !== "undefined"
+        ? parseInt(
+            getComputedStyle(document.documentElement).getPropertyValue(
+              "--bottom-h",
+            ),
+            10,
+          ) || 64
+        : 64;
 
     switch (preset) {
-      case 'top-left':    return { left: margin, top: margin };
-      case 'top-center':  return { left: (ww - WIDGET_W) / 2, top: margin };
-      case 'top-right':   return { left: ww - WIDGET_W - margin, top: margin };
-      case 'bottom-left': return { left: margin, top: wh - barH - widgetH - margin };
-      case 'bottom-center': return { left: (ww - WIDGET_W) / 2, top: wh - barH - widgetH - margin };
-      case 'bottom-right': default:
-        return { left: ww - WIDGET_W - margin, top: wh - barH - widgetH - margin };
+      case "top-left":
+        return { left: margin, top: margin };
+      case "top-center":
+        return { left: (ww - WIDGET_W) / 2, top: margin };
+      case "top-right":
+        return { left: ww - WIDGET_W - margin, top: margin };
+      case "bottom-left":
+        return { left: margin, top: wh - barH - widgetH - margin };
+      case "bottom-center":
+        return { left: (ww - WIDGET_W) / 2, top: wh - barH - widgetH - margin };
+      case "bottom-right":
+      default:
+        return {
+          left: ww - WIDGET_W - margin,
+          top: wh - barH - widgetH - margin,
+        };
     }
   }
 
@@ -68,13 +87,13 @@
   // ---- component state ------------------------------------------------------
   $: state = $visualizerStore;
 
-  let ww = typeof window !== 'undefined' ? window.innerWidth  : 1280;
-  let wh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  let ww = typeof window !== "undefined" ? window.innerWidth : 1280;
+  let wh = typeof window !== "undefined" ? window.innerHeight : 800;
 
   // Current pixel position (origin + drag offset, clamped to viewport).
   $: rawOrigin = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
   $: left = clamp(rawOrigin.left + state.dragOffset.x, 0, ww - WIDGET_W);
-  $: top  = clamp(rawOrigin.top  + state.dragOffset.y, 0, wh - WIDGET_H);
+  $: top = clamp(rawOrigin.top + state.dragOffset.y, 0, wh - WIDGET_H);
 
   // ---- drag logic -----------------------------------------------------------
   let dragging = false;
@@ -95,7 +114,7 @@
     const dx = e.clientX - dragStart.x;
     const dy = e.clientY - dragStart.y;
     const newLeft = clamp(originAtDragStart.x + dx, 0, ww - WIDGET_W);
-    const newTop  = clamp(originAtDragStart.y + dy, 0, wh - WIDGET_H);
+    const newTop = clamp(originAtDragStart.y + dy, 0, wh - WIDGET_H);
     // Store new drag offset relative to the current preset origin.
     const origin = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
     visualizerStore.setDragOffset(newLeft - origin.left, newTop - origin.top);
@@ -108,23 +127,39 @@
   // Keyboard nudge on the drag handle.
   function onHandleKeydown(e: KeyboardEvent) {
     const STEP = 16;
-    let dx = 0; let dy = 0;
-    if (e.key === 'ArrowLeft')  { dx = -STEP; e.preventDefault(); }
-    if (e.key === 'ArrowRight') { dx =  STEP; e.preventDefault(); }
-    if (e.key === 'ArrowUp')    { dy = -STEP; e.preventDefault(); }
-    if (e.key === 'ArrowDown')  { dy =  STEP; e.preventDefault(); }
-    if (e.key === 'Escape')     { visualizerStore.setVisible(false); return; }
+    let dx = 0;
+    let dy = 0;
+    if (e.key === "ArrowLeft") {
+      dx = -STEP;
+      e.preventDefault();
+    }
+    if (e.key === "ArrowRight") {
+      dx = STEP;
+      e.preventDefault();
+    }
+    if (e.key === "ArrowUp") {
+      dy = -STEP;
+      e.preventDefault();
+    }
+    if (e.key === "ArrowDown") {
+      dy = STEP;
+      e.preventDefault();
+    }
+    if (e.key === "Escape") {
+      visualizerStore.setVisible(false);
+      return;
+    }
     if (dx !== 0 || dy !== 0) {
       const newLeft = clamp(left + dx, 0, ww - WIDGET_W);
-      const newTop  = clamp(top  + dy, 0, wh - WIDGET_H);
-      const origin  = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
+      const newTop = clamp(top + dy, 0, wh - WIDGET_H);
+      const origin = presetOrigin(state.position, ww, wh, 12, WIDGET_H);
       visualizerStore.setDragOffset(newLeft - origin.left, newTop - origin.top);
     }
   }
 
   // ---- global ESC handler ---------------------------------------------------
   function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape' && state.visible) {
+    if (e.key === "Escape" && state.visible) {
       visualizerStore.setVisible(false);
     }
   }
@@ -136,21 +171,30 @@
   }
 
   onMount(() => {
-    window.addEventListener('resize', onResize);
-    window.addEventListener('keydown', onWindowKeydown);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("keydown", onWindowKeydown);
   });
 
   onDestroy(() => {
-    window.removeEventListener('resize', onResize);
-    window.removeEventListener('keydown', onWindowKeydown);
+    window.removeEventListener("resize", onResize);
+    window.removeEventListener("keydown", onWindowKeydown);
   });
 
   // ---- option cycling -------------------------------------------------------
-  const TYPES:    VisualizerType[]        = ['spectrum', 'waveform', 'track-waveform', 'spectrogram'];
-  const SCHEMES:  VisualizerColorScheme[] = ['accent', 'rainbow', 'mono'];
-  const POSITIONS: VisualizerPosition[]   = [
-    'bottom-right', 'bottom-center', 'bottom-left',
-    'top-right',    'top-center',    'top-left',
+  const TYPES: VisualizerType[] = [
+    "spectrum",
+    "waveform",
+    "track-waveform",
+    "spectrogram",
+  ];
+  const SCHEMES: VisualizerColorScheme[] = ["accent", "rainbow", "mono"];
+  const POSITIONS: VisualizerPosition[] = [
+    "bottom-right",
+    "bottom-center",
+    "bottom-left",
+    "top-right",
+    "top-center",
+    "top-left",
   ];
 
   function cycleType() {
@@ -169,20 +213,19 @@
   }
 
   const TYPE_LABELS: Record<VisualizerType, string> = {
-    spectrum:         'Spectrum',
-    waveform:         'Waveform',
-    'track-waveform': 'Song Wave',
-    spectrogram:      'Spek',
+    spectrum: "Spectrum",
+    waveform: "Waveform",
+    "track-waveform": "Song Wave",
+    spectrogram: "Spek",
   };
   const SCHEME_LABELS: Record<VisualizerColorScheme, string> = {
-    accent: 'Accent',
-    rainbow: 'Rainbow',
-    mono: 'Mono',
+    accent: "Accent",
+    rainbow: "Rainbow",
+    mono: "Mono",
   };
 </script>
 
 {#if state.visible}
-  
   <div
     class="viz-widget"
     style="left:{left}px;top:{top}px;"
@@ -204,9 +247,30 @@
       on:keydown={onHandleKeydown}
     >
       <svg width="12" height="8" viewBox="0 0 12 8" aria-hidden="true">
-        <rect x="0" y="0" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-        <rect x="0" y="3.25" width="12" height="1.5" rx="0.75" fill="currentColor"/>
-        <rect x="0" y="6.5" width="12" height="1.5" rx="0.75" fill="currentColor"/>
+        <rect
+          x="0"
+          y="0"
+          width="12"
+          height="1.5"
+          rx="0.75"
+          fill="currentColor"
+        />
+        <rect
+          x="0"
+          y="3.25"
+          width="12"
+          height="1.5"
+          rx="0.75"
+          fill="currentColor"
+        />
+        <rect
+          x="0"
+          y="6.5"
+          width="12"
+          height="1.5"
+          rx="0.75"
+          fill="currentColor"
+        />
       </svg>
     </div>
 
@@ -215,19 +279,35 @@
       class="viz-close"
       on:click={() => visualizerStore.setVisible(false)}
       aria-label="Close visualizer"
-      title="Close"
-    >✕</button>
+      title="Close">✕</button
+    >
 
     <!-- Canvas area ---------------------------------------------------------->
     <div class="viz-canvas-wrap">
-      {#if state.type === 'spectrum'}
-        <SpectrumAnalyzer width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
-      {:else if state.type === 'track-waveform'}
-        <TrackWaveform    width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
-      {:else if state.type === 'spectrogram'}
-        <Spectrogram      width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
+      {#if state.type === "spectrum"}
+        <SpectrumAnalyzer
+          width={WIDGET_W}
+          height={canvasH}
+          colorScheme={state.colorScheme}
+        />
+      {:else if state.type === "track-waveform"}
+        <TrackWaveform
+          width={WIDGET_W}
+          height={canvasH}
+          colorScheme={state.colorScheme}
+        />
+      {:else if state.type === "spectrogram"}
+        <Spectrogram
+          width={WIDGET_W}
+          height={canvasH}
+          colorScheme={state.colorScheme}
+        />
       {:else}
-        <WaveformWidget   width={WIDGET_W} height={canvasH} colorScheme={state.colorScheme} />
+        <WaveformWidget
+          width={WIDGET_W}
+          height={canvasH}
+          colorScheme={state.colorScheme}
+        />
       {/if}
     </div>
 
@@ -258,14 +338,27 @@
         title="Snap to next position preset"
         aria-label="Position: {state.position}. Click to cycle."
       >
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-          <rect x="1" y="1" width="14" height="14" rx="2"/>
-          <circle cx={
-            state.position.includes('left') ? 4 :
-            state.position.includes('right') ? 12 : 8
-          } cy={
-            state.position.includes('top') ? 4 : 12
-          } r="2" fill="currentColor" stroke="none"/>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        >
+          <rect x="1" y="1" width="14" height="14" rx="2" />
+          <circle
+            cx={state.position.includes("left")
+              ? 4
+              : state.position.includes("right")
+                ? 12
+                : 8}
+            cy={state.position.includes("top") ? 4 : 12}
+            r="2"
+            fill="currentColor"
+            stroke="none"
+          />
         </svg>
       </button>
     </div>
@@ -278,20 +371,26 @@
     z-index: 9000;
     width: 300px;
     background: var(--bg-elevated, #1c1c1e);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
     border-radius: 8px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     overflow: hidden;
     display: flex;
     flex-direction: column;
     /* Smooth drag / position changes */
     will-change: transform;
-    animation: viz-appear 0.18s cubic-bezier(0.4,0,0.2,1);
+    animation: viz-appear 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   @keyframes viz-appear {
-    from { opacity: 0; transform: scale(0.93); }
-    to   { opacity: 1; transform: scale(1); }
+    from {
+      opacity: 0;
+      transform: scale(0.93);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   /* ---- drag handle ---- */
@@ -302,20 +401,22 @@
     align-items: center;
     justify-content: center;
     cursor: grab;
-    color: var(--text-muted, rgba(255,255,255,0.35));
+    color: var(--text-muted, rgba(255, 255, 255, 0.35));
     background: var(--bg-elevated, #1c1c1e);
     user-select: none;
     touch-action: none;
     outline: none;
     transition: background 0.1s;
   }
-  .viz-handle:active { cursor: grabbing; }
+  .viz-handle:active {
+    cursor: grabbing;
+  }
   .viz-handle:focus-visible {
     box-shadow: inset 0 0 0 2px var(--accent, #5b8dee);
-    background: var(--bg-hover, rgba(255,255,255,0.06));
+    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
   }
   .viz-handle:hover {
-    background: var(--bg-hover, rgba(255,255,255,0.06));
+    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
   }
 
   /* ---- close button ---- */
@@ -325,17 +426,24 @@
     right: 4px;
     background: none;
     border: none;
-    color: var(--text-muted, rgba(255,255,255,0.35));
+    color: var(--text-muted, rgba(255, 255, 255, 0.35));
     cursor: pointer;
     font-size: 0.7rem;
     line-height: 1;
     padding: 2px 4px;
     border-radius: 3px;
-    transition: color 0.12s, background 0.12s;
+    transition:
+      color 0.12s,
+      background 0.12s;
     z-index: 1;
   }
-  .viz-close:hover { color: var(--text, #fff); background: rgba(255,255,255,0.06); }
-  .viz-close:focus-visible { outline: 2px solid var(--accent, #5b8dee); }
+  .viz-close:hover {
+    color: var(--text, #fff);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .viz-close:focus-visible {
+    outline: 2px solid var(--accent, #5b8dee);
+  }
 
   /* ---- canvas wrapper ---- */
   .viz-canvas-wrap {
@@ -350,7 +458,7 @@
     gap: 4px;
     padding: 4px 8px;
     background: var(--bg-elevated, #1c1c1e);
-    border-top: 1px solid var(--border, rgba(255,255,255,0.06));
+    border-top: 1px solid var(--border, rgba(255, 255, 255, 0.06));
   }
 
   .viz-ctrl-btn {
@@ -358,11 +466,14 @@
     background: none;
     border: 1px solid transparent;
     border-radius: 4px;
-    color: var(--text-muted, rgba(255,255,255,0.5));
+    color: var(--text-muted, rgba(255, 255, 255, 0.5));
     font-size: 0.68rem;
     cursor: pointer;
     padding: 3px 4px;
-    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -372,8 +483,8 @@
   }
   .viz-ctrl-btn:hover {
     color: var(--text, #fff);
-    border-color: var(--border, rgba(255,255,255,0.15));
-    background: var(--bg-hover, rgba(255,255,255,0.06));
+    border-color: var(--border, rgba(255, 255, 255, 0.15));
+    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
   }
   .viz-ctrl-btn:focus-visible {
     outline: 2px solid var(--accent, #5b8dee);
@@ -386,14 +497,20 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .color-dot[data-scheme="accent"]  { background: var(--accent, #5b8dee); }
+  .color-dot[data-scheme="accent"] {
+    background: var(--accent, #5b8dee);
+  }
   .color-dot[data-scheme="rainbow"] {
     background: linear-gradient(90deg, #f33, #fa0, #3f3, #39f, #93f);
   }
-  .color-dot[data-scheme="mono"]    { background: #aaa; }
+  .color-dot[data-scheme="mono"] {
+    background: #aaa;
+  }
 
   /* ---- responsive: hide on very narrow viewports ---- */
   @media (max-width: 480px) {
-    .viz-widget { width: calc(100vw - 24px); }
+    .viz-widget {
+      width: calc(100vw - 24px);
+    }
   }
 </style>

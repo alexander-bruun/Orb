@@ -1,37 +1,43 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { setServerUrl } from '$lib/api/base';
-  import { isTauri, isNative } from '$lib/utils/platform';
-  import { invoke } from '@tauri-apps/api/core';
-  import { setupRequired } from '$lib/stores/auth/setup';
-  import { apiFetch } from '$lib/api/client';
+  import { goto } from "$app/navigation";
+  import { setServerUrl } from "$lib/api/base";
+  import { isTauri, isNative } from "$lib/utils/platform";
+  import { invoke } from "@tauri-apps/api/core";
+  import { setupRequired } from "$lib/stores/auth/setup";
+  import { apiFetch } from "$lib/api/client";
 
-  let url = '';
-  let phase: 'idle' | 'connecting' | 'success' | 'error' = 'idle';
-  let errorMsg = '';
+  let url = "";
+  let phase: "idle" | "connecting" | "success" | "error" = "idle";
+  let errorMsg = "";
 
   // Discovery state
-  type DiscoveredServer = {name: string; host: string; port: number; url: string; version: string};
+  type DiscoveredServer = {
+    name: string;
+    host: string;
+    port: number;
+    url: string;
+    version: string;
+  };
   let discovering = false;
   let discovered: DiscoveredServer[] = [];
-  let discoveryError = '';
+  let discoveryError = "";
 
   // mDNS discovery available in Tauri desktop shell
   const showDiscover = isTauri();
 
   async function discoverServers() {
     discovering = true;
-    discoveryError = '';
+    discoveryError = "";
     discovered = [];
 
     try {
-      const servers = await invoke<DiscoveredServer[]>('discover_servers');
+      const servers = await invoke<DiscoveredServer[]>("discover_servers");
       discovered = servers;
       if (servers.length === 0) {
-        discoveryError = 'No Orb servers found on your network.';
+        discoveryError = "No Orb servers found on your network.";
       }
     } catch (err: any) {
-      discoveryError = err.message ?? 'Discovery failed.';
+      discoveryError = err.message ?? "Discovery failed.";
     } finally {
       discovering = false;
     }
@@ -44,15 +50,15 @@
 
   async function connect(e: Event) {
     e.preventDefault();
-    errorMsg = '';
+    errorMsg = "";
 
-    const cleaned = url.replace(/\/+$/, '');
+    const cleaned = url.replace(/\/+$/, "");
     if (!cleaned) {
-      errorMsg = 'Please enter a server URL.';
+      errorMsg = "Please enter a server URL.";
       return;
     }
 
-    phase = 'connecting';
+    phase = "connecting";
 
     try {
       const res = await fetch(`${cleaned}/healthz`, {
@@ -60,33 +66,33 @@
       });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const text = await res.text();
-      if (!text.includes('ok')) throw new Error('Not an Orb server');
+      if (!text.includes("ok")) throw new Error("Not an Orb server");
     } catch (err: any) {
-      phase = 'error';
-      if (err.name === 'TimeoutError') {
-        errorMsg = 'Connection timed out. Check the URL and try again.';
-      } else if (err.name === 'TypeError') {
-        errorMsg = 'Could not reach server. Check the URL and your network.';
+      phase = "error";
+      if (err.name === "TimeoutError") {
+        errorMsg = "Connection timed out. Check the URL and try again.";
+      } else if (err.name === "TypeError") {
+        errorMsg = "Could not reach server. Check the URL and your network.";
       } else {
-        errorMsg = err.message ?? 'Connection failed.';
+        errorMsg = err.message ?? "Connection failed.";
       }
       return;
     }
 
-    phase = 'success';
+    phase = "success";
     setServerUrl(cleaned);
 
     // Fetch setup status now that we have a valid server URL,
     // so the layout's $effect can route correctly after navigation.
     try {
-      const data = await apiFetch<{ setup_required: boolean }>('/auth/setup');
+      const data = await apiFetch<{ setup_required: boolean }>("/auth/setup");
       setupRequired.set(data.setup_required);
     } catch {
       setupRequired.set(false);
     }
 
     await new Promise((r) => setTimeout(r, 600));
-    goto('/login');
+    goto("/login");
   }
 </script>
 
@@ -95,7 +101,7 @@
     <h1 class="logo">orb</h1>
     <p class="subtitle">Connect to your Orb server</p>
 
-    {#if phase === 'connecting'}
+    {#if phase === "connecting"}
       <div class="loader-wrap">
         <div class="orb-loader">
           <div class="ring ring-1"></div>
@@ -105,11 +111,20 @@
         </div>
         <p class="loader-text">Connecting...</p>
       </div>
-    {:else if phase === 'success'}
+    {:else if phase === "success"}
       <div class="loader-wrap">
         <div class="success-check">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
+          <svg
+            width="40"
+            height="40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--accent)"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="20 6 9 17 4 12" />
           </svg>
         </div>
         <p class="loader-text">Connected</p>
@@ -122,7 +137,7 @@
       <form onsubmit={connect}>
         <label>
           Server URL
-          
+
           <input
             type="url"
             bind:value={url}
@@ -142,7 +157,7 @@
             onclick={discoverServers}
             disabled={discovering}
           >
-            {discovering ? 'Scanning...' : 'Discover servers'}
+            {discovering ? "Scanning..." : "Discover servers"}
           </button>
 
           {#if discoveryError}
@@ -169,7 +184,8 @@
       {/if}
 
       <p class="hint">
-        Enter the base URL of your Orb server, including <code>/api</code> if behind a reverse proxy.
+        Enter the base URL of your Orb server, including <code>/api</code> if behind
+        a reverse proxy.
       </p>
     {/if}
   </div>
@@ -231,9 +247,11 @@
     color: var(--text);
     font-size: 0.9375rem;
     outline: none;
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
   }
-  input:focus { border-color: var(--accent); }
+  input:focus {
+    border-color: var(--accent);
+  }
 
   .btn-primary {
     background: var(--accent);
@@ -246,8 +264,13 @@
     cursor: pointer;
     transition: background 0.15s;
   }
-  .btn-primary:hover { background: var(--accent-hover); }
-  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-primary:hover {
+    background: var(--accent-hover);
+  }
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 
   .error {
     color: #f87171;
@@ -262,7 +285,7 @@
     line-height: 1.4;
   }
   .hint code {
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
     font-size: 0.7rem;
     background: var(--bg);
     padding: 1px 5px;
@@ -286,10 +309,18 @@
     color: var(--text-muted);
     font-size: 0.875rem;
     cursor: pointer;
-    transition: border-color 0.15s, color 0.15s;
+    transition:
+      border-color 0.15s,
+      color 0.15s;
   }
-  .btn-discover:hover { border-color: var(--accent); color: var(--text); }
-  .btn-discover:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-discover:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .btn-discover:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
 
   .discovery-msg {
     color: var(--text-muted);
@@ -319,7 +350,9 @@
     cursor: pointer;
     transition: border-color 0.15s;
   }
-  .server-item:hover { border-color: var(--accent); }
+  .server-item:hover {
+    border-color: var(--accent);
+  }
 
   .server-name {
     font-size: 0.875rem;
@@ -329,7 +362,7 @@
 
   .server-url {
     font-size: 0.75rem;
-    font-family: 'DM Mono', monospace;
+    font-family: "DM Mono", monospace;
     color: var(--text-muted);
   }
 
@@ -395,12 +428,21 @@
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(0.8); }
-    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+    0%,
+    100% {
+      opacity: 0.4;
+      transform: translate(-50%, -50%) scale(0.8);
+    }
+    50% {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1.2);
+    }
   }
 
   /* ── Success ── */
@@ -416,7 +458,13 @@
   }
 
   @keyframes pop {
-    0% { transform: scale(0.5); opacity: 0; }
-    100% { transform: scale(1); opacity: 1; }
+    0% {
+      transform: scale(0.5);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
   }
 </style>

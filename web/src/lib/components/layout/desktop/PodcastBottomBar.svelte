@@ -43,14 +43,19 @@
     const pct = parseFloat((e.target as HTMLInputElement).value);
     seekPodcastMs(($podcastDurationMs * pct) / 100);
   }
-
-
 </script>
 
-<svelte:window on:click={(e) => {
-  if (sleepMenuOpen && !(e.target as HTMLElement).closest?.('.sleep-wrap')) sleepMenuOpen = false;
-  if (volumePopupOpen && !(e.target as HTMLElement).closest?.('.volume-popup-wrap')) volumePopupOpen = false;
-}} />
+<svelte:window
+  on:click={(e) => {
+    if (sleepMenuOpen && !(e.target as HTMLElement).closest?.(".sleep-wrap"))
+      sleepMenuOpen = false;
+    if (
+      volumePopupOpen &&
+      !(e.target as HTMLElement).closest?.(".volume-popup-wrap")
+    )
+      volumePopupOpen = false;
+  }}
+/>
 
 <footer class="pod-bar bottom-bar">
   <!-- Left: cover + metadata -->
@@ -65,16 +70,31 @@
           />
         {:else}
           <div class="pod-cover pod-cover-placeholder">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-              <line x1="12" y1="19" x2="12" y2="23"/>
-              <line x1="8" y1="23" x2="16" y2="23"/>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
             </svg>
           </div>
         {/if}
-        <button class="cover-expand-btn" on:click={() => expanded.update(v => !v)} aria-label="Expand cover">
-          <svg width="16" height="16" viewBox="0 0 20 20"><path d="M4 4h12v12H4V4zm2 2v8h8V6H6z" fill="currentColor"/></svg>
+        <button
+          class="cover-expand-btn"
+          on:click={() => expanded.update((v) => !v)}
+          aria-label="Expand cover"
+        >
+          <svg width="16" height="16" viewBox="0 0 20 20"
+            ><path d="M4 4h12v12H4V4zm2 2v8h8V6H6z" fill="currentColor" /></svg
+          >
         </button>
       </div>
       <div class="pod-meta">
@@ -96,8 +116,18 @@
         aria-label="Skip back 15 seconds"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
-          <text x="12" y="15.5" text-anchor="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="currentColor">15</text>
+          <path
+            d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"
+          />
+          <text
+            x="12"
+            y="15.5"
+            text-anchor="middle"
+            font-size="5.5"
+            font-family="sans-serif"
+            font-weight="bold"
+            fill="currentColor">15</text
+          >
         </svg>
       </button>
 
@@ -127,8 +157,18 @@
         aria-label="Skip forward 30 seconds"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/>
-          <text x="12" y="15.5" text-anchor="middle" font-size="5.5" font-family="sans-serif" font-weight="bold" fill="currentColor">30</text>
+          <path
+            d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"
+          />
+          <text
+            x="12"
+            y="15.5"
+            text-anchor="middle"
+            font-size="5.5"
+            font-family="sans-serif"
+            font-weight="bold"
+            fill="currentColor">30</text
+          >
         </svg>
       </button>
     </div>
@@ -155,19 +195,84 @@
       </div>
     </div>
 
-    <!-- Right: sleep timer + close -->
+    <!-- Wide: inline volume slider -->
+    <input
+      type="range"
+      min="0"
+      max="1"
+      step="0.01"
+      value={$engineVolume}
+      on:input={onVolume}
+      class="volume-bar wide-only"
+      aria-label="Volume"
+    />
+    <!-- Narrow (≤800 px): vertical volume popup -->
+    <div class="volume-popup-wrap">
+      <button
+        class="ctrl-btn icon-btn narrow-only"
+        on:click|stopPropagation={() => {
+          volumePopupOpen = !volumePopupOpen;
+        }}
+        aria-label="Volume"
+        title="Volume"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </svg>
+      </button>
+      {#if volumePopupOpen}
+        <div class="volume-popup" role="dialog" aria-label="Volume slider">
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={$engineVolume}
+            on:input={onVolume}
+            class="volume-vertical"
+            aria-label="Volume"
+          />
+        </div>
+      {/if}
+    </div>
+
+    <!-- Right: sleep timer -->
     <div class="pod-right">
       {#if $podcastSleepTimerEnabled}
         <div class="sleep-wrap">
           <button
             class="ctrl-btn icon-btn"
             class:active={$podcastSleepTimerMins > 0}
-            on:click|stopPropagation={() => { sleepMenuOpen = !sleepMenuOpen; }}
-            title={$podcastSleepTimerMins > 0 ? `Sleep in ${$podcastSleepTimerMins} min` : 'Sleep timer'}
+            on:click|stopPropagation={() => {
+              sleepMenuOpen = !sleepMenuOpen;
+            }}
+            title={$podcastSleepTimerMins > 0
+              ? `Sleep in ${$podcastSleepTimerMins} min`
+              : "Sleep timer"}
             aria-label="Sleep timer"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
             </svg>
             {#if $podcastSleepTimerMins > 0}
               <span class="sleep-badge">{$podcastSleepTimerMins}m</span>
@@ -181,13 +286,22 @@
                   class:selected={$podcastSleepTimerMins === preset}
                   role="menuitem"
                   on:click={() => {
-                    setPodcastSleepTimer($podcastSleepTimerMins === preset ? 0 : preset);
+                    setPodcastSleepTimer(
+                      $podcastSleepTimerMins === preset ? 0 : preset,
+                    );
                     sleepMenuOpen = false;
-                  }}
-                >{preset} min</button>
+                  }}>{preset} min</button
+                >
               {/each}
               {#if $podcastSleepTimerMins > 0}
-                <button class="sleep-item sleep-cancel" role="menuitem" on:click={() => { setPodcastSleepTimer(0); sleepMenuOpen = false; }}>
+                <button
+                  class="sleep-item sleep-cancel"
+                  role="menuitem"
+                  on:click={() => {
+                    setPodcastSleepTimer(0);
+                    sleepMenuOpen = false;
+                  }}
+                >
                   Cancel timer
                 </button>
               {/if}
@@ -195,47 +309,6 @@
           {/if}
         </div>
       {/if}
-
-      <!-- Wide: inline volume slider -->
-      <input
-        type="range"
-        min="0"
-        max="1"
-        step="0.01"
-        value={$engineVolume}
-        on:input={onVolume}
-        class="volume-bar wide-only"
-        aria-label="Volume"
-      />
-      <!-- Narrow (≤800 px): vertical volume popup -->
-      <div class="volume-popup-wrap">
-        <button
-          class="ctrl-btn icon-btn narrow-only"
-          on:click|stopPropagation={() => { volumePopupOpen = !volumePopupOpen; }}
-          aria-label="Volume"
-          title="Volume"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-          </svg>
-        </button>
-        {#if volumePopupOpen}
-          <div class="volume-popup" role="dialog" aria-label="Volume slider">
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={$engineVolume}
-              on:input={onVolume}
-              class="volume-vertical"
-              aria-label="Volume"
-            />
-          </div>
-        {/if}
-      </div>
-
     </div>
   </div>
 </footer>
@@ -378,7 +451,9 @@
     height: 38px;
     border-radius: 50%;
     background: var(--bg-hover);
-    transition: background 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
   .play-btn:hover {
     background: var(--accent);
@@ -434,8 +509,17 @@
   }
 
   /* ── Volume ── */
-  .volume-bar { width: 80px; height: 4px; accent-color: var(--accent); cursor: pointer; }
-  .volume-popup-wrap { position: relative; display: none; align-items: center; }
+  .volume-bar {
+    width: 80px;
+    height: 4px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .volume-popup-wrap {
+    position: relative;
+    display: none;
+    align-items: center;
+  }
   .volume-popup {
     position: absolute;
     bottom: calc(100% + 10px);
@@ -450,7 +534,7 @@
     align-items: center;
     justify-content: center;
     z-index: 200;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   }
   .volume-vertical {
     writing-mode: vertical-lr;
@@ -461,15 +545,19 @@
     cursor: pointer;
   }
   @media (max-width: 800px) {
-    .wide-only { display: none !important; }
-    .volume-popup-wrap { display: inline-flex; }
-    .narrow-only { display: inline-flex !important; }
+    .wide-only {
+      display: none !important;
+    }
+    .volume-popup-wrap {
+      display: inline-flex;
+    }
+    .narrow-only {
+      display: inline-flex !important;
+    }
   }
-  .narrow-only { display: none; }
-  .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; font-size: 0; padding: 6px; }
-
-  /* ── Sleep timer ── */
-  .sleep-wrap { position: relative; display: inline-flex; align-items: center; }
+  .narrow-only {
+    display: none;
+  }
   .icon-btn {
     position: relative;
     display: inline-flex;
@@ -478,12 +566,34 @@
     font-size: 0;
     padding: 6px;
   }
-  .icon-btn.active { color: var(--accent); }
+
+  /* ── Sleep timer ── */
+  .sleep-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0;
+    padding: 6px;
+  }
+  .icon-btn.active {
+    color: var(--accent);
+  }
   .sleep-badge {
     position: absolute;
-    top: 0; right: -2px;
-    font-size: 8px; font-weight: 700; line-height: 1;
-    color: var(--accent); pointer-events: none; white-space: nowrap;
+    top: 0;
+    right: -2px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    pointer-events: none;
+    white-space: nowrap;
   }
   .sleep-menu {
     position: absolute;
@@ -494,20 +604,35 @@
     border-radius: 8px;
     padding: 4px;
     min-width: 120px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
     z-index: 200;
     display: flex;
     flex-direction: column;
     gap: 1px;
   }
   .sleep-item {
-    background: none; border: none; border-radius: 5px;
-    padding: 7px 12px; text-align: left; font-size: 0.8rem;
-    color: var(--text-muted); cursor: pointer; white-space: nowrap;
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 7px 12px;
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
   }
-  .sleep-item:hover { background: var(--bg-hover); color: var(--text); }
-  .sleep-item.selected { color: var(--accent); }
-  .sleep-cancel { margin-top: 2px; border-top: 1px solid var(--border); padding-top: 8px; }
+  .sleep-item:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .sleep-item.selected {
+    color: var(--accent);
+  }
+  .sleep-cancel {
+    margin-top: 2px;
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+  }
 
   .spin-ring {
     width: 16px;
@@ -518,6 +643,8 @@
     animation: spin 0.7s linear infinite;
   }
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

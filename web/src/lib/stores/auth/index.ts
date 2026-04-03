@@ -112,7 +112,7 @@ function createAuthStore() {
 			});
 		},
 		logout() {
-			apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+			apiFetch('/auth/logout', { method: 'POST' }).catch(() => { });
 			doLogout();
 		},
 		updateEmail(email: string) {

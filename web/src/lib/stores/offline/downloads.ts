@@ -11,26 +11,26 @@ import { STORAGE_KEYS, IDB } from '$lib/constants';
 export type DownloadStatus = 'downloading' | 'done' | 'error';
 
 export interface DownloadEntry {
-  trackId:       string;
-  title:         string;
-  artistName:    string;
-  albumName:     string;
-  albumId?:      string;
-  isAudiobook?:  boolean;
-  status:        DownloadStatus;
-  progress:      number;   // 0–100
-  sizeBytes:     number;
+  trackId: string;
+  title: string;
+  artistName: string;
+  albumName: string;
+  albumId?: string;
+  isAudiobook?: boolean;
+  status: DownloadStatus;
+  progress: number;   // 0–100
+  sizeBytes: number;
   downloadedAt?: number;
-  error?:        string;
+  error?: string;
 }
 
-const AUDIO_CACHE      = IDB.NAME;
-const META_KEY         = STORAGE_KEYS.DOWNLOADS_META;
-const IDB_NAME         = IDB.NAME;
-const IDB_STORE        = IDB.STORE_BLOBS;
+const AUDIO_CACHE = IDB.NAME;
+const META_KEY = STORAGE_KEYS.DOWNLOADS_META;
+const IDB_NAME = IDB.NAME;
+const IDB_STORE = IDB.STORE_BLOBS;
 const IDB_LYRICS_STORE = IDB.STORE_LYRICS;
-const IDB_WAVE_STORE   = IDB.STORE_WAVEFORM;
-const IDB_VERSION      = IDB.VERSION;
+const IDB_WAVE_STORE = IDB.STORE_WAVEFORM;
+const IDB_VERSION = IDB.VERSION;
 
 export const downloads = writable<Map<string, DownloadEntry>>(new Map());
 
@@ -51,7 +51,7 @@ function openIDB(): Promise<IDBDatabase> {
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror   = () => reject(req.error);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -61,14 +61,14 @@ async function idbPutTo(store: string, key: string, value: unknown): Promise<voi
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).put(JSON.stringify(value), key);
     tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
 async function idbGetFrom<T>(store: string, key: string): Promise<T | undefined> {
   const db = await openIDB();
   return new Promise((resolve, reject) => {
-    const tx  = db.transaction(store, 'readonly');
+    const tx = db.transaction(store, 'readonly');
     const req = tx.objectStore(store).get(key);
     req.onsuccess = () => {
       db.close();
@@ -84,7 +84,7 @@ async function idbDeleteFrom(store: string, key: string): Promise<void> {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).delete(key);
     tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -94,7 +94,7 @@ async function idbClearStore(store: string): Promise<void> {
     const tx = db.transaction(store, 'readwrite');
     tx.objectStore(store).clear();
     tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -104,17 +104,17 @@ async function idbPut(trackId: string, blob: Blob): Promise<void> {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).put(blob, trackId);
     tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
 async function idbGet(trackId: string): Promise<Blob | undefined> {
   const db = await openIDB();
   return new Promise((resolve, reject) => {
-    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const tx = db.transaction(IDB_STORE, 'readonly');
     const req = tx.objectStore(IDB_STORE).get(trackId);
     req.onsuccess = () => { db.close(); resolve(req.result ?? undefined); };
-    req.onerror   = () => { db.close(); reject(req.error); };
+    req.onerror = () => { db.close(); reject(req.error); };
   });
 }
 
@@ -124,7 +124,7 @@ async function idbDelete(trackId: string): Promise<void> {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).delete(trackId);
     tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -134,7 +134,7 @@ async function idbClear(): Promise<void> {
     const tx = db.transaction(IDB_STORE, 'readwrite');
     tx.objectStore(IDB_STORE).clear();
     tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror    = () => { db.close(); reject(tx.error); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 
@@ -220,19 +220,19 @@ export async function downloadTrack(track: Track): Promise<void> {
   // Request durable storage — critical on iOS where caches are evicted
   // after ~7 days of inactivity without this permission.
   if (navigator.storage?.persist) {
-    await navigator.storage.persist().catch(() => {});
+    await navigator.storage.persist().catch(() => { });
   }
 
   downloads.update(m => {
     m.set(track.id, {
-      trackId:    track.id,
-      title:      track.title,
+      trackId: track.id,
+      title: track.title,
       artistName: track.artist_name ?? '',
-      albumName:  track.album_name ?? '',
-      albumId:    track.album_id ?? undefined,
-      status:     'downloading',
-      progress:   0,
-      sizeBytes:  0,
+      albumName: track.album_name ?? '',
+      albumId: track.album_id ?? undefined,
+      status: 'downloading',
+      progress: 0,
+      sizeBytes: 0,
     });
     persist(m);
     return m;
@@ -240,7 +240,7 @@ export async function downloadTrack(track: Track): Promise<void> {
 
   try {
     const auth = get(authStore);
-    const url  = `${getApiBase()}/stream/${track.id}`;
+    const url = `${getApiBase()}/stream/${track.id}`;
 
     // On Android, use the native downloader to avoid OutOfMemoryError for large files.
     // This streams directly to disk on the Kotlin side.
@@ -263,13 +263,13 @@ export async function downloadTrack(track: Track): Promise<void> {
       if (res.body) {
         // Stream with progress tracking
         const contentLength = Number(res.headers.get('Content-Length') ?? 0);
-        const contentType   = res.headers.get('Content-Type') ?? 'audio/flac';
-        const reader        = res.body.getReader();
+        const contentType = res.headers.get('Content-Type') ?? 'audio/flac';
+        const reader = res.body.getReader();
         const chunks: BlobPart[] = [];
         let received = 0;
         let lastReportedProgress = -1;
 
-        for (;;) {
+        for (; ;) {
           const { done, value } = await reader.read();
           if (done) break;
           chunks.push(new Uint8Array(value));
@@ -298,9 +298,9 @@ export async function downloadTrack(track: Track): Promise<void> {
         try {
           const cacheResp = new Response(blob.slice(), {
             headers: {
-              'Content-Type':   blob.type || 'audio/flac',
-              'Content-Length':  String(blob.size),
-              'Accept-Ranges':  'bytes',
+              'Content-Type': blob.type || 'audio/flac',
+              'Content-Length': String(blob.size),
+              'Accept-Ranges': 'bytes',
             },
           });
           const cache = await caches.open(AUDIO_CACHE);
@@ -324,14 +324,14 @@ export async function downloadTrack(track: Track): Promise<void> {
     downloads.update(m => {
       const existing = m.get(track.id);
       m.set(track.id, {
-        trackId:      track.id,
-        title:        track.title,
-        artistName:   track.artist_name ?? '',
-        albumName:    track.album_name ?? '',
-        albumId:      track.album_id ?? undefined,
-        status:       'done',
-        progress:     100,
-        sizeBytes:    existing?.sizeBytes ?? 0,
+        trackId: track.id,
+        title: track.title,
+        artistName: track.artist_name ?? '',
+        albumName: track.album_name ?? '',
+        albumId: track.album_id ?? undefined,
+        status: 'done',
+        progress: 100,
+        sizeBytes: existing?.sizeBytes ?? 0,
         downloadedAt: Date.now(),
       });
       persist(m);
@@ -342,14 +342,14 @@ export async function downloadTrack(track: Track): Promise<void> {
     downloads.update(m => {
       const existing = m.get(track.id);
       m.set(track.id, {
-        trackId:    track.id,
-        title:      track.title,
+        trackId: track.id,
+        title: track.title,
         artistName: track.artist_name ?? '',
-        albumName:  track.album_name ?? '',
-        status:     'error',
-        progress:   0,
-        sizeBytes:  0,
-        error:      msg,
+        albumName: track.album_name ?? '',
+        status: 'error',
+        progress: 0,
+        sizeBytes: 0,
+        error: msg,
         ...(existing?.downloadedAt ? { downloadedAt: existing.downloadedAt } : {}),
       });
       persist(m);
@@ -443,21 +443,21 @@ export async function downloadTrackBackground(track: Track, coverUrl: string): P
     `orb-dl-${track.id}`,
     [`${getApiBase()}/stream/${track.id}`],
     {
-      title:         `Downloading ${track.title}`,
+      title: `Downloading ${track.title}`,
       downloadTotal: track.file_size ?? 0,
-      icons:         coverUrl ? [{ src: coverUrl, sizes: '128x128', type: 'image/jpeg' }] : [],
+      icons: coverUrl ? [{ src: coverUrl, sizes: '128x128', type: 'image/jpeg' }] : [],
     }
   );
 
   downloads.update(m => {
     m.set(track.id, {
-      trackId:    track.id,
-      title:      track.title,
+      trackId: track.id,
+      title: track.title,
       artistName: track.artist_name ?? '',
-      albumName:  track.album_name ?? '',
-      status:     'downloading',
-      progress:   0,
-      sizeBytes:  0,
+      albumName: track.album_name ?? '',
+      status: 'downloading',
+      progress: 0,
+      sizeBytes: 0,
     });
     persist(m);
     return m;
@@ -474,8 +474,8 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       if (entry) {
         m.set(trackId, {
           ...entry,
-          status:       'done',
-          progress:     100,
+          status: 'done',
+          progress: 100,
           downloadedAt: Date.now(),
         });
         persist(m);
@@ -497,11 +497,11 @@ export async function retryDownload(entry: DownloadEntry): Promise<void> {
     );
   } else {
     await downloadTrack({
-      id:          entry.trackId,
-      title:       entry.title,
+      id: entry.trackId,
+      title: entry.title,
       artist_name: entry.artistName,
-      album_name:  entry.albumName,
-      album_id:    entry.albumId,
+      album_name: entry.albumName,
+      album_id: entry.albumId,
     } as import('$lib/types').Track);
   }
 }
@@ -547,7 +547,7 @@ export async function deleteAllDownloads(): Promise<void> {
     try {
       const cache = await caches.open(AUDIO_CACHE);
       for (const [id] of map) {
-        await cache.delete(`/api/stream/${id}`).catch(() => {});
+        await cache.delete(`/api/stream/${id}`).catch(() => { });
       }
     } catch { /* ignore */ }
   }

@@ -170,7 +170,7 @@ func exchangeCode(ctx context.Context, clientID, clientSecret, code, redirectURI
 	if err != nil {
 		return "", fmt.Errorf("token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var data struct {
 		AccessToken string `json:"access_token"`

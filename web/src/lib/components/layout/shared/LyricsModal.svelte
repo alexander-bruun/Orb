@@ -1,10 +1,16 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { fly } from 'svelte/transition';
-  import { cubicOut, cubicIn } from 'svelte/easing';
-  import { lyricsOpen, lyricsLines, lyricsLoading, activeLyricIndex, lyricsMode } from '$lib/stores/player/lyrics';
-  import { currentTrack, positionMs, seek } from '$lib/stores/player';
-  import Spinner from '$lib/components/ui/Spinner.svelte';
+  import { onMount, onDestroy } from "svelte";
+  import { fly } from "svelte/transition";
+  import { cubicOut, cubicIn } from "svelte/easing";
+  import {
+    lyricsOpen,
+    lyricsLines,
+    lyricsLoading,
+    activeLyricIndex,
+    lyricsMode,
+  } from "$lib/stores/player/lyrics";
+  import { currentTrack, positionMs, seek } from "$lib/stores/player";
+  import Spinner from "$lib/components/ui/Spinner.svelte";
 
   // Drag state (modal mode only)
   let posX = 0;
@@ -142,26 +148,32 @@
   });
 
   function startDrag(e: MouseEvent) {
-    if ($lyricsMode !== 'modal') return;
-    if ((e.target as HTMLElement).closest('button')) return;
+    if ($lyricsMode !== "modal") return;
+    if ((e.target as HTMLElement).closest("button")) return;
     dragging = true;
     dragOffsetX = e.clientX - posX;
     dragOffsetY = e.clientY - posY;
-    window.addEventListener('mousemove', onDragMove);
-    window.addEventListener('mouseup', stopDrag);
+    window.addEventListener("mousemove", onDragMove);
+    window.addEventListener("mouseup", stopDrag);
     e.preventDefault();
   }
 
   function onDragMove(e: MouseEvent) {
     if (!dragging) return;
-    posX = Math.max(0, Math.min(window.innerWidth - 320, e.clientX - dragOffsetX));
-    posY = Math.max(0, Math.min(window.innerHeight - 80, e.clientY - dragOffsetY));
+    posX = Math.max(
+      0,
+      Math.min(window.innerWidth - 320, e.clientX - dragOffsetX),
+    );
+    posY = Math.max(
+      0,
+      Math.min(window.innerHeight - 80, e.clientY - dragOffsetY),
+    );
   }
 
   function stopDrag() {
     dragging = false;
-    window.removeEventListener('mousemove', onDragMove);
-    window.removeEventListener('mouseup', stopDrag);
+    window.removeEventListener("mousemove", onDragMove);
+    window.removeEventListener("mouseup", stopDrag);
   }
 
   // Direction for teleprompter transitions — lines scroll upward as they advance
@@ -174,15 +186,17 @@
   }
 
   // Non-narrowing helper so mode comparisons work inside any {#if} branch
-  let mode: string = 'modal';
+  let mode: string = "modal";
   $: mode = $lyricsMode;
-  function isMode(m: string): boolean { return mode === m; }
+  function isMode(m: string): boolean {
+    return mode === m;
+  }
 
   let tpAtTop = false;
 </script>
 
 {#if $lyricsOpen}
-  {#if mode === 'teleprompter'}
+  {#if mode === "teleprompter"}
     <!-- ── Teleprompter strip ── -->
     <div class="tp-strip" class:at-top={tpAtTop}>
       <div class="tp-text-area">
@@ -198,9 +212,12 @@
               class="tp-line"
               in:fly={{ y: tpDir * 10, duration: 300, easing: cubicOut }}
               out:fly={{ y: tpDir * -10, duration: 200, easing: cubicIn }}
-              on:click={() => seekToLine($lyricsLines[$activeLyricIndex].time_ms)}
+              on:click={() =>
+                seekToLine($lyricsLines[$activeLyricIndex].time_ms)}
             >
-              <span class="tp-line-inner">{$lyricsLines[$activeLyricIndex].text}</span>
+              <span class="tp-line-inner"
+                >{$lyricsLines[$activeLyricIndex].text}</span
+              >
             </button>
           {/key}
         {/if}
@@ -210,77 +227,136 @@
       <div class="tp-controls">
         <button
           class="tp-btn"
-          on:click={() => tpAtTop = !tpAtTop}
-          title={tpAtTop ? 'Move to bottom' : 'Move to top'}
-          aria-label={tpAtTop ? 'Move to bottom' : 'Move to top'}
+          on:click={() => (tpAtTop = !tpAtTop)}
+          title={tpAtTop ? "Move to bottom" : "Move to top"}
+          aria-label={tpAtTop ? "Move to bottom" : "Move to top"}
         >
           {#if tpAtTop}
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="3" y1="21" x2="21" y2="21"/>
-              <polyline points="6 15 12 9 18 15"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="3" y1="21" x2="21" y2="21" />
+              <polyline points="6 15 12 9 18 15" />
             </svg>
           {:else}
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="3" y1="3" x2="21" y2="3"/>
-              <polyline points="6 9 12 15 18 9"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="3" y1="3" x2="21" y2="3" />
+              <polyline points="6 9 12 15 18 9" />
             </svg>
           {/if}
         </button>
         <div class="mode-switcher">
           <button
             class="mode-btn"
-            class:active={isMode('modal')}
-            on:click={() => lyricsMode.set('modal')}
+            class:active={isMode("modal")}
+            on:click={() => lyricsMode.set("modal")}
             title="Popup mode"
             aria-label="Popup mode"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="3"/>
-              <line x1="9" y1="3" x2="9" y2="21"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
           <button
             class="mode-btn"
-            class:active={isMode('overlay')}
-            on:click={() => lyricsMode.set('overlay')}
+            class:active={isMode("overlay")}
+            on:click={() => lyricsMode.set("overlay")}
             title="Bar overlay mode"
             aria-label="Bar overlay mode"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="2" y="14" width="20" height="8" rx="2"/>
-              <rect x="2" y="2" width="20" height="10" rx="2"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="2" y="14" width="20" height="8" rx="2" />
+              <rect x="2" y="2" width="20" height="10" rx="2" />
             </svg>
           </button>
           <button
             class="mode-btn"
-            class:active={isMode('teleprompter')}
+            class:active={isMode("teleprompter")}
             title="Teleprompter mode"
             aria-label="Teleprompter mode"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="4" y1="7" x2="20" y2="7" stroke-opacity="0.4"/>
-              <line x1="2" y1="12" x2="22" y2="12" stroke-width="3"/>
-              <line x1="4" y1="17" x2="20" y2="17" stroke-opacity="0.4"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="4" y1="7" x2="20" y2="7" stroke-opacity="0.4" />
+              <line x1="2" y1="12" x2="22" y2="12" stroke-width="3" />
+              <line x1="4" y1="17" x2="20" y2="17" stroke-opacity="0.4" />
             </svg>
           </button>
         </div>
       </div>
     </div>
-
   {:else}
     <!-- ── Modal / Overlay panel ── -->
     <div
       class="lyrics-modal"
       class:dragging
-      class:overlay-mode={mode === 'overlay'}
+      class:overlay-mode={mode === "overlay"}
       bind:this={container}
-      style={mode === 'modal' ? `left: ${posX}px; top: ${posY}px;` : ''}
+      style={mode === "modal" ? `left: ${posX}px; top: ${posY}px;` : ""}
     >
       <div class="modal-header" role="presentation" on:mousedown={startDrag}>
         <span class="modal-title">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 18V5l12-2v13"/>
-            <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
           </svg>
           Lyrics
         </span>
@@ -290,46 +366,88 @@
         <div class="mode-switcher">
           <button
             class="mode-btn"
-            class:active={mode === 'modal'}
-            on:click|stopPropagation={() => lyricsMode.set('modal')}
+            class:active={mode === "modal"}
+            on:click|stopPropagation={() => lyricsMode.set("modal")}
             title="Popup mode"
             aria-label="Popup mode"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="3"/>
-              <line x1="9" y1="3" x2="9" y2="21"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="3" />
+              <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
           <button
             class="mode-btn"
-            class:active={mode === 'overlay'}
-            on:click|stopPropagation={() => lyricsMode.set('overlay')}
+            class:active={mode === "overlay"}
+            on:click|stopPropagation={() => lyricsMode.set("overlay")}
             title="Bar overlay mode"
             aria-label="Bar overlay mode"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="2" y="14" width="20" height="8" rx="2"/>
-              <rect x="2" y="2" width="20" height="10" rx="2"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="2" y="14" width="20" height="8" rx="2" />
+              <rect x="2" y="2" width="20" height="10" rx="2" />
             </svg>
           </button>
           <button
             class="mode-btn"
-            class:active={mode === 'teleprompter'}
-            on:click|stopPropagation={() => lyricsMode.set('teleprompter')}
+            class:active={mode === "teleprompter"}
+            on:click|stopPropagation={() => lyricsMode.set("teleprompter")}
             title="Teleprompter mode"
             aria-label="Teleprompter mode"
           >
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="4" y1="7" x2="20" y2="7" stroke-opacity="0.4"/>
-              <line x1="2" y1="12" x2="22" y2="12" stroke-width="3"/>
-              <line x1="4" y1="17" x2="20" y2="17" stroke-opacity="0.4"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="4" y1="7" x2="20" y2="7" stroke-opacity="0.4" />
+              <line x1="2" y1="12" x2="22" y2="12" stroke-width="3" />
+              <line x1="4" y1="17" x2="20" y2="17" stroke-opacity="0.4" />
             </svg>
           </button>
         </div>
-        <button class="close-btn" on:click={() => lyricsOpen.set(false)} aria-label="Close lyrics">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
+        <button
+          class="close-btn"
+          on:click={() => lyricsOpen.set(false)}
+          aria-label="Close lyrics"
+        >
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       </div>
@@ -340,14 +458,16 @@
         {:else if $lyricsLines.length === 0}
           <div class="state-msg">No lyrics available</div>
         {:else}
-          {#each $lyricsLines as line, i (line.time_ms + '-' + i)}
+          {#each $lyricsLines as line, i (line.time_ms + "-" + i)}
             <button
               type="button"
               class="lyric-line"
               class:active={i === $activeLyricIndex}
               class:past={i < $activeLyricIndex}
               class:next={i === $activeLyricIndex + 1}
-              style={i === $activeLyricIndex + 1 ? `opacity: ${0.55 + 0.45 * nextLineFade}` : ''}
+              style={i === $activeLyricIndex + 1
+                ? `opacity: ${0.55 + 0.45 * nextLineFade}`
+                : ""}
               data-idx={i}
               on:click={() => seekToLine(line.time_ms)}
             >
@@ -372,7 +492,9 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border-2);
     border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.45),
+      0 2px 8px rgba(0, 0, 0, 0.2);
     overflow: hidden;
     animation: popIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
     user-select: none;
@@ -392,18 +514,32 @@
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
     border-bottom: none;
-    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35), 0 -1px 6px rgba(0, 0, 0, 0.15);
+    box-shadow:
+      0 -4px 24px rgba(0, 0, 0, 0.35),
+      0 -1px 6px rgba(0, 0, 0, 0.15);
     animation: slideUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   @keyframes popIn {
-    from { opacity: 0; transform: scale(0.94); }
-    to   { opacity: 1; transform: scale(1); }
+    from {
+      opacity: 0;
+      transform: scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   @keyframes slideUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .modal-header {
@@ -467,10 +603,14 @@
     color: var(--text-muted);
     cursor: pointer;
     border-radius: 3px;
-    transition: background 0.12s, color 0.12s;
+    transition:
+      background 0.12s,
+      color 0.12s;
     padding: 0;
   }
-  .mode-btn:hover { color: var(--text); }
+  .mode-btn:hover {
+    color: var(--text);
+  }
   .mode-btn.active {
     background: var(--bg-elevated);
     color: var(--accent);
@@ -489,7 +629,9 @@
     cursor: pointer;
     border-radius: 5px;
     flex-shrink: 0;
-    transition: background 0.12s, color 0.12s;
+    transition:
+      background 0.12s,
+      color 0.12s;
   }
   .close-btn:hover {
     background: var(--bg-hover);
@@ -504,9 +646,16 @@
     flex-direction: column;
     gap: 2px;
   }
-  .modal-body::-webkit-scrollbar { width: 4px; }
-  .modal-body::-webkit-scrollbar-track { background: transparent; }
-  .modal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .modal-body::-webkit-scrollbar {
+    width: 4px;
+  }
+  .modal-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .modal-body::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 2px;
+  }
 
   .state-msg {
     text-align: center;
@@ -521,7 +670,11 @@
     line-height: 1.5;
     color: var(--text-muted);
     border-radius: 6px;
-    transition: color 0.3s ease, background 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
+    transition:
+      color 0.3s ease,
+      background 0.3s ease,
+      opacity 0.3s ease,
+      transform 0.3s ease;
     cursor: pointer;
     opacity: 0.55;
     border: none;
@@ -530,8 +683,14 @@
     text-align: left;
     font: inherit;
   }
-  .lyric-line:hover { background: var(--bg-hover); opacity: 1 !important; }
-  .lyric-line.past { color: var(--text-2); opacity: 0.35; }
+  .lyric-line:hover {
+    background: var(--bg-hover);
+    opacity: 1 !important;
+  }
+  .lyric-line.past {
+    color: var(--text-2);
+    opacity: 0.35;
+  }
   .lyric-line.active {
     font-size: 1rem;
     font-weight: 600;
@@ -540,7 +699,9 @@
     opacity: 1;
     transform: scale(1.01);
   }
-  .lyric-line.next { color: var(--text); }
+  .lyric-line.next {
+    color: var(--text);
+  }
 
   /* ── Teleprompter strip ── */
   .tp-strip {
@@ -562,8 +723,14 @@
   }
 
   @keyframes tpIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   /* Text area — fixed height, clip overflow so transitions don't bleed */
@@ -599,13 +766,19 @@
     /* Background on the inner text span, not the full-width button */
     background: none;
   }
-  .tp-line:hover { color: var(--text); }
+  .tp-line:hover {
+    color: var(--text);
+  }
   /* Elliptical backdrop centered behind the lyric text */
   .tp-text-area::before {
-    content: '';
+    content: "";
     position: absolute;
     inset: -12px -20px;
-    background: radial-gradient(ellipse 55% 100% at center, var(--bg-elevated) 20%, transparent 100%);
+    background: radial-gradient(
+      ellipse 55% 100% at center,
+      var(--bg-elevated) 20%,
+      transparent 100%
+    );
     pointer-events: none;
     z-index: 0;
   }
@@ -646,7 +819,6 @@
     opacity: 1;
   }
 
-
   /* Top position variant */
   .tp-strip.at-top {
     bottom: auto;
@@ -666,7 +838,9 @@
     color: var(--text-muted);
     cursor: pointer;
     flex-shrink: 0;
-    transition: background 0.12s, color 0.12s;
+    transition:
+      background 0.12s,
+      color 0.12s;
     padding: 0;
   }
   .tp-btn:hover {
@@ -676,6 +850,8 @@
 
   /* Hide on mobile (no bottom bar) */
   @media (max-width: 640px) {
-    .tp-strip { display: none; }
+    .tp-strip {
+      display: none;
+    }
   }
 </style>

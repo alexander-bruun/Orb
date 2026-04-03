@@ -271,10 +271,10 @@ function syncNativePiPBridgeFromState() {
 	const mode = get(activePlayer);
 	const st = mode === 'audiobook' ? get(abPlaybackState) : get(playbackState);
 	if (st === 'idle') {
-		teardownNativePictureInPictureBridge().catch(() => {});
+		teardownNativePictureInPictureBridge().catch(() => { });
 		return;
 	}
-	syncNativePictureInPictureBridge(st === 'playing').catch(() => {});
+	syncNativePictureInPictureBridge(st === 'playing').catch(() => { });
 }
 
 currentTrack.subscribe((track) => {
@@ -316,7 +316,7 @@ if (typeof document !== 'undefined') {
 	document.addEventListener('visibilitychange', () => {
 		if (document.visibilityState !== 'visible') return;
 
-		refreshDevicesFromSession().catch(() => {});
+		refreshDevicesFromSession().catch(() => { });
 
 		if (isAndroidNative) {
 			invoke<boolean>('get_is_playing').then((playing: boolean) => {
@@ -326,7 +326,7 @@ if (typeof document !== 'undefined') {
 				} else if (!playing && current === 'playing') {
 					playbackState.set('paused');
 				}
-			}).catch(() => {});
+			}).catch(() => { });
 			return;
 		}
 
@@ -358,7 +358,7 @@ if (isTauri() && !isAndroidNative) {
 	}
 
 	function clearDiscordPresence() {
-		invoke('discord_clear').catch(() => {});
+		invoke('discord_clear').catch(() => { });
 	}
 
 	currentTrack.subscribe((track) => {
@@ -376,7 +376,7 @@ if (isTauri() && !isAndroidNative) {
 
 	discordEnabled.subscribe(async (enabled) => {
 		if (!enabled) {
-			invoke('discord_disconnect').catch(() => {});
+			invoke('discord_disconnect').catch(() => { });
 			clearDiscordPresence();
 		} else {
 			await invoke('discord_connect').then(() => {
@@ -393,12 +393,12 @@ if (isTauri() && !isAndroidNative) {
 
 if (isTauri() && !isAndroidNative) {
 	playbackState.subscribe((state) => {
-		invoke('set_tray_playback_state', { playing: state === 'playing' }).catch(() => {});
+		invoke('set_tray_playback_state', { playing: state === 'playing' }).catch(() => { });
 	});
 
-	listen('tray-play-pause', () => togglePlayPause()).catch(() => {});
-	listen('tray-previous', () => previous()).catch(() => {});
-	listen('tray-next', () => next()).catch(() => {});
+	listen('tray-play-pause', () => togglePlayPause()).catch(() => { });
+	listen('tray-previous', () => previous()).catch(() => { });
+	listen('tray-next', () => next()).catch(() => { });
 }
 
 // ── Position state sync (throttled) ──────────────────────────────────────────
@@ -462,7 +462,7 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 					if (Array.isArray(st.queue) && st.queue.length) {
 						queue.set(st.queue as Track[]);
 					}
-				}).catch(() => {});
+				}).catch(() => { });
 			}
 			return;
 		}
@@ -530,28 +530,28 @@ authStore.subscribe((auth) => {
 // ── Android Native Event Bridge ──────────────────────────────────────────────
 
 if (isAndroidNative) {
-	listen('native-next', () => { next(); }).catch(() => {});
-	listen('native-previous', () => { previous(); }).catch(() => {});
-	listen('native-shuffle-toggle', () => { toggleShuffle(); }).catch(() => {});
+	listen('native-next', () => { next(); }).catch(() => { });
+	listen('native-previous', () => { previous(); }).catch(() => { });
+	listen('native-shuffle-toggle', () => { toggleShuffle(); }).catch(() => { });
 	listen('native-favorite-toggle', () => {
 		const track = get(currentTrack);
-		if (track) favorites.toggle(track.id, track).catch(() => {});
-	}).catch(() => {});
+		if (track) favorites.toggle(track.id, track).catch(() => { });
+	}).catch(() => { });
 
 	shuffle.subscribe((sh) => {
-		invoke('set_shuffle_state', { shuffled: sh }).catch(() => {});
+		invoke('set_shuffle_state', { shuffled: sh }).catch(() => { });
 	});
 
 	listen<number>('native-volume-change', (event) => {
 		volume.set(event.payload);
 		audioEngine.setVolume(event.payload);
-	}).catch(() => {});
+	}).catch(() => { });
 
 	const syncNativeFavorite = () => {
 		const track = get(currentTrack);
 		if (!track) return;
 		const isFav = get(favorites).has(track.id);
-		invoke('set_favorite_state', { favorited: isFav }).catch(() => {});
+		invoke('set_favorite_state', { favorited: isFav }).catch(() => { });
 	};
 	currentTrack.subscribe(syncNativeFavorite);
 	favorites.subscribe(syncNativeFavorite);

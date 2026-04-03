@@ -4,7 +4,6 @@ package scrobble
 import (
 	"crypto/md5"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -63,7 +62,7 @@ func (c *LastFMClient) post(params map[string]string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(resp.Body)
 }
 
@@ -135,10 +134,10 @@ func (c *LastFMClient) NowPlaying(sessionKey, artist, track, album string, durat
 // startedAt is the UTC time playback began.
 func (c *LastFMClient) Scrobble(sessionKey, artist, track, album string, startedAt time.Time, durationSecs int) error {
 	params := map[string]string{
-		"method":    "track.scrobble",
-		"sk":        sessionKey,
-		"artist[0]": artist,
-		"track[0]":  track,
+		"method":       "track.scrobble",
+		"sk":           sessionKey,
+		"artist[0]":    artist,
+		"track[0]":     track,
 		"timestamp[0]": fmt.Sprintf("%d", startedAt.Unix()),
 	}
 	if album != "" {
@@ -152,16 +151,6 @@ func (c *LastFMClient) Scrobble(sessionKey, artist, track, album string, started
 		return err
 	}
 	return checkLastFMError(body)
-}
-
-// lastfmLoveResp is used to detect errors from love/unlove.
-type lastfmLoveResp struct {
-	XMLName xml.Name `xml:"lfm"`
-	Status  string   `xml:"status,attr"`
-	Error   struct {
-		Code int    `xml:"code,attr"`
-		Text string `xml:",chardata"`
-	} `xml:"error"`
 }
 
 // LoveTrack loves a track on Last.fm.

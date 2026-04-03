@@ -25,7 +25,17 @@ import { exclusiveMode, deviceId, activeDeviceId, activeDevices, sendHeartbeat }
 import { devices as devicesApi } from '$lib/api/devices';
 import { isCurrentlyOffline } from '$lib/stores/offline/connectivity';
 import { selectedAudioOutputId, sinkIdSupported } from './casting';
-import { crossfadeEnabled, crossfadeSecs, gaplessEnabled } from '$lib/stores/settings/crossfade';
+import {
+	crossfadeEnabled,
+	crossfadeSecs,
+	crossfadeStartSecs,
+	gaplessEnabled,
+	crossfadeOutCurve,
+	crossfadeInCurve,
+	buildCrossfadeGainCurve,
+	DEFAULT_CROSSFADE_OUT_CURVE,
+	DEFAULT_CROSSFADE_IN_CURVE
+} from '$lib/stores/settings/crossfade';
 import * as engine from './engine';
 import type { MusicContentProvider, ControlPayload, RemoteState } from './engine';
 import { notifyTrackEnd as sleepTimerNotifyTrackEnd } from './musicSleepTimer';
@@ -80,7 +90,7 @@ function scheduleScrobble(track: Track) {
 	_scrobbleTimer = setTimeout(() => {
 		_scrobbleTimer = null;
 		if (get(currentTrack)?.id === track.id && get(playbackState) === 'playing') {
-			libraryApi.scrobble(track.id, startedAt).catch(() => {});
+			libraryApi.scrobble(track.id, startedAt).catch(() => { });
 		}
 	}, delayMs);
 }
@@ -141,7 +151,7 @@ function generateSmartShuffle(tracks: Track[], pinIndex = -1): number[] {
 
 	if (recentlyPlayedIds.size > 0) {
 		const notRecent = result.filter((i) => !recentlyPlayedIds.has(tracks[i].id));
-		const recent    = result.filter((i) =>  recentlyPlayedIds.has(tracks[i].id));
+		const recent = result.filter((i) => recentlyPlayedIds.has(tracks[i].id));
 		result.length = 0;
 		result.push(...notRecent, ...recent);
 	}
@@ -270,27 +280,42 @@ async function setupCrossfade(track: Track): Promise<void> {
 	if ((nextTrack.bit_depth ?? 16) <= 16) return;
 
 	const fadeSecs = get(crossfadeEnabled) ? get(crossfadeSecs) : 0;
+	const fadeStartSecs = get(crossfadeEnabled) ? get(crossfadeStartSecs) : 0;
+	const gaplessFallbackEnabled = get(gaplessEnabled);
+	const fadeOutCurve = get(crossfadeEnabled)
+		? buildCrossfadeGainCurve(get(crossfadeOutCurve), DEFAULT_CROSSFADE_OUT_CURVE)
+		: null;
+	const fadeInCurve = get(crossfadeEnabled)
+		? buildCrossfadeGainCurve(get(crossfadeInCurve), DEFAULT_CROSSFADE_IN_CURVE)
+		: null;
 
 	await audioEngine.preloadNext(nextTrack.id, nextTrack.sample_rate);
 
 	audioEngine.onFullBufferForCrossfade(() => {
-		audioEngine.scheduleCrossfade(fadeSecs, () => {
-			currentTrack.set(nextTrack);
-			durationMs.set(nextTrack.duration_ms);
-			positionMs.set(0);
-			playbackState.set('playing');
+		audioEngine.scheduleCrossfade(
+			fadeSecs,
+			fadeStartSecs,
+			gaplessFallbackEnabled,
+			fadeOutCurve,
+			fadeInCurve,
+			() => {
+				currentTrack.set(nextTrack);
+				durationMs.set(nextTrack.duration_ms);
+				positionMs.set(0);
+				playbackState.set('playing');
 
-			const rgDb = get(replayGainEnabled) ? (nextTrack.replay_gain_track ?? 0) : 0;
-			audioEngine.setReplayGainDb(rgDb);
+				const rgDb = get(replayGainEnabled) ? (nextTrack.replay_gain_track ?? 0) : 0;
+				audioEngine.setReplayGainDb(rgDb);
 
-			advanceQueueState();
+				advanceQueueState();
 
-			libraryApi.recordPlay(nextTrack.id, nextTrack.duration_ms ?? 0).catch(() => {});
-			scheduleScrobble(nextTrack);
-			sendHeartbeat().catch(() => {});
+				libraryApi.recordPlay(nextTrack.id, nextTrack.duration_ms ?? 0).catch(() => { });
+				scheduleScrobble(nextTrack);
+				sendHeartbeat().catch(() => { });
 
-			setupCrossfade(nextTrack).catch(() => {});
-		});
+				setupCrossfade(nextTrack).catch(() => { });
+			}
+		);
 	});
 }
 
@@ -373,20 +398,20 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 			if (sinkIdSupported) {
 				const sinkId = get(selectedAudioOutputId);
 				if (sinkId && sinkId !== 'default') {
-					audioEngine.setAudioOutput(sinkId).catch(() => {});
+					audioEngine.setAudioOutput(sinkId).catch(() => { });
 				}
 			}
 			await audioEngine.play(track.id, track.bit_depth ?? 16, track.sample_rate, startSeconds);
-			setupCrossfade(track).catch(() => {});
+			setupCrossfade(track).catch(() => { });
 		}
 		engine.setRemoteMirror(false);
 		playbackState.set('playing');
 		if (get(exclusiveMode) && deviceId) {
-			devicesApi.activate(deviceId).catch(() => {});
+			devicesApi.activate(deviceId).catch(() => { });
 		}
-		sendHeartbeat().catch(() => {});
+		sendHeartbeat().catch(() => { });
 		recentlyPlayedIds.add(track.id);
-		libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => {});
+		libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => { });
 		scheduleScrobble(track);
 	} catch (err) {
 		console.error('playTrack error', err);
@@ -412,7 +437,7 @@ export function pauseLocal() {
 export function togglePlayPause() {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'toggle').catch(() => {});
+		devicesApi.controlCommand(activeDev, 'toggle').catch(() => { });
 		return;
 	}
 	const state = get(playbackState);
@@ -420,7 +445,7 @@ export function togglePlayPause() {
 		engine.pause();
 		cancelScrobble();
 		playbackState.set('paused');
-		sendHeartbeat().catch(() => {});
+		sendHeartbeat().catch(() => { });
 	} else if (state === 'paused') {
 		if (isAndroidNative) {
 			if (!engine.isNativePlayerReady()) {
@@ -430,7 +455,7 @@ export function togglePlayPause() {
 			}
 			engine.resume();
 			playbackState.set('playing');
-			sendHeartbeat().catch(() => {});
+			sendHeartbeat().catch(() => { });
 		} else if (!audioEngine.isLoaded) {
 			const track = get(currentTrack);
 			if (track) {
@@ -440,7 +465,7 @@ export function togglePlayPause() {
 			engine.setRemoteMirror(false);
 			audioEngine.resume();
 			playbackState.set('playing');
-			sendHeartbeat().catch(() => {});
+			sendHeartbeat().catch(() => { });
 		}
 	}
 }
@@ -449,7 +474,7 @@ export function seek(posSeconds: number) {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
 		const posMs = Math.round(posSeconds * 1000);
-		devicesApi.controlCommand(activeDev, 'seek', { position_ms: posMs }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'seek', { position_ms: posMs }).catch(() => { });
 		positionMs.set(posMs);
 		engine.setShadowEpochMs(Date.now() - posMs);
 		return;
@@ -459,20 +484,20 @@ export function seek(posSeconds: number) {
 	const clamped = Math.max(0, Math.min(posSeconds, Math.max(0, maxSec - 0.01)));
 	engine.seek(Math.round(clamped * 1000));
 	positionMs.set(clamped * 1000);
-	sendHeartbeat().catch(() => {});
+	sendHeartbeat().catch(() => { });
 	const seekTrack = get(currentTrack);
-	if (seekTrack) setupCrossfade(seekTrack).catch(() => {});
+	if (seekTrack) setupCrossfade(seekTrack).catch(() => { });
 }
 
 export function setVolume(gain: number) {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'volume', { volume: gain }).catch(() => {});
+		devicesApi.controlCommand(activeDev, 'volume', { volume: gain }).catch(() => { });
 		return;
 	}
 	volume.set(gain);
 	engine.setVolume(gain);
-	sendHeartbeat().catch(() => {});
+	sendHeartbeat().catch(() => { });
 }
 
 // ── Queue management ─────────────────────────────────────────────────────────
@@ -506,7 +531,7 @@ async function _replenishRadio(currentQueue: Track[]) {
 export async function next() {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'next').catch(() => {});
+		devicesApi.controlCommand(activeDev, 'next').catch(() => { });
 		return;
 	}
 	const uq = get(userQueue);
@@ -534,7 +559,7 @@ export async function next() {
 		await playTrack(q[actualIndex(nextIdx)]);
 		const rm = get(radioMode);
 		if (rm && q.length - nextIdx <= 10) {
-			_replenishRadio(q).catch(() => {});
+			_replenishRadio(q).catch(() => { });
 		}
 	} else if (repeat === 'all') {
 		if (get(shuffle)) {
@@ -590,7 +615,7 @@ export async function next() {
 export async function previous() {
 	const activeDev = get(activeDeviceId);
 	if (get(exclusiveMode) && activeDev && activeDev !== deviceId && !isCurrentlyOffline()) {
-		devicesApi.controlCommand(activeDev, 'previous').catch(() => {});
+		devicesApi.controlCommand(activeDev, 'previous').catch(() => { });
 		return;
 	}
 	const idx = get(queueIndex);
@@ -644,7 +669,7 @@ export async function transferPlayback(targetId: string) {
 		const active = devices.find((d) => d.is_active && d.id !== deviceId);
 
 		activeDeviceId.set(deviceId);
-		await devicesApi.activate(deviceId).catch(() => {});
+		await devicesApi.activate(deviceId).catch(() => { });
 
 		if (active?.state?.track_id) {
 			await receivePlayCommand(active.state.track_id, active.state.position_ms ?? 0);
@@ -653,8 +678,8 @@ export async function transferPlayback(targetId: string) {
 	}
 
 	const track = get(currentTrack);
-	const pos   = Math.round(get(positionMs));
-	const q     = get(queue);
+	const pos = Math.round(get(positionMs));
+	const q = get(queue);
 	const wasPlaying = get(playbackState) === 'playing';
 
 	if (wasPlaying && audioEngine.isLoaded) {

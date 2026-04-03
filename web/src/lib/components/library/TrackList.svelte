@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Track } from '$lib/types';
-  import TrackRow from './TrackRow.svelte';
+  import type { Track } from "$lib/types";
+  import TrackRow from "./TrackRow.svelte";
 
   export let tracks: Track[];
   export let showCover: boolean = false;
@@ -24,8 +24,18 @@
   {#each discs as [discNum, discTracks]}
     <div class="disc-group">
       <div class="disc-header">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="3" />
         </svg>
         Disc {discNum}
       </div>
@@ -39,16 +49,30 @@
 {:else}
   <div class="track-list">
     {#each tracks as track, i (track.id)}
-      <TrackRow {track} trackList={tracks} index={i} {showCover} useRankIndex={!showDiscNumbers} />
+      <TrackRow
+        {track}
+        trackList={tracks}
+        index={i}
+        {showCover}
+        useRankIndex={!showDiscNumbers}
+      />
     {/each}
   </div>
 {/if}
 
 <style>
-  .track-list { display: flex; flex-direction: column; gap: 2px; }
+  .track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
 
-  .disc-group { margin-bottom: 24px; }
-  .disc-group:last-child { margin-bottom: 0; }
+  .disc-group {
+    margin-bottom: 24px;
+  }
+  .disc-group:last-child {
+    margin-bottom: 0;
+  }
 
   .disc-header {
     display: flex;
@@ -60,7 +84,7 @@
     text-transform: uppercase;
     color: var(--text-muted);
     padding: 0 12px 8px;
-    border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+    border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
     margin-bottom: 4px;
   }
 </style>

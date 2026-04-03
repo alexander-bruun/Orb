@@ -72,9 +72,9 @@ type tmEventsResp struct {
 }
 
 type tmEvent struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
 	Dates struct {
 		Start struct {
 			LocalDate string `json:"localDate"`
@@ -108,7 +108,10 @@ func (c *Client) get(ctx context.Context, path string, params url.Values) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _, _ = io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == 404 {
 		return nil, nil

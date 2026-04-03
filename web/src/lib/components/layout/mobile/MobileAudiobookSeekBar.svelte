@@ -12,12 +12,14 @@
     jumpToChapter,
     seekAudiobook,
     seekAudiobookMs,
-  } from '$lib/stores/player/audiobookPlayer';
+  } from "$lib/stores/player/audiobookPlayer";
 
   function onSeek(e: Event) {
     const pct = parseFloat((e.target as HTMLInputElement).value);
     if ($abCurrentChapter) {
-      const nextChapter = $currentAudiobook?.chapters?.find(ch => ch.start_ms > $abCurrentChapter!.start_ms);
+      const nextChapter = $currentAudiobook?.chapters?.find(
+        (ch) => ch.start_ms > $abCurrentChapter!.start_ms,
+      );
       const chDurationMs = nextChapter
         ? nextChapter.start_ms - $abCurrentChapter.start_ms
         : ($currentAudiobook?.duration_ms ?? 0) - $abCurrentChapter.start_ms;
@@ -33,9 +35,20 @@
     <!-- Chapter info header -->
     <div class="chapter-nav-info">
       {#if $abPreviousChapter}
-        
-        <button class="chapter-nav prev-nav" on:click|stopPropagation={() => jumpToChapter($abPreviousChapter)} title={$abPreviousChapter.title} aria-label="Previous chapter: {$abPreviousChapter.title}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button
+          class="chapter-nav prev-nav"
+          on:click|stopPropagation={() => jumpToChapter($abPreviousChapter)}
+          title={$abPreviousChapter.title}
+          aria-label="Previous chapter: {$abPreviousChapter.title}"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
           <span>{$abPreviousChapter.title}</span>
@@ -45,10 +58,21 @@
       {/if}
       <div class="current-chapter">{$abCurrentChapter.title}</div>
       {#if $abNextChapter}
-        
-        <button class="chapter-nav next-nav" on:click|stopPropagation={() => jumpToChapter($abNextChapter)} title={$abNextChapter.title} aria-label="Next chapter: {$abNextChapter.title}">
+        <button
+          class="chapter-nav next-nav"
+          on:click|stopPropagation={() => jumpToChapter($abNextChapter)}
+          title={$abNextChapter.title}
+          aria-label="Next chapter: {$abNextChapter.title}"
+        >
           <span>{$abNextChapter.title}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
             <polyline points="9 18 15 12 9 6"></polyline>
           </svg>
         </button>
@@ -177,7 +201,8 @@
 
     .seek-track {
       position: absolute;
-      left: 0; right: 0;
+      left: 0;
+      right: 0;
       height: 4px;
       background: rgba(255, 255, 255, 0.2);
       border-radius: 2px;
@@ -193,7 +218,8 @@
 
     .seek-input {
       position: absolute;
-      left: -8px; right: -8px;
+      left: -8px;
+      right: -8px;
       width: calc(100% + 16px);
       height: 28px;
       margin: 0;
@@ -215,10 +241,18 @@
     }
     .seek-input::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px; height: 16px; border-radius: 50%; background: #fff; margin-top: -6px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      margin-top: -6px;
     }
     .seek-input::-moz-range-thumb {
-      width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
     }
 
     .seek-times {

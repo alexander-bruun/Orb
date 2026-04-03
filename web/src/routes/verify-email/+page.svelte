@@ -1,29 +1,31 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/stores';
-  import { apiFetch } from '$lib/api/client';
-  import { authStore } from '$lib/stores/auth';
-  import { goto } from '$app/navigation';
+  import { onMount } from "svelte";
+  import { page } from "$app/stores";
+  import { apiFetch } from "$lib/api/client";
+  import { authStore } from "$lib/stores/auth";
+  import { goto } from "$app/navigation";
 
-  type Status = 'loading' | 'success' | 'error';
-  let status: Status = 'loading';
-  let errorMsg = '';
+  type Status = "loading" | "success" | "error";
+  let status: Status = "loading";
+  let errorMsg = "";
 
   onMount(async () => {
-    const token = $page.url.searchParams.get('token');
+    const token = $page.url.searchParams.get("token");
     if (!token) {
-      status = 'error';
-      errorMsg = 'No verification token provided.';
+      status = "error";
+      errorMsg = "No verification token provided.";
       return;
     }
     try {
       await apiFetch(`/auth/verify-email?token=${encodeURIComponent(token)}`);
-      status = 'success';
+      status = "success";
       // If the user is already logged in, update their verified state in the store.
       authStore.updateEmailVerified(true);
     } catch (err: any) {
-      status = 'error';
-      errorMsg = err?.message ?? 'Verification failed. The link may be invalid or expired.';
+      status = "error";
+      errorMsg =
+        err?.message ??
+        "Verification failed. The link may be invalid or expired.";
     }
   });
 </script>
@@ -32,18 +34,23 @@
   <div class="verify-card">
     <div class="logo">Orb</div>
 
-    {#if status === 'loading'}
+    {#if status === "loading"}
       <p class="hint">Verifying your email address…</p>
-    {:else if status === 'success'}
+    {:else if status === "success"}
       <div class="icon success-icon">✓</div>
       <h1>Email verified</h1>
-      <p class="hint">Your email address has been confirmed. You can now close this page or return to the app.</p>
-      <button class="btn-primary" on:click={() => goto('/')}>Go to app</button>
+      <p class="hint">
+        Your email address has been confirmed. You can now close this page or
+        return to the app.
+      </p>
+      <button class="btn-primary" on:click={() => goto("/")}>Go to app</button>
     {:else}
       <div class="icon error-icon">✕</div>
       <h1>Verification failed</h1>
       <p class="hint">{errorMsg}</p>
-      <button class="btn-primary" on:click={() => goto('/settings')}>Back to settings</button>
+      <button class="btn-primary" on:click={() => goto("/settings")}
+        >Back to settings</button
+      >
     {/if}
   </div>
 </div>
@@ -126,5 +133,7 @@
     transition: opacity 0.15s;
   }
 
-  .btn-primary:hover { opacity: 0.88; }
+  .btn-primary:hover {
+    opacity: 0.88;
+  }
 </style>

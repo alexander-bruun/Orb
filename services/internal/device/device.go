@@ -53,11 +53,11 @@ type DeviceState struct {
 
 // Device represents a single registered client session.
 type Device struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	State     DeviceState       `json:"state"`
-	LastSeen  time.Time         `json:"last_seen"`
-	IsActive  bool              `json:"is_active"`
+	ID       string      `json:"id"`
+	Name     string      `json:"name"`
+	State    DeviceState `json:"state"`
+	LastSeen time.Time   `json:"last_seen"`
+	IsActive bool        `json:"is_active"`
 	// AudioCaps describes what audio formats this device can render.
 	// Populated at registration; zero value = stereo-only, no passthrough.
 	AudioCaps store.AudioCapabilities `json:"audio_caps,omitempty"`

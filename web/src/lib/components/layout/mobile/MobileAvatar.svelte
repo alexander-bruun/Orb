@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { authStore } from '$lib/stores/auth';
-  import { avatarStore } from '$lib/stores/settings/theme';
+  import { goto } from "$app/navigation";
+  import { authStore } from "$lib/stores/auth";
+  import { avatarStore } from "$lib/stores/settings/theme";
 
   let menuOpen = false;
 
@@ -17,13 +17,13 @@
   function goAdmin(e: MouseEvent) {
     e.stopPropagation();
     menuOpen = false;
-    goto('/admin');
+    goto("/admin");
   }
 
   function goSettings(e: MouseEvent) {
     e.stopPropagation();
     menuOpen = false;
-    goto('/settings');
+    goto("/settings");
   }
 
   function doLogout(e: MouseEvent) {
@@ -40,50 +40,79 @@
     {#if $avatarStore}
       <img src={$avatarStore} alt="avatar" class="avatar-img" />
     {:else}
-      {($authStore.user?.username ?? 'U').slice(0, 2).toUpperCase()}
+      {($authStore.user?.username ?? "U").slice(0, 2).toUpperCase()}
     {/if}
   </button>
 
   {#if menuOpen}
-    <div class="menu" role="menu" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
+    <div
+      class="menu"
+      role="menu"
+      tabindex="-1"
+      on:click|stopPropagation
+      on:keydown|stopPropagation
+    >
       <div class="menu-user">
         <div class="menu-avatar">
           {#if $avatarStore}
             <img src={$avatarStore} alt="avatar" class="avatar-img" />
           {:else}
-            {($authStore.user?.username ?? 'U').slice(0, 2).toUpperCase()}
+            {($authStore.user?.username ?? "U").slice(0, 2).toUpperCase()}
           {/if}
         </div>
         <div class="menu-info">
-          <span class="menu-name">{$authStore.user?.username ?? 'User'}</span>
-          <span class="menu-email">{$authStore.user?.email ?? ''}</span>
+          <span class="menu-name">{$authStore.user?.username ?? "User"}</span>
+          <span class="menu-email">{$authStore.user?.email ?? ""}</span>
         </div>
       </div>
       {#if $authStore.user?.is_admin}
         <div class="menu-divider"></div>
         <button class="menu-item" on:click={goAdmin}>
-          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-            <path d="M2 17l10 5 10-5"/>
-            <path d="M2 12l10 5 10-5"/>
+          <svg
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            viewBox="0 0 24 24"
+          >
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
           </svg>
           Admin
         </button>
       {/if}
       <div class="menu-divider"></div>
       <button class="menu-item" on:click={goSettings}>
-        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        <svg
+          width="13"
+          height="13"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+          />
         </svg>
         Settings
       </button>
       <div class="menu-divider"></div>
       <button class="menu-item menu-item--danger" on:click={doLogout}>
-        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
+        <svg
+          width="13"
+          height="13"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <polyline points="16 17 21 12 16 7" />
+          <line x1="21" y1="12" x2="9" y2="12" />
         </svg>
         Sign out
       </button>
@@ -119,9 +148,9 @@
       color: white;
       cursor: pointer;
       border: none;
-      font-family: 'Syne', sans-serif;
+      font-family: "Syne", sans-serif;
       overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
       -webkit-tap-highlight-color: transparent;
     }
 
@@ -141,15 +170,21 @@
       background: var(--surface);
       border: 1px solid var(--border-2);
       border-radius: 10px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
       overflow: hidden;
       z-index: 46;
       animation: menu-in 0.12s ease;
     }
 
     @keyframes menu-in {
-      from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
+      from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
     }
 
     .menu-user {
@@ -172,7 +207,7 @@
       color: white;
       flex-shrink: 0;
       overflow: hidden;
-      font-family: 'Syne', sans-serif;
+      font-family: "Syne", sans-serif;
     }
 
     .menu-info {
@@ -194,7 +229,7 @@
     .menu-email {
       font-size: 11px;
       color: var(--text-2);
-      font-family: 'DM Mono', monospace;
+      font-family: "DM Mono", monospace;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -215,20 +250,24 @@
       border: none;
       color: var(--text-2);
       font-size: 13px;
-      font-family: 'Syne', sans-serif;
+      font-family: "Syne", sans-serif;
       cursor: pointer;
       text-align: left;
-      transition: background 0.12s, color 0.12s;
+      transition:
+        background 0.12s,
+        color 0.12s;
       -webkit-tap-highlight-color: transparent;
     }
-    .menu-item:hover, .menu-item:active {
+    .menu-item:hover,
+    .menu-item:active {
       background: var(--surface-2);
       color: var(--text);
     }
 
-    .menu-item--danger:hover, .menu-item--danger:active {
+    .menu-item--danger:hover,
+    .menu-item--danger:active {
       color: #f87171;
-      background: rgba(248,113,113,0.08);
+      background: rgba(248, 113, 113, 0.08);
     }
   }
 </style>

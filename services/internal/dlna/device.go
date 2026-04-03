@@ -8,7 +8,7 @@ import (
 // handleDeviceDescription serves the UPnP device description XML.
 func (s *Server) handleDeviceDescription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
-	fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
+	_, _ = fmt.Fprintf(w, `<?xml version="1.0" encoding="UTF-8"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0"
       xmlns:dlna="urn:schemas-dlna-org:device-1-0">
   <specVersion>
