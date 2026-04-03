@@ -334,6 +334,8 @@
   // ── Auto-navigate TO /favorites when backend becomes unreachable ─────────
   // Uses a 2 s confirmation check to avoid reacting to transient glitches.
   let offlineConfirmTimeout: ReturnType<typeof setTimeout> | null = null;
+  let pendingRestorePath: string | null = null;
+  let forcedOfflineRedirect = false;
   $effect(() => {
     const offline = $isOffline;
     const path = $page.url.pathname;
@@ -353,6 +355,12 @@
         clearTimeout(offlineConfirmTimeout);
         offlineConfirmTimeout = null;
       }
+      // If the user navigates away from the forced offline landing while still
+      // offline, treat that as an explicit choice and don't auto-restore later.
+      if (offline && forcedOfflineRedirect && path !== "/") {
+        pendingRestorePath = null;
+        forcedOfflineRedirect = false;
+      }
       return;
     }
     if (!offline) {
@@ -368,8 +376,23 @@
       offlineConfirmTimeout = null;
       const stillOffline = await checkConnectivity();
       if (!stillOffline) return; // was just a transient glitch
-      goto("/");
+      const current = $page.url;
+      pendingRestorePath = `${current.pathname}${current.search}${current.hash}`;
+      forcedOfflineRedirect = true;
+      goto("/", { replaceState: true });
     }, 2000);
+  });
+
+  // ── Restore the previous page when connectivity returns ───────────────────
+  $effect(() => {
+    if ($isOffline) return;
+    if (!forcedOfflineRedirect || !pendingRestorePath) return;
+    if ($page.url.pathname !== "/") return;
+
+    const target = pendingRestorePath;
+    pendingRestorePath = null;
+    forcedOfflineRedirect = false;
+    goto(target, { replaceState: true });
   });
 
   // ── Mutual exclusion ──
