@@ -40,6 +40,13 @@ func New(token string) *Client {
 	}
 }
 
+// SetToken updates the Discogs personal access token.
+func (c *Client) SetToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.token = token
+}
+
 // throttle enforces the rate limit (1 request per second).
 func (c *Client) throttle() {
 	c.mu.Lock()
@@ -53,6 +60,10 @@ func (c *Client) throttle() {
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	c.throttle()
 
+	c.mu.Lock()
+	token := c.token
+	c.mu.Unlock()
+
 	u := baseURL + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
@@ -60,8 +71,8 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/json")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Discogs token="+c.token)
+	if token != "" {
+		req.Header.Set("Authorization", "Discogs token="+token)
 	}
 
 	resp, err := c.http.Do(req)
@@ -98,13 +109,17 @@ func (c *Client) FetchImage(ctx context.Context, imageURL string) ([]byte, error
 	}
 	c.throttle()
 
+	c.mu.Lock()
+	token := c.token
+	c.mu.Unlock()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
-	if c.token != "" {
-		req.Header.Set("Authorization", "Discogs token="+c.token)
+	if token != "" {
+		req.Header.Set("Authorization", "Discogs token="+token)
 	}
 
 	resp, err := c.http.Do(req)

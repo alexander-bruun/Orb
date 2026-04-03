@@ -20,7 +20,7 @@ import { TIMINGS } from '$lib/constants';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type PlaybackMode = 'music' | 'audiobook';
+export type PlaybackMode = 'music' | 'audiobook' | 'podcast';
 export type EnginePlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
 export interface ContentMetadata {
@@ -117,6 +117,7 @@ const providers = new Map<PlaybackMode, AnyContentProvider>();
 
 export function registerProvider(forMode: 'music', provider: MusicContentProvider): void;
 export function registerProvider(forMode: 'audiobook', provider: AudiobookContentProvider): void;
+export function registerProvider(forMode: 'podcast', provider: ContentProvider): void;
 export function registerProvider(forMode: PlaybackMode, provider: AnyContentProvider): void;
 export function registerProvider(forMode: PlaybackMode, provider: AnyContentProvider) {
 	providers.set(forMode, provider);
@@ -586,6 +587,12 @@ export function buildHeartbeatState(): DeviceState {
 			playing,
 			volume: vol,
 		};
+	}
+
+	// Podcast has no multi-device sync backend — report as idle so other
+	// devices don't attempt to mirror it.
+	if (currentMode === 'podcast') {
+		return { track_id: '', track_title: '', album_id: '', position_ms: 0, playing: false, volume: vol };
 	}
 
 	return {

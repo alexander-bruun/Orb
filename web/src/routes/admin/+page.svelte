@@ -49,6 +49,23 @@
 
   // Library / jobs — driven by shared ingestStatus store
   $: ingestRunning = $ingestStatus.running;
+  $: startedAt = $ingestStatus.startedAt;
+  $: etc = (() => {
+    if (!ingestRunning || !startedAt || $ingestStatus.done <= 0 || $ingestStatus.total <= 0 || $ingestStatus.done >= $ingestStatus.total) return null;
+    const elapsed = Date.now() - startedAt;
+    const rate = $ingestStatus.done / elapsed;
+    const remaining = $ingestStatus.total - $ingestStatus.done;
+    const msRemaining = remaining / rate;
+    
+    if (msRemaining < 1000) return '< 1s';
+    const s = Math.round(msRemaining / 1000);
+    if (s < 60) return `${s}s left`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s left`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m left`;
+  })();
+
   let ingestLog: string[] = [];
   // Accumulate processed file paths from the store into the local log
   let _prevCurrentFile: string | undefined;
@@ -107,6 +124,15 @@
   let spotifyFrontendURL = '';
   let spotifySaving = false;
   let spotifySaved = false;
+
+  let discogsToken = '';
+  let discogsSaving = false;
+  let discogsSaved = false;
+
+  let musicbrainzEndpoint = '';
+  let musicbrainzContact = '';
+  let mbSaving = false;
+  let mbSaved = false;
 
   // Audit log
   let auditLogs: AuditLog[] = [];
@@ -189,7 +215,12 @@
       spotifyClientID = smtpSettings.spotify_client_id ?? '';
       spotifyClientSecret = smtpSettings.spotify_client_secret ? '••••••••' : '';
       spotifyFrontendURL = smtpSettings.spotify_frontend_url ?? '';
+      discogsToken = smtpSettings.discogs_api_token ? '••••••••' : '';
+      musicbrainzEndpoint = smtpSettings.musicbrainz_endpoint ?? '';
+      musicbrainzContact = smtpSettings.musicbrainz_contact ?? '';
+
       // Auto-fill site_base_url from the current origin if not yet configured.
+
       if (!smtpSettings.site_base_url) {
         smtpSettings = { ...smtpSettings, site_base_url: effectiveSiteURL() };
       }
@@ -429,6 +460,32 @@
       setTimeout(() => { spotifySaved = false; }, 3000);
     } catch (e: unknown) { alert((e as Error).message); }
     finally { spotifySaving = false; }
+  }
+
+  async function saveDiscogs() {
+    discogsSaving = true; discogsSaved = false;
+    try {
+      await adminApi.updateIntegrationSettings({
+        discogs_api_token: discogsToken === '••••••••' ? '' : discogsToken,
+      });
+      discogsSaved = true;
+      if (discogsToken && discogsToken !== '••••••••') discogsToken = '••••••••';
+      setTimeout(() => { discogsSaved = false; }, 3000);
+    } catch (e: unknown) { alert((e as Error).message); }
+    finally { discogsSaving = false; }
+  }
+
+  async function saveMusicBrainz() {
+    mbSaving = true; mbSaved = false;
+    try {
+      await adminApi.updateIntegrationSettings({
+        musicbrainz_endpoint: musicbrainzEndpoint,
+        musicbrainz_contact: musicbrainzContact,
+      });
+      mbSaved = true;
+      setTimeout(() => { mbSaved = false; }, 3000);
+    } catch (e: unknown) { alert((e as Error).message); }
+    finally { mbSaving = false; }
   }
 
   async function saveSmtp() {
@@ -829,6 +886,9 @@
               {#if $ingestStatus.skipped > 0}<span class="muted">· {$ingestStatus.skipped} skipped</span>{/if}
               {#if $ingestStatus.errors > 0}<span style="color:#f87171">· {$ingestStatus.errors} errors</span>{/if}
             </span>
+            {#if etc}
+              <span class="ingest-etc">{etc}</span>
+            {/if}
             <span class="ingest-pct">{pct}%</span>
           </div>
           <div class="progress-bar-wrap">
@@ -1085,6 +1145,42 @@
             {#if spotifySaved}<span class="success" style="font-size:0.8rem">Saved!</span>{/if}
           </div>
         </form>
+
+        <h3 style="margin:1.5rem 0 0.6rem">Discogs</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:0.75rem">Enhances metadata enrichment and covers. Get a Personal Access Token from <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">discogs.com/settings/developers</a>. Env var: <code>DISCOGS_TOKEN</code></p>
+        <div class="form-row">
+          <label for="dc-token">Token</label>
+          <input id="dc-token" type="password" bind:value={discogsToken} placeholder="••••••••" autocomplete="off" />
+        </div>
+        <div style="padding-top:0.5rem;display:flex;align-items:center;gap:1rem">
+          <button class="btn-accent" on:click={saveDiscogs} disabled={discogsSaving}>
+            {discogsSaving ? 'Saving…' : 'Save'}
+          </button>
+          {#if discogsSaved}<span class="success" style="font-size:0.8rem">Saved!</span>{/if}
+        </div>
+
+        <h3 style="margin:1.5rem 0 0.6rem">MusicBrainz</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:0.75rem">Primary source for metadata. Providing contact info or using a local mirror can improve performance and reliability.</p>
+        <div class="form-row">
+          <label for="mb-url">Endpoint</label>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+            <input id="mb-url" bind:value={musicbrainzEndpoint} placeholder="https://musicbrainz.org/ws/2" />
+            <span style="font-size:0.72rem;color:var(--text-muted)">Custom API endpoint (e.g. for a local mirror). Leave blank for default.</span>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="mb-contact">Contact Info</label>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+            <input id="mb-contact" bind:value={musicbrainzContact} placeholder="user@example.com" />
+            <span style="font-size:0.72rem;color:var(--text-muted)">Included in the User-Agent (recommended by MusicBrainz).</span>
+          </div>
+        </div>
+        <div style="padding-top:0.5rem;display:flex;align-items:center;gap:1rem">
+          <button class="btn-accent" on:click={saveMusicBrainz} disabled={mbSaving}>
+            {mbSaving ? 'Saving…' : 'Save'}
+          </button>
+          {#if mbSaved}<span class="success" style="font-size:0.8rem">Saved!</span>{/if}
+        </div>
       </div>
     </section>
 
@@ -1497,7 +1593,8 @@
   .ingest-status-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; flex-wrap: wrap; }
   .ingest-status-label { font-size: 0.82rem; font-weight: 600; }
   .ingest-counts { display: flex; gap: 0.4rem; align-items: center; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--text-primary, #fff); }
-  .ingest-pct { margin-left: auto; font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--accent, #a78bfa); font-weight: 600; }
+  .ingest-etc { margin-left: auto; font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--accent, #a78bfa); opacity: 0.8; font-weight: 500; }
+  .ingest-pct { margin-left: 0.75rem; font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--accent, #a78bfa); font-weight: 600; }
   .ingest-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(167,139,250,0.25); border-top-color: var(--accent, #a78bfa); border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
   .progress-bar-wrap { background: var(--surface-hover, #2a2a3a); border-radius: 4px; height: 6px; overflow: hidden; }
   .progress-bar { height: 100%; background: var(--accent, #a78bfa); border-radius: 4px; transition: width 0.3s; }

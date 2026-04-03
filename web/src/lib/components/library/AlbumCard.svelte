@@ -69,8 +69,12 @@
     {#if album.track_count === 1}
       <span class="badge-single">Single</span>
     {/if}
-    {#if (album.max_channels ?? 2) >= 6}
-      <span class="badge-channels">{album.max_channels === 8 ? '7.1' : '5.1'}</span>
+    {#if (album.max_channels ?? 2) > 2}
+      <span class="badge-channels">
+        {#if album.max_channels === 8}7.1
+        {:else if album.max_channels === 6}5.1
+        {:else}{album.max_channels}ch{/if}
+      </span>
     {/if}
     <svg class="wave-ring" class:wave-visible={isPlaying} viewBox="-5 -5 210 210" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <path d={wavePath} pathLength="1000" fill="none"

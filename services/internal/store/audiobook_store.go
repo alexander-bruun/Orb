@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // ── Audiobook store methods ───────────────────────────────────────────────────
@@ -194,16 +195,34 @@ func (s *Store) GetAudiobook(ctx context.Context, id string) (Audiobook, error) 
 
 // ListAudiobooks returns a paginated list of audiobooks with author names.
 func (s *Store) ListAudiobooks(ctx context.Context, p ListAudiobooksParams) ([]Audiobook, error) {
+	dir := "ASC"
+	if strings.ToLower(p.SortDir) == "desc" {
+		dir = "DESC"
+	}
+
 	var orderBy string
 	switch p.SortBy {
 	case "author":
-		orderBy = "ar.name NULLS LAST, ab.title"
+		nulls := "LAST"
+		if dir == "ASC" {
+			nulls = "FIRST"
+		}
+		orderBy = fmt.Sprintf("ar.name %s NULLS %s, ab.title ASC", dir, nulls)
 	case "year":
-		orderBy = "ab.published_year DESC NULLS LAST, ab.title"
+		// For year, we usually want DESC as default for "newest first", but we'll respect the param.
+		nulls := "LAST"
+		if dir == "ASC" {
+			nulls = "FIRST"
+		}
+		orderBy = fmt.Sprintf("ab.published_year %s NULLS %s, ab.title ASC", dir, nulls)
 	case "series":
-		orderBy = "ab.series NULLS LAST, ab.series_index NULLS LAST, ab.title"
+		nulls := "LAST"
+		if dir == "ASC" {
+			nulls = "FIRST"
+		}
+		orderBy = fmt.Sprintf("ab.series %s NULLS %s, ab.series_index %s NULLS %s, ab.title ASC", dir, nulls, dir, nulls)
 	default:
-		orderBy = "ab.title"
+		orderBy = fmt.Sprintf("ab.title %s", dir)
 	}
 	q := fmt.Sprintf(`
 		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,

@@ -46,16 +46,27 @@ ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.
 
 func (s *Store) ListAlbums(ctx context.Context, p ListAlbumsParams) ([]Album, error) {
 	// Build ORDER BY from a whitelist — no user input reaches the query string.
+	dir := "ASC"
+	if strings.ToLower(p.SortDir) == "desc" {
+		dir = "DESC"
+	}
+
 	var orderBy string
 	switch p.SortBy {
 	case "artist":
-		orderBy = `regexp_replace(lower(coalesce(ar_name, '')), '^(the |a |an )\s*', '') ASC,` +
-			` regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`
+		orderBy = fmt.Sprintf(`regexp_replace(lower(coalesce(ar_name, '')), '^(the |a |an )\s*', '') %s, regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`, dir)
 	case "year":
-		orderBy = `release_year DESC NULLS LAST,` +
-			` regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`
+		// For year, we usually want DESC as default for "newest first", but we'll respect the param.
+		// If dir is ASC, it means oldest first.
+		nulls := "LAST"
+		if dir == "ASC" {
+			nulls = "FIRST"
+		}
+		orderBy = fmt.Sprintf(`release_year %s NULLS %s, regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`, dir, nulls)
+	case "channels":
+		orderBy = fmt.Sprintf(`max_channels %s, regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`, dir)
 	default: // "title"
-		orderBy = `regexp_replace(lower(title), '^(the |a |an )\s*', '') ASC`
+		orderBy = fmt.Sprintf(`regexp_replace(lower(title), '^(the |a |an )\s*', '') %s`, dir)
 	}
 	// Use ROW_NUMBER to pick one representative per album group (prefer albums
 	// that have cover art; otherwise pick the earliest-created one).

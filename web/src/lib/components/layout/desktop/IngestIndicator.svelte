@@ -43,6 +43,23 @@
   $: progress = total > 0 ? Math.min(1, done / total) : 0;
   $: lastScan = $ingestStatus.lastScan as LastScan | undefined;
   $: currentFile = $ingestStatus.currentFile;
+  $: startedAt = $ingestStatus.startedAt;
+
+  $: etc = (() => {
+    if (!running || !startedAt || done <= 0 || total <= 0 || done >= total) return null;
+    const elapsed = Date.now() - startedAt;
+    const rate = done / elapsed; // items per ms
+    const remaining = total - done;
+    const msRemaining = remaining / rate;
+    
+    if (msRemaining < 1000) return '< 1s';
+    const s = Math.round(msRemaining / 1000);
+    if (s < 60) return `${s}s remaining`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s remaining`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m remaining`;
+  })();
 
   onMount(() => ingestStatus.init());
   onDestroy(() => ingestStatus.destroy());
@@ -58,7 +75,7 @@
     class:has-error={phase === 'error'}
     on:click={toggle}
     aria-label="Ingest status"
-    title={running ? 'Library scan in progress' : 'Library ingest status'}
+    title={running ? `Library scan in progress${etc ? ` (${etc})` : ''}` : 'Library ingest status'}
   >
     {#if running}
       <!-- Spinning sync icon -->
@@ -100,8 +117,12 @@
             <div class="progress-track">
               <div class="progress-fill" style="width: {progress * 100}%"></div>
             </div>
-            <span class="progress-label">{done}{total > 0 ? `/${total}` : ''}</span>
+            <span class="progress-label">{Math.round(progress * 100)}%</span>
           </div>
+
+          {#if etc}
+            <div class="etc-label">{etc}</div>
+          {/if}
 
           {#if currentFile}
             <div class="current-file">
@@ -111,7 +132,7 @@
           {/if}
 
           <div class="counters">
-            <span class="counter"><span class="counter-val">{done}</span> ingested</span>
+            <span class="counter"><span class="counter-val">{done}</span>/{total} ingested</span>
             {#if $ingestStatus.skipped > 0}<span class="counter"><span class="counter-val">{$ingestStatus.skipped}</span> skipped</span>{/if}
             {#if $ingestStatus.errors > 0}<span class="counter counter--err"><span class="counter-val">{$ingestStatus.errors}</span> errors</span>{/if}
           </div>
@@ -329,6 +350,15 @@
     font-family: 'DM Mono', monospace;
     color: var(--text-muted);
     flex-shrink: 0;
+  }
+
+  .etc-label {
+    margin-top: 4px;
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    color: var(--accent);
+    text-align: right;
+    font-weight: 500;
   }
 
   .current-file {

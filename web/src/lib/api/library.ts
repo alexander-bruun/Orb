@@ -4,8 +4,8 @@ import type { Track, Album, Artist, Genre, RelatedArtist, SearchFilters, ArtistE
 export const library = {
 	tracks: (limit = 50, offset = 0) =>
 		apiFetch<Track[]>(`/library/tracks?limit=${limit}&offset=${offset}`),
-	albums: (limit = 500, offset = 0, sortBy: 'title' | 'artist' | 'year' = 'title') =>
-		apiFetch<{ items: Album[]; total: number }>(`/library/albums?limit=${limit}&offset=${offset}&sort_by=${sortBy}`),
+	albums: (limit = 500, offset = 0, sortBy: 'title' | 'artist' | 'year' | 'channels' = 'title', sortDir: 'asc' | 'desc' = 'asc') =>
+		apiFetch<{ items: Album[]; total: number }>(`/library/albums?limit=${limit}&offset=${offset}&sort_by=${sortBy}&sort_dir=${sortDir}`),
 	artists: (limit = 50, offset = 0) =>
 		apiFetch<Artist[]>(`/library/artists?limit=${limit}&offset=${offset}`),
 	album: (id: string) => apiFetch<{ album: Album; tracks: Track[]; artist?: Artist; genres?: Genre[]; variants?: Album[] }>(`/library/albums/${id}`),

@@ -100,6 +100,15 @@ export interface SiteSettings {
 	smtp_from_name?: string;
 	smtp_tls?: string;
 	site_base_url?: string;
+
+	// Integration settings (also returned by getSettings)
+	ticketmaster_api_key?: string;
+	spotify_client_id?: string;
+	spotify_client_secret?: string;
+	spotify_frontend_url?: string;
+	discogs_api_token?: string;
+	musicbrainz_endpoint?: string;
+	musicbrainz_contact?: string;
 }
 
 export interface IngestProgressEvent {
@@ -282,6 +291,9 @@ export const admin = {
 		spotify_client_id?: string;
 		spotify_client_secret?: string;
 		spotify_frontend_url?: string;
+		discogs_api_token?: string;
+		musicbrainz_endpoint?: string;
+		musicbrainz_contact?: string;
 	}): Promise<void> =>
 		apiFetch('/admin/settings/integrations', { method: 'PUT', body: JSON.stringify(cfg) }),
 

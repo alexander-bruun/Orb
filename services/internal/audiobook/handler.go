@@ -72,11 +72,13 @@ func userIDFromCtx(r *http.Request) string {
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	limit, offset := httputil.Pagination(r, 50, 200)
 	sortBy := r.URL.Query().Get("sort_by")
+	sortDir := r.URL.Query().Get("sort_dir")
 
 	books, err := s.db.ListAudiobooks(r.Context(), store.ListAudiobooksParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-		SortBy: sortBy,
+		Limit:   int32(limit),
+		Offset:  int32(offset),
+		SortBy:  sortBy,
+		SortDir: sortDir,
 	})
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, "list audiobooks: "+err.Error())

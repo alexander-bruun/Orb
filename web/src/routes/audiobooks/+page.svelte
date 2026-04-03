@@ -23,6 +23,7 @@
   let loadingMore = false;
   let hasMore = true;
   let sortBy: SortMode = 'title';
+  let sortDir: 'asc' | 'desc' = 'asc';
   let activeKey = '';
   let scrollEl: HTMLElement | null = null;
   let sentinel: HTMLElement;
@@ -31,11 +32,26 @@
   let isRestoring = false;
   const PAGE = 48;
 
+  const SORT_BY_KEY = 'audiobooks_sort_by';
+  const SORT_DIR_KEY = 'audiobooks_sort_dir';
+
+  if (typeof localStorage !== 'undefined') {
+    const savedSortBy = localStorage.getItem(SORT_BY_KEY);
+    if (savedSortBy && ['title', 'author', 'year', 'series'].includes(savedSortBy)) {
+      sortBy = savedSortBy as SortMode;
+    }
+    const savedSortDir = localStorage.getItem(SORT_DIR_KEY);
+    if (savedSortDir === 'asc' || savedSortDir === 'desc') {
+      sortDir = savedSortDir;
+    }
+  }
+
   export const snapshot = {
     capture: () => ({
       books,
       hasMore,
       sortBy,
+      sortDir,
       activeKey,
       lastSortBy
     }),
@@ -43,6 +59,7 @@
       books = value.books;
       hasMore = value.hasMore;
       sortBy = value.sortBy;
+      sortDir = value.sortDir;
       activeKey = value.activeKey;
       lastSortBy = value.lastSortBy;
       isRestoring = true;
@@ -86,21 +103,9 @@
   }
 
   function computeKeys(map: Map<string, Audiobook[]>, mode: SortMode): string[] {
-    return [...map.keys()].sort((a, b) => {
-      if (mode === 'year') {
-        if (a === '?') return 1;
-        if (b === '?') return -1;
-        return Number(b) - Number(a);
-      }
-      if (mode === 'series') {
-        if (a === 'Standalone') return 1;
-        if (b === 'Standalone') return -1;
-        return a.localeCompare(b);
-      }
-      if (a === '#') return -1;
-      if (b === '#') return 1;
-      return a.localeCompare(b);
-    });
+    // The backend now returns the items in the correct sort order,
+    // so we can just return the keys in their insertion order from the map.
+    return [...map.keys()];
   }
 
   $: grouped = computeGrouped(books, sortBy);
@@ -136,7 +141,7 @@
     if (loadingMore || !hasMore) return;
     loadingMore = true;
     try {
-      const res = await abApi.list(PAGE, books.length, sortBy);
+      const res = await abApi.list(PAGE, books.length, sortBy, sortDir);
       const fetched = res.audiobooks ?? [];
       books = [...books, ...fetched];
       if (fetched.length < PAGE) {
@@ -162,15 +167,25 @@
   }
 
   async function changeSort(mode: SortMode) {
-    if (mode === sortBy) return;
-    sortBy = mode;
+    if (mode === sortBy) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortBy = mode;
+      sortDir = 'asc';
+    }
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SORT_BY_KEY, sortBy);
+      localStorage.setItem(SORT_DIR_KEY, sortDir);
+    }
+
     loading = true;
     books = [];
     hasMore = true;
     observer?.disconnect();
     observer = null;
     try {
-      const res = await abApi.list(PAGE, 0, sortBy);
+      const res = await abApi.list(PAGE, 0, sortBy, sortDir);
       books = res.audiobooks ?? [];
       if (books.length < PAGE) hasMore = false;
     } catch {
@@ -201,7 +216,7 @@
     }
 
     try {
-      const res = await abApi.list(PAGE, 0, sortBy);
+      const res = await abApi.list(PAGE, 0, sortBy, sortDir);
       books = res.audiobooks ?? [];
       if (books.length < PAGE) hasMore = false;
     } catch {
@@ -237,6 +252,9 @@
           on:click={() => changeSort(mode)}
         >
           {label}
+          {#if sortBy === mode}
+            <span class="dir-icon">{sortDir === 'asc' ? '↑' : '↓'}</span>
+          {/if}
         </button>
       {/each}
     </div>
@@ -405,6 +423,13 @@
   }
   .sort-btn:hover { color: var(--text); border-color: var(--border); }
   .sort-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+  .dir-icon {
+    display: inline-block;
+    margin-left: 2px;
+    font-size: 0.8em;
+    font-weight: 700;
+  }
 
   .grid {
     display: grid;

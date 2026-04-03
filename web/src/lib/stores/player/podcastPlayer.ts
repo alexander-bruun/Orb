@@ -15,6 +15,7 @@ import { authStore } from '$lib/stores/auth';
 import type { Podcast, PodcastEpisode } from '$lib/types';
 import { nativePlatform } from '$lib/utils/platform';
 import * as engine from './engine';
+import type { ContentProvider } from './engine';
 
 export type PodcastPlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
@@ -43,6 +44,7 @@ function _getAudio(): HTMLAudioElement {
 	if (!_audio) {
 		_audio = new Audio();
 		_audio.preload = 'metadata';
+		_audio.volume = get(engine.engineVolume);
 
 		_audio.addEventListener('loadedmetadata', () => {
 			if (_audio) {
@@ -118,10 +120,21 @@ export async function playEpisode(
 
 	_stopSaveInterval();
 
+	// Pause music / audiobook before taking over audio focus.
+	engine.switchMode('podcast');
+
 	currentEpisode.set(episode);
 	currentPodcast.set(podcast);
 	podcastPlaybackState.set('loading');
 	podcastDurationMs.set(episode.duration_ms ?? 0);
+
+	engine._writableCurrentContent.set({
+		id: episode.id,
+		title: episode.title,
+		artist: podcast.author ?? undefined,
+		coverUrl: `${getApiBase()}/covers/podcast/${episode.podcast_id}`,
+		durationMs: episode.duration_ms ?? 0,
+	});
 
 	// Resolve start position: explicit > saved backend progress > 0
 	let resolvedStartMs = startMs;
@@ -177,20 +190,29 @@ export async function playEpisode(
 
 export async function togglePodcastPlayPause() {
 	const state = get(podcastPlaybackState);
-	if (!_audio) return;
 
 	if (state === 'playing') {
-		_audio.pause();
+		if (_audio) {
+			_audio.pause();
+		} else {
+			engine.pause();
+		}
 		podcastPlaybackState.set('paused');
 		_stopSaveInterval();
 		_saveProgress(false);
 	} else if (state === 'paused' || state === 'loading') {
-		try {
-			await _audio.play();
+		if (_audio) {
+			try {
+				await _audio.play();
+				podcastPlaybackState.set('playing');
+				_startSaveInterval();
+			} catch (e) {
+				console.error('Podcast resume failed', e);
+			}
+		} else {
+			engine.resume();
 			podcastPlaybackState.set('playing');
 			_startSaveInterval();
-		} catch (e) {
-			console.error('Podcast resume failed', e);
 		}
 	}
 }
@@ -198,8 +220,10 @@ export async function togglePodcastPlayPause() {
 export function seekPodcastMs(ms: number) {
 	if (_audio) {
 		_audio.currentTime = ms / 1000;
-		podcastPositionMs.set(ms);
+	} else {
+		engine.seek(ms); // Android: routes to ExoPlayer
 	}
+	podcastPositionMs.set(ms);
 }
 
 export function skipForwardPodcast(seconds = 30) {
@@ -207,6 +231,10 @@ export function skipForwardPodcast(seconds = 30) {
 		const t = Math.min(_audio.currentTime + seconds, _audio.duration || 0);
 		_audio.currentTime = t;
 		podcastPositionMs.set(Math.round(t * 1000));
+	} else {
+		const t = Math.min(get(podcastPositionMs) + seconds * 1000, get(podcastDurationMs));
+		engine.seek(t);
+		podcastPositionMs.set(t);
 	}
 }
 
@@ -215,6 +243,10 @@ export function skipBackwardPodcast(seconds = 15) {
 		const t = Math.max(_audio.currentTime - seconds, 0);
 		_audio.currentTime = t;
 		podcastPositionMs.set(Math.round(t * 1000));
+	} else {
+		const t = Math.max(get(podcastPositionMs) - seconds * 1000, 0);
+		engine.seek(t);
+		podcastPositionMs.set(t);
 	}
 }
 
@@ -230,6 +262,8 @@ export function closePodcast() {
 	if (_audio) {
 		_audio.pause();
 		_audio.src = '';
+	} else {
+		engine.pause();
 	}
 	currentEpisode.set(null);
 	currentPodcast.set(null);
@@ -237,6 +271,9 @@ export function closePodcast() {
 	podcastPositionMs.set(0);
 	podcastDurationMs.set(0);
 	podcastBufferedPct.set(0);
+	// Return engine mode to music so the music bar is responsive again.
+	engine._writableMode.set('music');
+	engine._writableCurrentContent.set(null);
 }
 
 // ── Sleep timer ───────────────────────────────────────────────────────────────
@@ -264,6 +301,77 @@ export function setPodcastSleepTimer(minutes: number) {
 		}, minutes * 60_000);
 	}
 }
+
+// ── Engine content provider ───────────────────────────────────────────────────
+
+const podcastContentProvider: ContentProvider = {
+	onTrackEnd() {
+		// Handled by the HTMLAudioElement 'ended' event above.
+	},
+	onPositionUpdate(ms: number) {
+		podcastPositionMs.set(ms);
+	},
+	onModeActivated() {
+		// Podcast starts via playEpisode() — nothing to do here.
+	},
+	onModeDeactivated() {
+		// Another mode (music / audiobook) is taking over — pause the podcast.
+		_stopSaveInterval();
+		if (_audio) {
+			_audio.pause();
+		} else {
+			engine.pause();
+		}
+		const current = get(podcastPlaybackState);
+		if (current === 'playing' || current === 'loading') {
+			podcastPlaybackState.set('paused');
+			_saveProgress(false);
+		}
+	},
+	onControlCommand(action: string, payload) {
+		switch (action) {
+			case 'toggle': togglePodcastPlayPause(); break;
+			case 'seek':
+				if (payload?.position_ms !== undefined) seekPodcastMs(payload.position_ms as number);
+				break;
+			case 'skip_forward': skipForwardPodcast(30); break;
+			case 'skip_backward': skipBackwardPodcast(15); break;
+			case 'volume':
+				if (payload?.volume !== undefined) engine.setVolume(payload.volume as number);
+				break;
+		}
+	},
+};
+
+engine.registerProvider('podcast', podcastContentProvider);
+
+// Keep the private HTMLAudioElement volume in sync with the engine volume store.
+engine.engineVolume.subscribe((gain) => {
+	if (_audio) _audio.volume = gain;
+});
+
+// Bridge podcast stores → engine stores so that heartbeats and any engine
+// consumers reflect podcast playback state while it is the active mode.
+podcastPlaybackState.subscribe((state) => {
+	if (get(engine.mode) === 'podcast') {
+		engine._writablePlaybackState.set(state as engine.EnginePlaybackState);
+	}
+});
+podcastPositionMs.subscribe((ms) => {
+	if (get(engine.mode) === 'podcast') {
+		engine._writablePositionMs.set(ms);
+	}
+});
+podcastDurationMs.subscribe((dur) => {
+	if (get(engine.mode) === 'podcast') {
+		engine._writableDurationMs.set(dur);
+	}
+});
+podcastBufferedPct.subscribe((pct) => {
+	if (get(engine.mode) === 'podcast') {
+		engine._writableBufferedPct.set(pct);
+	}
+});
 
 export function formatPodcastMs(ms: number): string {
 	const totalSecs = Math.floor(ms / 1000);

@@ -26,6 +26,7 @@ import (
 	"github.com/alexander-bruun/orb/services/internal/collaboration"
 	"github.com/alexander-bruun/orb/services/internal/config"
 	"github.com/alexander-bruun/orb/services/internal/device"
+	"github.com/alexander-bruun/orb/services/internal/discogs"
 	"github.com/alexander-bruun/orb/services/internal/discovery"
 	"github.com/alexander-bruun/orb/services/internal/dlna"
 	"github.com/alexander-bruun/orb/services/internal/ingest"
@@ -174,7 +175,17 @@ func registerRoutes(
 		}
 		scrobbler := scrobble.New(db, lfmClient)
 
-		libSvc := library.New(db, musicbrainz.New())
+		// Load metadata settings from DB for MusicBrainz and Discogs
+		mb := musicbrainz.New()
+		var dc *discogs.Client
+		if vals, err := db.GetSiteSettings(context.Background(), []string{"musicbrainz_endpoint", "musicbrainz_contact", "discogs_api_token"}); err == nil {
+			mb.SetConfig(vals["musicbrainz_endpoint"], vals["musicbrainz_contact"])
+			if token := vals["discogs_api_token"]; token != "" {
+				dc = discogs.New(token)
+			}
+		}
+
+		libSvc := library.New(db, mb)
 		libSvc.SetDispatcher(webhookDispatcher)
 		libSvc.SetEmitter(activityEmitter)
 		libSvc.SetScrobbler(scrobbler)
@@ -221,6 +232,9 @@ func registerRoutes(
 		podcastHandler := podcast.NewHandler(podcastSvc, db)
 		r.Route("/podcasts", podcastHandler.Routes)
 
+		// Ensure default podcasts
+		go podcastSvc.EnsureDefaultPodcasts(context.Background())
+
 		// Start podcast background worker
 		go podcastSvc.StartBackgroundWorker(context.Background(), 1*time.Hour)
 
@@ -235,12 +249,14 @@ func registerRoutes(
 		adminSvc := admin.New(
 			db,
 			obj,
-			musicbrainz.New(),
+			mb,
+			dc,
 			kv,
 			dbURL,
 			storeRoot,
 			logPath,
 		)
+		adminSvc.SetIngestService(ingestSvc)
 		adminSvc.SetDispatcher(webhookDispatcher)
 		r.Group(func(r chi.Router) {
 			r.Use(adminSvc.AdminMiddleware)
@@ -421,7 +437,19 @@ func buildIngestService(ctx context.Context, db *store.Store, obj objstore.Objec
 		PollInterval:      parseDuration(config.Env("INGEST_POLL_INTERVAL", ""), 30*time.Second),
 		StableTime:        parseDuration(config.Env("INGEST_STABLE_TIME", ""), 10*time.Second),
 	}
-	return ingest.NewService(ctx, ingest.New(db, obj, cfg, kv), kv)
+
+	ingester := ingest.New(db, obj, cfg, kv)
+	if cfg.Enrich {
+		if vals, err := db.GetSiteSettings(ctx, []string{"musicbrainz_endpoint", "musicbrainz_contact", "discogs_api_token"}); err == nil {
+			token := vals["discogs_api_token"]
+			if token == "" {
+				token = cfg.DiscogsToken
+			}
+			ingester.SetMetadataConfig(token, vals["musicbrainz_endpoint"], vals["musicbrainz_contact"])
+		}
+	}
+
+	return ingest.NewService(ctx, ingester, kv)
 }
 
 func parseDirs(s string) []string {

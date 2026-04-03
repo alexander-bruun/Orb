@@ -9,15 +9,21 @@
     seekPodcastMs,
     skipForwardPodcast,
     skipBackwardPodcast,
-    closePodcast,
     formatPodcastMs,
     podcastSleepTimerMins,
     setPodcastSleepTimer,
     PODCAST_SLEEP_PRESETS,
   } from "$lib/stores/player/podcastPlayer";
   import { podcastSleepTimerEnabled } from "$lib/stores/settings/theme";
+  import { engineVolume, setVolume } from "$lib/stores/player/engine";
+  import { expanded } from "$lib/components/layout/desktop/coverExpandStore";
   import { getApiBase } from "$lib/api/base";
-  import { goto } from "$app/navigation";
+
+  let volumePopupOpen = false;
+
+  function onVolume(e: Event) {
+    setVolume(parseFloat((e.target as HTMLInputElement).value));
+  }
 
   let sleepMenuOpen = false;
 
@@ -38,20 +44,19 @@
     seekPodcastMs(($podcastDurationMs * pct) / 100);
   }
 
-  function goToPodcast() {
-    if ($currentEpisode) goto(`/podcasts/${$currentEpisode.podcast_id}`);
-  }
+
 </script>
 
 <svelte:window on:click={(e) => {
   if (sleepMenuOpen && !(e.target as HTMLElement).closest?.('.sleep-wrap')) sleepMenuOpen = false;
+  if (volumePopupOpen && !(e.target as HTMLElement).closest?.('.volume-popup-wrap')) volumePopupOpen = false;
 }} />
 
 <footer class="pod-bar bottom-bar">
   <!-- Left: cover + metadata -->
   <div class="pod-info">
     {#if $currentEpisode}
-      <button class="pod-cover-btn" on:click={goToPodcast} aria-label="Go to podcast">
+      <div class="cover-hover-wrap">
         {#if $currentPodcast?.cover_art_key}
           <img
             src="{getApiBase()}/covers/podcast/{$currentEpisode.podcast_id}"
@@ -68,7 +73,10 @@
             </svg>
           </div>
         {/if}
-      </button>
+        <button class="cover-expand-btn" on:click={() => expanded.update(v => !v)} aria-label="Expand cover">
+          <svg width="16" height="16" viewBox="0 0 20 20"><path d="M4 4h12v12H4V4zm2 2v8h8V6H6z" fill="currentColor"/></svg>
+        </button>
+      </div>
       <div class="pod-meta">
         <div class="pod-title">{$currentEpisode.title}</div>
         {#if $currentPodcast}
@@ -188,12 +196,46 @@
         </div>
       {/if}
 
-      <button class="ctrl-btn" on:click={closePodcast} title="Close" aria-label="Close podcast player">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <line x1="18" y1="6" x2="6" y2="18"/>
-          <line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-      </button>
+      <!-- Wide: inline volume slider -->
+      <input
+        type="range"
+        min="0"
+        max="1"
+        step="0.01"
+        value={$engineVolume}
+        on:input={onVolume}
+        class="volume-bar wide-only"
+        aria-label="Volume"
+      />
+      <!-- Narrow (≤800 px): vertical volume popup -->
+      <div class="volume-popup-wrap">
+        <button
+          class="ctrl-btn icon-btn narrow-only"
+          on:click|stopPropagation={() => { volumePopupOpen = !volumePopupOpen; }}
+          aria-label="Volume"
+          title="Volume"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+        </button>
+        {#if volumePopupOpen}
+          <div class="volume-popup" role="dialog" aria-label="Volume slider">
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={$engineVolume}
+              on:input={onVolume}
+              class="volume-vertical"
+              aria-label="Volume"
+            />
+          </div>
+        {/if}
+      </div>
+
     </div>
   </div>
 </footer>
@@ -219,12 +261,30 @@
     min-width: 0;
   }
 
-  .pod-cover-btn {
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
+  .cover-hover-wrap {
+    position: relative;
     flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+  }
+  .cover-hover-wrap .cover-expand-btn {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .cover-hover-wrap:hover .cover-expand-btn {
+    opacity: 1;
   }
 
   .pod-cover {
@@ -372,6 +432,41 @@
     cursor: pointer;
     height: 18px;
   }
+
+  /* ── Volume ── */
+  .volume-bar { width: 80px; height: 4px; accent-color: var(--accent); cursor: pointer; }
+  .volume-popup-wrap { position: relative; display: none; align-items: center; }
+  .volume-popup {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 8px;
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  }
+  .volume-vertical {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 4px;
+    height: 80px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  @media (max-width: 800px) {
+    .wide-only { display: none !important; }
+    .volume-popup-wrap { display: inline-flex; }
+    .narrow-only { display: inline-flex !important; }
+  }
+  .narrow-only { display: none; }
+  .icon-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; font-size: 0; padding: 6px; }
 
   /* ── Sleep timer ── */
   .sleep-wrap { position: relative; display: inline-flex; align-items: center; }

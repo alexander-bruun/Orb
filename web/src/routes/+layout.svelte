@@ -387,10 +387,10 @@
       <main class="content">
         {@render children()}
       </main>
-      {#if $currentAudiobook && $activePlayer === 'audiobook'}
-        <AudiobookBottomBar />
-      {:else if $currentEpisode && $podcastPlaybackState !== 'idle'}
+      {#if $currentEpisode && $podcastPlaybackState !== 'idle'}
         <PodcastBottomBar />
+      {:else if $currentAudiobook && $activePlayer === 'audiobook'}
+        <AudiobookBottomBar />
       {:else}
         <BottomBar />
       {/if}

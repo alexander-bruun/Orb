@@ -229,6 +229,9 @@ func (g *AudiobookIngester) ReingestAudiobook(ctx context.Context, audiobookID s
 				g.scanDir(ctx, p, candCh)
 			}()
 			for cand := range candCh {
+				if cand.ignored {
+					continue // series folder — no audiobook to reingest
+				}
 				if cand.singleFile {
 					fp := cand.files[0]
 					finfo, err := os.Stat(fp)
@@ -331,6 +334,9 @@ func (g *AudiobookIngester) reingestAudiobookByScan(ctx context.Context, audiobo
 
 	opts := ingestOptions{forceID: audiobookID, allowExistingFingerprint: true}
 	for cand := range candCh {
+		if cand.ignored {
+			continue // series folder — no audiobook to match
+		}
 		if cand.singleFile {
 			if len(cand.files) == 0 {
 				continue
@@ -465,6 +471,10 @@ type audiobookCandidate struct {
 	// singleFile is true when there is exactly one M4B/M4A file and no MP3s,
 	// meaning it should be handled by ingestFile (single-file mode).
 	singleFile bool
+	// ignored is true when the directory is a series folder whose direct audio
+	// files were intentionally skipped. Workers record it in state so the log
+	// is not repeated on every scan interval.
+	ignored bool
 }
 
 // scanDir recursively finds leaf directories containing audiobook files and
@@ -525,10 +535,10 @@ func (g *AudiobookIngester) scanDir(ctx context.Context, root string, results ch
 	// recurse into subfolders. Only apply when there are sub-directories; leaf
 	// folders should be treated as books even if they resemble series names.
 	if len(audioFiles) > 0 && len(subDirs) > 0 && isSeriesDirName(filepath.Base(root)) {
-		slog.Info("audiobook scan: ignoring audio files in series folder", "dir", root)
-		audioFiles = nil
-		hasContainerFmt = false
-		hasMultiFileFmt = false
+		// Emit an ignored candidate so Scan can persist the series folder in
+		// state and suppress repeated log messages on unchanged directories.
+		results <- audiobookCandidate{dirPath: root, ignored: true}
+		return
 	}
 
 	if len(audioFiles) == 0 {
@@ -628,6 +638,19 @@ func (g *AudiobookIngester) Scan(ctx context.Context) (newIDs []string, skipped,
 					foundPaths = append(foundPaths, cand.dirPath)
 				}
 				mu.Unlock()
+
+				if cand.ignored {
+					// Series folder: record in state so we don't re-log on every
+					// scan interval when nothing has changed.
+					dirInfo, statErr := os.Stat(cand.dirPath)
+					if statErr == nil && !g.upToDate(cand.dirPath, dirInfo) {
+						slog.Info("audiobook scan: ignoring audio files in series folder", "dir", cand.dirPath)
+						g.markDone(ctx, cand.dirPath, dirInfo, "__ignored__")
+					}
+					atomic.AddInt64(&nSkipped, 1)
+					atomic.AddInt64(&nDone, 1)
+					continue
+				}
 
 				if cand.singleFile {
 					p := cand.files[0]

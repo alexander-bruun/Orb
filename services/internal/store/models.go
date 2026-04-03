@@ -251,9 +251,10 @@ type ListTracksByUserParams struct {
 
 // ListAlbumsParams for listing albums.
 type ListAlbumsParams struct {
-	Limit  int32
-	Offset int32
-	SortBy string // "title" | "artist" | "year"; defaults to "title"
+	Limit   int32
+	Offset  int32
+	SortBy  string // "title" | "artist" | "year" | "channels"; defaults to "title"
+	SortDir string // "asc" | "desc"; defaults to "asc"
 }
 
 // ListArtistsParams for listing artists.
@@ -870,10 +871,12 @@ type AudiobookIngestStateRow struct {
 
 // ListAudiobooksParams for listing audiobooks with pagination.
 type ListAudiobooksParams struct {
-	Limit  int32
-	Offset int32
-	SortBy string // "title" | "author" | "year"
+	Limit   int32
+	Offset  int32
+	SortBy  string // "title" | "author" | "year"
+	SortDir string // "asc" | "desc"
 }
+
 
 // ── Podcast models ────────────────────────────────────────────────────────────
 
@@ -931,6 +934,17 @@ type PodcastWithProgress struct {
 
 // CreatePodcastParams holds the fields for creating a new podcast.
 type CreatePodcastParams struct {
+	ID          string
+	Title       string
+	Description *string
+	Author      *string
+	RssUrl      string
+	Link        *string
+	CoverArtKey *string
+}
+
+// UpdatePodcastParams holds the fields for updating an existing podcast.
+type UpdatePodcastParams struct {
 	ID          string
 	Title       string
 	Description *string

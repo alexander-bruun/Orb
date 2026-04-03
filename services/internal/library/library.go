@@ -194,15 +194,24 @@ func (s *Service) listAlbums(w http.ResponseWriter, r *http.Request) {
 	limit, offset := httputil.Pagination(r, 50, 500)
 	sortBy := r.URL.Query().Get("sort_by")
 	switch sortBy {
-	case "artist", "year":
+	case "artist", "year", "channels":
 		// valid
 	default:
 		sortBy = "title"
 	}
+	sortDir := r.URL.Query().Get("sort_dir")
+	switch strings.ToLower(sortDir) {
+	case "desc":
+		sortDir = "desc"
+	default:
+		sortDir = "asc"
+	}
+
 	albums, err := s.db.ListAlbums(r.Context(), store.ListAlbumsParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
-		SortBy: sortBy,
+		Limit:   int32(limit),
+		Offset:  int32(offset),
+		SortBy:  sortBy,
+		SortDir: sortDir,
 	})
 	if err != nil {
 		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())

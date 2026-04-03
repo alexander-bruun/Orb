@@ -2,8 +2,8 @@ import { apiFetch } from './client';
 import type { Audiobook, AudiobookProgress, AudiobookBookmark } from '$lib/types';
 
 export const audiobooks = {
-	list(limit = 50, offset = 0, sortBy = 'title'): Promise<{ audiobooks: Audiobook[] }> {
-		return apiFetch(`/audiobooks?limit=${limit}&offset=${offset}&sort_by=${sortBy}`);
+	list(limit = 50, offset = 0, sortBy = 'title', sortDir = 'asc'): Promise<{ audiobooks: Audiobook[] }> {
+		return apiFetch(`/audiobooks?limit=${limit}&offset=${offset}&sort_by=${sortBy}&sort_dir=${sortDir}`);
 	},
 
 	recentlyAdded(limit = 20): Promise<{ audiobooks: Audiobook[] }> {

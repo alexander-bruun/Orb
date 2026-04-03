@@ -27,7 +27,9 @@ import (
 	"time"
 
 	"github.com/alexander-bruun/orb/services/internal/auth"
+	"github.com/alexander-bruun/orb/services/internal/discogs"
 	"github.com/alexander-bruun/orb/services/internal/httputil"
+	"github.com/alexander-bruun/orb/services/internal/ingest"
 	"github.com/alexander-bruun/orb/services/internal/kvkeys"
 	"github.com/alexander-bruun/orb/services/internal/mailer"
 	"github.com/alexander-bruun/orb/services/internal/musicbrainz"
@@ -45,25 +47,31 @@ type Service struct {
 	db         *store.Store
 	obj        objstore.ObjectStore
 	mb         *musicbrainz.Client
+	dc         *discogs.Client
 	kv         *redis.Client // optional; used to invalidate sessions on deactivation
 	dispatcher *webhook.Dispatcher
+	ingestSvc  *ingest.Service
 	dbURL      string
 	storeRoot  string
 	logPath    string
 }
 
 // New returns a new admin Service.
-func New(db *store.Store, obj objstore.ObjectStore, mb *musicbrainz.Client, kv *redis.Client, dbURL, storeRoot, logPath string) *Service {
+func New(db *store.Store, obj objstore.ObjectStore, mb *musicbrainz.Client, dc *discogs.Client, kv *redis.Client, dbURL, storeRoot, logPath string) *Service {
 	return &Service{
 		db:        db,
 		obj:       obj,
 		mb:        mb,
+		dc:        dc,
 		kv:        kv,
 		dbURL:     dbURL,
 		storeRoot: storeRoot,
 		logPath:   logPath,
 	}
 }
+
+// SetIngestService attaches the ingest service to admin.
+func (s *Service) SetIngestService(svc *ingest.Service) { s.ingestSvc = svc }
 
 // SetDispatcher attaches a webhook dispatcher. Must be called before serving requests.
 func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
@@ -619,6 +627,18 @@ func (s *Service) refetchAlbumCover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Fall back to Discogs if enabled.
+	if imgData == nil && s.dc != nil {
+		artistName := derefOr(album.ArtistName, "")
+		dcRes, err := s.dc.EnrichAlbum(r.Context(), album.Title, artistName)
+		if err == nil && dcRes != nil && dcRes.CoverImage != "" {
+			imgData, err = s.dc.FetchImage(r.Context(), dcRes.CoverImage)
+			if err != nil {
+				slog.Warn("admin: refetch cover via discogs failed", "album", albumID, "err", err)
+			}
+		}
+	}
+
 	// Final fallback: try embedded/folder art from original local ingest paths.
 	if imgData == nil {
 		paths, pathErr := s.db.GetIngestPathsForAlbum(r.Context(), albumID)
@@ -974,6 +994,7 @@ var smtpSettingKeys = []string{
 var integrationSettingKeys = []string{
 	"ticketmaster_api_key",
 	"spotify_client_id", "spotify_client_secret", "spotify_frontend_url",
+	"discogs_api_token", "musicbrainz_endpoint", "musicbrainz_contact",
 }
 
 // GET /admin/settings
@@ -985,7 +1006,7 @@ func (s *Service) getSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Never return secrets to the client — send a placeholder instead.
-	for _, secretKey := range []string{"smtp_password", "ticketmaster_api_key", "spotify_client_secret"} {
+	for _, secretKey := range []string{"smtp_password", "ticketmaster_api_key", "spotify_client_secret", "discogs_api_token"} {
 		if _, ok := vals[secretKey]; ok {
 			vals[secretKey] = "••••••••"
 		}
@@ -1001,6 +1022,9 @@ func (s *Service) updateIntegrationSettings(w http.ResponseWriter, r *http.Reque
 		SpotifyClientID     string `json:"spotify_client_id"`
 		SpotifyClientSecret string `json:"spotify_client_secret"`
 		SpotifyFrontendURL  string `json:"spotify_frontend_url"`
+		DiscogsAPIToken     string `json:"discogs_api_token"`
+		MusicBrainzEndpoint string `json:"musicbrainz_endpoint"`
+		MusicBrainzContact  string `json:"musicbrainz_contact"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httputil.WriteErr(w, http.StatusBadRequest, "invalid body")
@@ -1010,6 +1034,8 @@ func (s *Service) updateIntegrationSettings(w http.ResponseWriter, r *http.Reque
 	plain := map[string]string{
 		"spotify_client_id":    body.SpotifyClientID,
 		"spotify_frontend_url": body.SpotifyFrontendURL,
+		"musicbrainz_endpoint": body.MusicBrainzEndpoint,
+		"musicbrainz_contact":  body.MusicBrainzContact,
 	}
 	for k, v := range plain {
 		if err := s.db.SetSiteSetting(r.Context(), k, v); err != nil {
@@ -1019,8 +1045,9 @@ func (s *Service) updateIntegrationSettings(w http.ResponseWriter, r *http.Reque
 	}
 	// Secret fields — only overwrite when a real value (not the placeholder) is sent.
 	secrets := map[string]string{
-		"ticketmaster_api_key": body.TicketmasterAPIKey,
+		"ticketmaster_api_key":  body.TicketmasterAPIKey,
 		"spotify_client_secret": body.SpotifyClientSecret,
+		"discogs_api_token":     body.DiscogsAPIToken,
 	}
 	for k, v := range secrets {
 		if v != "" && v != "••••••••" {
@@ -1030,6 +1057,34 @@ func (s *Service) updateIntegrationSettings(w http.ResponseWriter, r *http.Reque
 			}
 		}
 	}
+
+	// Update in-memory clients
+	if s.mb != nil {
+		s.mb.SetConfig(body.MusicBrainzEndpoint, body.MusicBrainzContact)
+	}
+	if body.DiscogsAPIToken != "••••••••" {
+		if body.DiscogsAPIToken != "" {
+			if s.dc == nil {
+				s.dc = discogs.New(body.DiscogsAPIToken)
+			} else {
+				s.dc.SetToken(body.DiscogsAPIToken)
+			}
+		} else {
+			s.dc = nil
+		}
+	}
+
+	// Also update ingest service if attached
+	if s.ingestSvc != nil {
+		token := body.DiscogsAPIToken
+		if token == "••••••••" {
+			// Retrieve from DB because the body had a placeholder.
+			vals, _ := s.db.GetSiteSettings(r.Context(), []string{"discogs_api_token"})
+			token = vals["discogs_api_token"]
+		}
+		s.ingestSvc.SetMetadataConfig(token, body.MusicBrainzEndpoint, body.MusicBrainzContact)
+	}
+
 	if err := s.db.InsertAuditLog(r.Context(), actorID, "update_integration_settings", "settings", "", nil); err != nil {
 		slog.Warn("audit log failed", "action", "update_integration_settings", "err", err)
 	}

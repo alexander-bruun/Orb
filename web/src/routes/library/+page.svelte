@@ -7,15 +7,18 @@
   import type { Album } from '$lib/types';
   import Spinner from '$lib/components/ui/Spinner.svelte';
 
-  type SortMode = 'title' | 'artist' | 'year';
+  type SortMode = 'title' | 'artist' | 'year' | 'channels';
 
   const SORT_MODES: { mode: SortMode; label: string }[] = [
-    { mode: 'title',  label: 'Title'  },
-    { mode: 'artist', label: 'Artist' },
-    { mode: 'year',   label: 'Year'   },
+    { mode: 'title',    label: 'Title'    },
+    { mode: 'artist',   label: 'Artist'   },
+    { mode: 'year',     label: 'Year'     },
+    { mode: 'channels', label: 'Channels' },
   ];
 
   const PAGE_SIZE = 500;
+  const SORT_BY_KEY = 'library_sort_by';
+  const SORT_DIR_KEY = 'library_sort_dir';
 
   let albums: Album[] = [];
   let totalCount = 0;
@@ -23,6 +26,7 @@
   let loadingMore = false;
   let nextOffset = 0;
   let sortBy: SortMode = 'title';
+  let sortDir: 'asc' | 'desc' = 'asc';
   let activeKey = '';
   let scrollEl: HTMLElement | null = null;
   let sentinel: HTMLElement;
@@ -30,12 +34,24 @@
   let ingestES: EventSource | null = null;
   let isRestoring = false;
 
+  if (typeof localStorage !== 'undefined') {
+    const savedSortBy = localStorage.getItem(SORT_BY_KEY);
+    if (savedSortBy && ['title', 'artist', 'year', 'channels'].includes(savedSortBy)) {
+      sortBy = savedSortBy as SortMode;
+    }
+    const savedSortDir = localStorage.getItem(SORT_DIR_KEY);
+    if (savedSortDir === 'asc' || savedSortDir === 'desc') {
+      sortDir = savedSortDir;
+    }
+  }
+
   export const snapshot = {
     capture: () => ({
       albums,
       totalCount,
       nextOffset,
       sortBy,
+      sortDir,
       activeKey
     }),
     restore: (value) => {
@@ -43,6 +59,7 @@
       totalCount = value.totalCount;
       nextOffset = value.nextOffset;
       sortBy = value.sortBy;
+      sortDir = value.sortDir;
       activeKey = value.activeKey;
       isRestoring = true;
       loading = false;
@@ -64,6 +81,13 @@
       }
       case 'year':
         return album.release_year ? String(album.release_year) : '?';
+      case 'channels':
+        if (album.max_channels === 8) return '7.1';
+        if (album.max_channels === 6) return '5.1';
+        if (album.max_channels && album.max_channels > 2) {
+          return `${album.max_channels}ch`;
+        }
+        return 'Stereo';
     }
   }
 
@@ -79,16 +103,9 @@
   }
 
   function computeKeys(map: Map<string, Album[]>, mode: SortMode): string[] {
-    return [...map.keys()].sort((a, b) => {
-      if (mode === 'year') {
-        if (a === '?') return 1;
-        if (b === '?') return -1;
-        return Number(b) - Number(a); // newest first
-      }
-      if (a === '#') return -1; // # before A
-      if (b === '#') return 1;
-      return a.localeCompare(b);
-    });
+    // Since the albums are already sorted by the backend and computeGrouped
+    // preserves that order in the Map keys, we can just return the keys as-is.
+    return [...map.keys()];
   }
 
   $: grouped = computeGrouped(albums, sortBy);
@@ -126,7 +143,7 @@
     if (loadingMore || !hasMore) return;
     loadingMore = true;
     try {
-      const page = await libApi.albums(PAGE_SIZE, nextOffset, sortBy);
+      const page = await libApi.albums(PAGE_SIZE, nextOffset, sortBy, sortDir);
       if (page.items.length === 0) {
         nextOffset = totalCount; // force-stop
         return;
@@ -153,8 +170,18 @@
   // ── Sort change ───────────────────────────────────────────────────────────
 
   async function changeSortBy(mode: SortMode) {
-    if (mode === sortBy) return;
-    sortBy = mode;
+    if (mode === sortBy) {
+      sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortBy = mode;
+      sortDir = 'asc';
+    }
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SORT_BY_KEY, sortBy);
+      localStorage.setItem(SORT_DIR_KEY, sortDir);
+    }
+
     observer?.disconnect();
     observer = null;
     albums = [];
@@ -162,7 +189,7 @@
     totalCount = 0;
     loading = true;
     try {
-      const first = await libApi.albums(PAGE_SIZE, 0, sortBy);
+      const first = await libApi.albums(PAGE_SIZE, 0, sortBy, sortDir);
       totalCount = first.total;
       albums = first.items;
       nextOffset = PAGE_SIZE;
@@ -193,7 +220,7 @@
 
   async function refreshAlbums() {
     try {
-      const first = await libApi.albums(PAGE_SIZE, 0, sortBy);
+      const first = await libApi.albums(PAGE_SIZE, 0, sortBy, sortDir);
       if (first.total === totalCount) return; // nothing new
       totalCount = first.total;
       albums = first.items;
@@ -213,7 +240,7 @@
     }
 
     try {
-      const first = await libApi.albums(PAGE_SIZE, 0, sortBy);
+      const first = await libApi.albums(PAGE_SIZE, 0, sortBy, sortDir);
       totalCount = first.total;
       albums = first.items;
       nextOffset = PAGE_SIZE;
@@ -247,6 +274,9 @@
           on:click={() => changeSortBy(mode)}
         >
           {label}
+          {#if sortBy === mode}
+            <span class="dir-icon">{sortDir === 'asc' ? '↑' : '↓'}</span>
+          {/if}
         </button>
       {/each}
     </div>
@@ -332,6 +362,13 @@
     color: var(--accent);
     border-color: var(--accent);
     background: var(--accent-dim);
+  }
+
+  .dir-icon {
+    display: inline-block;
+    margin-left: 2px;
+    font-size: 0.8em;
+    font-weight: 700;
   }
 
   .muted {

@@ -21,6 +21,7 @@ CREATE TABLE artists (
     disambiguation  TEXT,
     image_key       TEXT,                    -- object-store key for artist photo
     enriched_at     TIMESTAMPTZ,
+    search_vector   tsvector    GENERATED ALWAYS AS (to_tsvector('english', coalesce(name, ''))) STORED,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -38,6 +39,7 @@ CREATE TABLE albums (
     enriched_at         TIMESTAMPTZ,
     album_group_id      TEXT,                    -- links variants of the same album (artist+title hash)
     edition             TEXT,                    -- human-readable variant label, e.g. "[WEB FLAC 24-88.2]"
+    search_vector       tsvector    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -62,6 +64,7 @@ CREATE TABLE tracks (
     isrc          TEXT,                   -- International Standard Recording Code
     mbid          TEXT,                   -- MusicBrainz recording ID
     enriched_at   TIMESTAMPTZ,
+    search_vector tsvector    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -160,14 +163,6 @@ CREATE INDEX album_genres_album_idx    ON album_genres(album_id);
 CREATE INDEX track_genres_track_idx    ON track_genres(track_id);
 CREATE INDEX related_artists_idx       ON related_artists(artist_id);
 
--- Full-text search
-ALTER TABLE tracks  ADD COLUMN search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED;
-ALTER TABLE albums  ADD COLUMN search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED;
-ALTER TABLE artists ADD COLUMN search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(name, ''))) STORED;
-
 CREATE INDEX tracks_search_idx  ON tracks  USING GIN(search_vector);
 CREATE INDEX albums_search_idx  ON albums  USING GIN(search_vector);
 CREATE INDEX artists_search_idx ON artists USING GIN(search_vector);
@@ -224,7 +219,7 @@ CREATE TABLE user_streaming_prefs (
 
 -- Equalizer profiles.
 -- bands is a JSONB array of {frequency: number, gain: number, type: string}.
-CREATE TABLE IF NOT EXISTS eq_profiles (
+CREATE TABLE eq_profiles (
     id         TEXT        PRIMARY KEY,
     user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name       TEXT        NOT NULL,
@@ -234,18 +229,18 @@ CREATE TABLE IF NOT EXISTS eq_profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS eq_profiles_user_idx ON eq_profiles(user_id);
+CREATE INDEX eq_profiles_user_idx ON eq_profiles(user_id);
 
 -- Per-genre EQ profile mapping: when a track's album/artist genre matches,
 -- activate the corresponding profile automatically.
-CREATE TABLE IF NOT EXISTS user_genre_eq (
+CREATE TABLE user_genre_eq (
     user_id    TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
     genre_id   TEXT NOT NULL REFERENCES genres(id)   ON DELETE CASCADE,
     profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, genre_id)
 );
 
-CREATE INDEX IF NOT EXISTS user_genre_eq_user_idx ON user_genre_eq(user_id);
+CREATE INDEX user_genre_eq_user_idx ON user_genre_eq(user_id);
 
 -- Ingest state: tracks which files have been processed so re-runs skip unchanged files.
 CREATE TABLE ingest_state (

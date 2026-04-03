@@ -6,13 +6,14 @@ import (
 	pgx "github.com/jackc/pgx/v5"
 )
 
-// ListPodcasts returns all podcasts.
-func (s *Store) ListPodcasts(ctx context.Context) ([]Podcast, error) {
+// ListPodcasts returns a paginated list of all podcasts.
+func (s *Store) ListPodcasts(ctx context.Context, limit, offset int32) ([]Podcast, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, title, description, author, rss_url, link, cover_art_key, created_at, updated_at
 		FROM podcasts
 		ORDER BY title ASC
-	`)
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +52,25 @@ func (s *Store) CreatePodcast(ctx context.Context, p CreatePodcastParams) error 
 	return err
 }
 
+// UpdatePodcast updates an existing podcast.
+func (s *Store) UpdatePodcast(ctx context.Context, p UpdatePodcastParams) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE podcasts
+		SET title = $2, description = $3, author = $4, rss_url = $5, link = $6, cover_art_key = $7, updated_at = now()
+		WHERE id = $1
+	`, p.ID, p.Title, p.Description, p.Author, p.RssUrl, p.Link, p.CoverArtKey)
+	return err
+}
+
+// DeletePodcast deletes a podcast from the system.
+func (s *Store) DeletePodcast(ctx context.Context, id string) error {
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM podcasts
+		WHERE id = $1
+	`, id)
+	return err
+}
+
 // UpsertPodcastEpisode inserts or updates an episode.
 func (s *Store) UpsertPodcastEpisode(ctx context.Context, e UpsertPodcastEpisodeParams) (string, error) {
 	var id string
@@ -72,15 +92,71 @@ func (s *Store) UpsertPodcastEpisode(ctx context.Context, e UpsertPodcastEpisode
 	return id, err
 }
 
-// ListPodcastEpisodes returns episodes for a podcast, ordered by pub_date DESC.
-func (s *Store) ListPodcastEpisodes(ctx context.Context, podcastID string, limit, offset int32) ([]PodcastEpisode, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, podcast_id, title, description, pub_date, guid, link, audio_url, duration_ms, file_key, file_size, format, created_at
-		FROM podcast_episodes
-		WHERE podcast_id = $1
-		ORDER BY pub_date DESC
-		LIMIT $2 OFFSET $3
-	`, podcastID, limit, offset)
+// ListPodcastEpisodesParams holds filter/sort options for episode listing.
+type ListPodcastEpisodesParams struct {
+	PodcastID string
+	Search    string // ILIKE filter on title
+	SortBy    string // "pub_date" | "title" | "duration_ms"
+	SortDir   string // "asc" | "desc"
+	Limit     int32
+	Offset    int32
+}
+
+func (p *ListPodcastEpisodesParams) sanitize() {
+	switch p.SortBy {
+	case "title", "duration_ms":
+	default:
+		p.SortBy = "pub_date"
+	}
+	if p.SortDir != "asc" {
+		p.SortDir = "desc"
+	}
+}
+
+// CountPodcastEpisodes returns the total number of episodes matching the filter.
+func (s *Store) CountPodcastEpisodes(ctx context.Context, podcastID, search string) (int64, error) {
+	var count int64
+	var err error
+	if search != "" {
+		err = s.pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM podcast_episodes WHERE podcast_id = $1 AND title ILIKE $2`,
+			podcastID, "%"+search+"%",
+		).Scan(&count)
+	} else {
+		err = s.pool.QueryRow(ctx,
+			`SELECT COUNT(*) FROM podcast_episodes WHERE podcast_id = $1`,
+			podcastID,
+		).Scan(&count)
+	}
+	return count, err
+}
+
+// ListPodcastEpisodes returns episodes for a podcast with optional search and sort.
+func (s *Store) ListPodcastEpisodes(ctx context.Context, p ListPodcastEpisodesParams) ([]PodcastEpisode, error) {
+	p.sanitize()
+	col := p.SortBy + " " + p.SortDir
+	// secondary sort for stability
+	if p.SortBy != "pub_date" {
+		col += ", pub_date desc"
+	}
+	var q string
+	var args []any
+	if p.Search != "" {
+		q = `SELECT id, podcast_id, title, description, pub_date, guid, link, audio_url, duration_ms, file_key, file_size, format, created_at
+			FROM podcast_episodes
+			WHERE podcast_id = $1 AND title ILIKE $2
+			ORDER BY ` + col + `
+			LIMIT $3 OFFSET $4`
+		args = []any{p.PodcastID, "%" + p.Search + "%", p.Limit, p.Offset}
+	} else {
+		q = `SELECT id, podcast_id, title, description, pub_date, guid, link, audio_url, duration_ms, file_key, file_size, format, created_at
+			FROM podcast_episodes
+			WHERE podcast_id = $1
+			ORDER BY ` + col + `
+			LIMIT $2 OFFSET $3`
+		args = []any{p.PodcastID, p.Limit, p.Offset}
+	}
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -118,15 +194,16 @@ func (s *Store) UnsubscribeUserFromPodcast(ctx context.Context, userID, podcastI
 	return err
 }
 
-// ListUserSubscriptions returns all podcasts a user is subscribed to.
-func (s *Store) ListUserSubscriptions(ctx context.Context, userID string) ([]Podcast, error) {
+// ListUserSubscriptions returns a paginated list of all podcasts a user is subscribed to.
+func (s *Store) ListUserSubscriptions(ctx context.Context, userID string, limit, offset int32) ([]Podcast, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT p.id, p.title, p.description, p.author, p.rss_url, p.link, p.cover_art_key, p.created_at, p.updated_at
 		FROM podcasts p
 		JOIN podcast_subscriptions s ON p.id = s.podcast_id
 		WHERE s.user_id = $1
 		ORDER BY p.title ASC
-	`, userID)
+		LIMIT $2 OFFSET $3
+	`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -183,4 +260,44 @@ func (s *Store) UpdatePodcastEpisodeFile(ctx context.Context, episodeID string, 
 		WHERE id = $4
 	`, fileKey, fileSize, format, episodeID)
 	return err
+}
+
+// ListRecentlyAddedPodcasts returns the most recently added podcasts.
+func (s *Store) ListRecentlyAddedPodcasts(ctx context.Context, limit int32) ([]Podcast, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, title, description, author, rss_url, link, cover_art_key, created_at, updated_at
+		FROM podcasts
+		ORDER BY created_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, pgx.RowToStructByName[Podcast])
+}
+
+// ListPodcastsWithNewEpisodes returns podcasts the user has listened to before that have unplayed or incomplete episodes.
+func (s *Store) ListPodcastsWithNewEpisodes(ctx context.Context, userID string, limit int32) ([]Podcast, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT p.id, p.title, p.description, p.author, p.rss_url, p.link, p.cover_art_key, p.created_at, p.updated_at
+		FROM podcasts p
+		WHERE EXISTS (
+			SELECT 1 FROM podcast_episodes e
+			JOIN podcast_episode_progress progress ON e.id = progress.episode_id
+			WHERE e.podcast_id = p.id AND progress.user_id = $1
+		)
+		AND EXISTS (
+			SELECT 1 FROM podcast_episodes e2
+			LEFT JOIN podcast_episode_progress progress2 ON e2.id = progress2.episode_id AND progress2.user_id = $1
+			WHERE e2.podcast_id = p.id AND (progress2.episode_id IS NULL OR progress2.completed = FALSE)
+		)
+		ORDER BY (SELECT MAX(pub_date) FROM podcast_episodes WHERE podcast_id = p.id) DESC
+		LIMIT $2
+	`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, pgx.RowToStructByName[Podcast])
 }

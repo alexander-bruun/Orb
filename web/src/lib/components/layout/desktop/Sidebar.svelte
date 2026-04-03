@@ -3,6 +3,7 @@
   import { afterNavigate } from '$app/navigation';
   import { currentTrack } from '$lib/stores/player';
   import { currentAudiobook } from '$lib/stores/player/audiobookPlayer';
+  import { currentEpisode } from '$lib/stores/player/podcastPlayer';
   import { activePlayer } from '$lib/stores/player/engine';
   import { expanded } from './coverExpandStore';
   import { authStore } from '$lib/stores/auth';
@@ -36,7 +37,7 @@
 
   <div class="spacer"></div>
 
-  {#if $expanded && ($currentTrack || $currentAudiobook)}
+  {#if $expanded && ($currentTrack || $currentAudiobook || $currentEpisode)}
     <div class="sidebar-bottom">
       <div class="cover-wrap">
         {#if $activePlayer === 'audiobook' && $currentAudiobook}
@@ -47,6 +48,10 @@
           {:else}
             <div class="placeholder full-image"></div>
           {/if}
+        {:else if $activePlayer === 'podcast' && $currentEpisode}
+          <img src="{getApiBase()}/covers/podcast/{$currentEpisode.podcast_id}"
+               alt="podcast cover"
+               class="full-image" />
         {:else if $currentTrack}
           {#if $currentTrack.album_id}
             <img src="{getApiBase()}/covers/{$currentTrack.album_id}"

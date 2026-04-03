@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	baseURL   = "https://musicbrainz.org/ws/2"
-	userAgent = "Orb/1.0 (https://github.com/alexander-bruun/orb)"
+	defaultBaseURL = "https://musicbrainz.org/ws/2"
+	userAgent      = "Orb/1.0 (https://github.com/alexander-bruun/orb)"
 )
 
 // Client is a rate-limited MusicBrainz API client.
@@ -24,13 +24,29 @@ type Client struct {
 	http    *http.Client
 	mu      sync.Mutex
 	lastReq time.Time
+
+	baseURL string
+	contact string
 }
 
 // New creates a new MusicBrainz client with rate limiting.
 func New() *Client {
 	return &Client{
-		http: &http.Client{Timeout: 15 * time.Second},
+		http:    &http.Client{Timeout: 15 * time.Second},
+		baseURL: defaultBaseURL,
 	}
+}
+
+// SetConfig updates the client configuration.
+func (c *Client) SetConfig(baseURL, contact string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if baseURL == "" {
+		c.baseURL = defaultBaseURL
+	} else {
+		c.baseURL = strings.TrimSuffix(baseURL, "/")
+	}
+	c.contact = contact
 }
 
 // throttle enforces the MusicBrainz rate limit of 1 request per second.
@@ -46,7 +62,14 @@ func (c *Client) throttle() {
 func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	c.throttle()
 
-	u := baseURL + path
+	c.mu.Lock()
+	u := c.baseURL + path
+	ua := userAgent
+	if c.contact != "" {
+		ua = fmt.Sprintf("Orb/1.0 (%s)", c.contact)
+	}
+	c.mu.Unlock()
+
 	if strings.Contains(u, "?") {
 		u += "&fmt=json"
 	} else {
@@ -57,7 +80,7 @@ func (c *Client) get(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.http.Do(req)

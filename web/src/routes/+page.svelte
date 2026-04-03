@@ -4,7 +4,8 @@
   import { library as libApi } from "$lib/api/library";
   import { smartPlaylists as spApi } from "$lib/api/smartPlaylists";
   import { audiobooks as abApi } from "$lib/api/audiobooks";
-  import type { Track, Album, SmartPlaylist, Audiobook } from "$lib/types";
+  import { podcasts as pcApi } from "$lib/api/podcasts";
+  import type { Track, Album, SmartPlaylist, Audiobook, Podcast } from "$lib/types";
   import TrackList from "$lib/components/library/TrackList.svelte";
   import AlbumCard from "$lib/components/library/AlbumCard.svelte";
   import Skeleton from "$lib/components/ui/Skeleton.svelte";
@@ -28,6 +29,8 @@
   let recentAlbums: Album[] = [];
   let newAlbums: Album[] = [];
   let newAudiobooks: Audiobook[] = [];
+  let newPodcasts: Podcast[] = [];
+  let podcastsWithNewEpisodes: Podcast[] = [];
   let smartPls: SmartPlaylist[] = [];
   type InProgressBook = Audiobook & { position_ms: number; progress_updated_at: string };
   let inProgressBooks: InProgressBook[] = [];
@@ -45,6 +48,8 @@
       recentAlbums,
       newAlbums,
       newAudiobooks,
+      newPodcasts,
+      podcastsWithNewEpisodes,
       smartPls,
       inProgressBooks,
       interval,
@@ -59,6 +64,8 @@
       recentAlbums = value.recentAlbums;
       newAlbums = value.newAlbums;
       newAudiobooks = value.newAudiobooks ?? [];
+      newPodcasts = value.newPodcasts ?? [];
+      podcastsWithNewEpisodes = value.podcastsWithNewEpisodes ?? [];
       smartPls = value.smartPls;
       inProgressBooks = value.inProgressBooks;
       interval = value.interval;
@@ -140,12 +147,14 @@
   async function loadHomeData() {
     loading = true;
     try {
-      [recentTracks, mostTracks, recentAlbums, newAlbums, newAudiobooks, smartPls, inProgressBooks] = await Promise.all([
+      [recentTracks, mostTracks, recentAlbums, newAlbums, newAudiobooks, newPodcasts, podcastsWithNewEpisodes, smartPls, inProgressBooks] = await Promise.all([
         libApi.recentlyPlayed(100).then((r) => r ?? []),
         libApi.mostPlayed(100).then((r) => r ?? []),
         libApi.recentlyPlayedAlbums().then((r) => r ?? []),
         libApi.recentlyAddedAlbums(20).then((r) => r ?? []),
         abApi.recentlyAdded(20).then((r) => r.audiobooks ?? []).catch(() => []),
+        pcApi.recentlyAdded(20).then((r) => r.podcasts ?? []).catch(() => []),
+        pcApi.withNewEpisodes(20).then((r) => r.podcasts ?? []).catch(() => []),
         spApi.list().then((r) => r ?? []),
         abApi.inProgress(10).then((r) => r.audiobooks ?? []).catch(() => []),
       ]);
@@ -438,6 +447,39 @@
     </section>
   {/if}
 
+  {#if podcastsWithNewEpisodes.length > 0}
+    <section class="home-section">
+      <div class="section-header">
+        <h2 class="section-title">New Podcast Episodes</h2>
+        <a href="/podcasts" class="view-all">View all</a>
+      </div>
+      <div class="pc-slider">
+        {#each podcastsWithNewEpisodes as pc (pc.id)}
+          <a class="pc-card" href="/podcasts/{pc.id}">
+            <div class="pc-cover-wrap">
+              {#if pc.cover_art_key}
+                <img src="{getApiBase()}/covers/podcast/{pc.id}" alt={pc.title} class="pc-cover" loading="lazy" />
+              {:else}
+                <div class="pc-cover pc-placeholder">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                </div>
+              {/if}
+            </div>
+            <div class="pc-info">
+              <span class="pc-title" title={pc.title}>{pc.title}</span>
+              {#if pc.author}<span class="pc-author">{pc.author}</span>{/if}
+            </div>
+          </a>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if recentTracks.length > 0 || mostTracks.length > 0}
     <section class="home-section">
       <div class="plays-controls">
@@ -579,6 +621,39 @@
             <div class="ab-info">
               <span class="ab-title" title={book.title}>{book.title}</span>
               {#if book.author_name}<span class="ab-author">{book.author_name}</span>{/if}
+            </div>
+          </a>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  {#if newPodcasts.length > 0}
+    <section class="home-section">
+      <div class="section-header">
+        <h2 class="section-title">Recently Added Podcasts</h2>
+        <a href="/podcasts" class="view-all">View all</a>
+      </div>
+      <div class="pc-slider">
+        {#each newPodcasts as pc (pc.id)}
+          <a class="pc-card" href="/podcasts/{pc.id}">
+            <div class="pc-cover-wrap">
+              {#if pc.cover_art_key}
+                <img src="{getApiBase()}/covers/podcast/{pc.id}" alt={pc.title} class="pc-cover" loading="lazy" />
+              {:else}
+                <div class="pc-cover pc-placeholder">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                </div>
+              {/if}
+            </div>
+            <div class="pc-info">
+              <span class="pc-title" title={pc.title}>{pc.title}</span>
+              {#if pc.author}<span class="pc-author">{pc.author}</span>{/if}
             </div>
           </a>
         {/each}
@@ -980,6 +1055,79 @@
   }
   .ab-series:hover {
     text-decoration: underline;
+  }
+
+  /* ── Podcast cards ── */
+  .pc-slider {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .pc-slider::-webkit-scrollbar { height: 4px; }
+  .pc-slider::-webkit-scrollbar-track { background: transparent; }
+  .pc-slider::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .pc-card {
+    flex: 0 0 160px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .pc-cover-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+
+  .pc-cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.25s;
+  }
+  .pc-card:hover .pc-cover { transform: scale(1.03); }
+
+  .pc-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    opacity: 0.35;
+  }
+
+  .pc-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .pc-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+    max-width: 160px;
+  }
+  .pc-author {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
   }
 
   .album-slider {

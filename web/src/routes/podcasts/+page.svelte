@@ -7,19 +7,46 @@
   import { goto } from "$app/navigation";
 
   let subscriptions: Podcast[] = [];
+  let allPodcasts: Podcast[] = [];
   let loading = true;
+  let loadingMore = false;
   let rssUrl = "";
   let subscribing = false;
+  let offset = 0;
+  const limit = 50;
+  let hasMore = true;
 
-  async function loadSubscriptions() {
+  async function loadPodcasts() {
     loading = true;
+    offset = 0;
     try {
-      const res = await podcastApi.getSubscriptions();
-      subscriptions = res.podcasts ?? [];
+      const [subRes, allRes] = await Promise.all([
+        podcastApi.getSubscriptions(1000, 0), // Get all subs for the checkmarks
+        podcastApi.list(limit, offset)
+      ]);
+      subscriptions = subRes.podcasts ?? [];
+      allPodcasts = allRes.podcasts ?? [];
+      hasMore = allPodcasts.length === limit;
     } catch (err) {
-      console.error("Failed to load subscriptions", err);
+      console.error("Failed to load podcasts", err);
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    loadingMore = true;
+    try {
+      offset += limit;
+      const res = await podcastApi.list(limit, offset);
+      const newPodcasts = res.podcasts ?? [];
+      allPodcasts = [...allPodcasts, ...newPodcasts];
+      hasMore = newPodcasts.length === limit;
+    } catch (err) {
+      console.error("Failed to load more podcasts", err);
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -29,7 +56,7 @@
     try {
       await podcastApi.subscribe(rssUrl);
       rssUrl = "";
-      await loadSubscriptions();
+      await loadPodcasts();
     } catch (err) {
       alert("Failed to subscribe: " + err);
     } finally {
@@ -37,7 +64,7 @@
     }
   }
 
-  onMount(loadSubscriptions);
+  onMount(loadPodcasts);
 </script>
 
 <svelte:head><title>Podcasts – Orb</title></svelte:head>
@@ -69,13 +96,17 @@
         </div>
       {/each}
     </div>
-  {:else if subscriptions.length === 0}
+  {:else if allPodcasts.length === 0}
     <div class="empty">
-      <p>No podcast subscriptions yet.</p>
+      <p>No podcasts in the system yet. Add one above!</p>
     </div>
   {:else}
+    <div class="section-header">
+      <h2>All Podcasts</h2>
+    </div>
     <div class="grid">
-      {#each subscriptions as podcast (podcast.id)}
+      {#each allPodcasts as podcast (podcast.id)}
+        {@const isSubscribed = subscriptions.some(s => s.id === podcast.id)}
         <div class="podcast-card" on:click={() => goto(`/podcasts/${podcast.id}`)}>
           <div class="cover-wrap">
             {#if podcast.cover_art_key}
@@ -90,6 +121,13 @@
                 </svg>
               </div>
             {/if}
+            {#if isSubscribed}
+              <div class="subscribed-indicator" title="Subscribed">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+            {/if}
           </div>
           <div class="info">
             <span class="title">{podcast.title}</span>
@@ -100,14 +138,29 @@
         </div>
       {/each}
     </div>
+
+    {#if hasMore}
+      <div class="load-more">
+        <button on:click={loadMore} disabled={loadingMore}>
+          {#if loadingMore}
+            Loading...
+          {:else}
+            Load More
+          {/if}
+        </button>
+      </div>
+    {/if}
   {/if}
 </div>
 
 <style>
   .page { padding: 24px; }
-  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
   .page-title { font-size: 1.5rem; font-weight: 700; margin: 0; }
-  
+
+  .section-header { margin: 0 0 16px 0; }
+  .section-header h2 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+
   .subscribe-box { display: flex; gap: 8px; }
   .subscribe-box input { 
     background: var(--bg-elevated); 
@@ -133,10 +186,25 @@
     gap: 24px;
   }
 
-  .podcast-card { cursor: pointer; display: flex; flex-direction: column; gap: 8px; }
-  .cover-wrap { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--bg-elevated); }
+  .podcast-card { cursor: pointer; display: flex; flex-direction: column; gap: 8px; position: relative; }
+  .cover-wrap { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; background: var(--bg-elevated); position: relative; }
   .cover { width: 100%; height: 100%; object-fit: cover; }
   .placeholder { display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
+
+  .subscribed-indicator {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--accent);
+    color: white;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  }
   
   .info { display: flex; flex-direction: column; }
   .title { font-weight: 600; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -144,6 +212,31 @@
 
   .card-skeleton { display: flex; flex-direction: column; gap: 8px; }
   .skeleton-cover { width: 100%; aspect-ratio: 1; border-radius: 8px; background: var(--bg-elevated); }
+
+  .load-more {
+    display: flex;
+    justify-content: center;
+    padding: 32px 0;
+  }
+  .load-more button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 8px 24px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  .load-more button:hover:not(:disabled) {
+    border-color: var(--text-muted);
+    color: var(--text);
+    background: var(--bg-elevated);
+  }
+  .load-more button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
   .empty { text-align: center; padding: 48px; color: var(--text-muted); }
 </style>

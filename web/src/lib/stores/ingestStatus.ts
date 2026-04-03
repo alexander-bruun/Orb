@@ -21,6 +21,7 @@ export interface IngestState {
 	total: number;
 	skipped: number;
 	errors: number;
+	startedAt?: number;
 	currentFile?: string;
 	lastScan?: LastScan;
 }
@@ -53,17 +54,22 @@ function createIngestStatusStore() {
 		es.onmessage = (e) => {
 			try {
 				const data = JSON.parse(e.data);
-				update((s) => ({
-					...s,
-					running: data.type === 'progress',
-					phase:
-						data.type === 'complete' ? 'complete' : data.type === 'error' ? 'error' : 'running',
-					done: data.done ?? s.done,
-					total: data.total ?? s.total,
-					skipped: data.skipped ?? s.skipped,
-					errors: data.errors ?? s.errors,
-					currentFile: data.file_path || s.currentFile,
-				}));
+				update((s) => {
+					const now = Date.now();
+					const isStarting = data.type === 'progress' && !s.running;
+					return {
+						...s,
+						running: data.type === 'progress',
+						phase:
+							data.type === 'complete' ? 'complete' : data.type === 'error' ? 'error' : 'running',
+						done: data.done ?? s.done,
+						total: data.total ?? s.total,
+						skipped: data.skipped ?? s.skipped,
+						errors: data.errors ?? s.errors,
+						currentFile: data.file_path || s.currentFile,
+						startedAt: isStarting ? now : s.startedAt,
+					};
+				});
 				if (data.type === 'complete' || data.type === 'error') {
 					disconnectSSE();
 					// Refresh full status to pick up last_scan
@@ -103,6 +109,7 @@ function createIngestStatusStore() {
 						total: 0,
 						skipped: 0,
 						errors: 0,
+						startedAt: Date.now(),
 						currentFile: undefined,
 						lastScan: data.last_scan ?? s.lastScan,
 					};
@@ -152,6 +159,7 @@ function createIngestStatusStore() {
 			total: 0,
 			skipped: 0,
 			errors: 0,
+			startedAt: Date.now(),
 			currentFile: undefined,
 		}));
 		// Small delay so the server starts before we subscribe

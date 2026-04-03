@@ -306,6 +306,22 @@ type Ingester struct {
 	pending   []store.IngestStateRow
 }
 
+// SetMetadataConfig updates the metadata enrichment configuration.
+func (g *Ingester) SetMetadataConfig(discogsToken, mbBaseURL, mbContact string) {
+	if g.mb != nil {
+		g.mb.SetConfig(mbBaseURL, mbContact)
+	}
+	if discogsToken != "" {
+		if g.dc == nil {
+			g.dc = discogs.New(discogsToken)
+		} else {
+			g.dc.SetToken(discogsToken)
+		}
+	} else {
+		g.dc = nil
+	}
+}
+
 // New creates a new Ingester with the given dependencies and config.
 // kv is optional; when non-nil, progress events are published via Redis pub/sub
 // so that the admin SSE endpoint can stream them to browsers.

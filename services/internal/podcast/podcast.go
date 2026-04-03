@@ -238,15 +238,47 @@ func (s *Service) StartBackgroundWorker(ctx context.Context, interval time.Durat
 }
 
 func (s *Service) refreshAll(ctx context.Context) {
-	podcasts, err := s.db.ListPodcasts(ctx)
-	if err != nil {
-		slog.Error("list podcasts for refresh failed", "err", err)
-		return
+	const batchSize = 100
+	offset := 0
+	for {
+		podcasts, err := s.db.ListPodcasts(ctx, batchSize, int32(offset))
+		if err != nil {
+			slog.Error("list podcasts for refresh failed", "err", err)
+			return
+		}
+		if len(podcasts) == 0 {
+			break
+		}
+
+		for _, p := range podcasts {
+			if err := s.RefreshPodcast(ctx, p.ID); err != nil {
+				slog.Error("refresh podcast failed", "id", p.ID, "err", err)
+			}
+		}
+
+		if len(podcasts) < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+}
+
+// EnsureDefaultPodcasts adds the default podcast feeds if they don't already exist.
+func (s *Service) EnsureDefaultPodcasts(ctx context.Context) error {
+	defaults := []string{
+		"https://feeds.megaphone.fm/thispastweekend",
+		"https://feeds.simplecast.com/54nAGcIl",
+		"https://feeds.simplecast.com/qm_9xx0g",
+		"https://podcast.darknetdiaries.com/",
+		"https://feeds.megaphone.fm/ear-biscuits",
+		"https://feeds.megaphone.fm/GLT1412515089",
 	}
 
-	for _, p := range podcasts {
-		if err := s.RefreshPodcast(ctx, p.ID); err != nil {
-			slog.Error("refresh podcast failed", "id", p.ID, "err", err)
+	for _, url := range defaults {
+		if _, err := s.AddPodcastByRSS(ctx, url); err != nil {
+			slog.Error("failed to add default podcast", "url", url, "err", err)
 		}
 	}
+
+	return nil
 }

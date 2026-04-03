@@ -80,6 +80,11 @@ func NewService(serverCtx context.Context, ingester *Ingester, kv *redis.Client)
 // SetDispatcher attaches a webhook dispatcher for ingest completion events.
 func (s *Service) SetDispatcher(d *webhook.Dispatcher) { s.dispatcher = d }
 
+// SetMetadataConfig updates the underlying ingester's metadata configuration.
+func (s *Service) SetMetadataConfig(discogsToken, mbBaseURL, mbContact string) {
+	s.ingester.SetMetadataConfig(discogsToken, mbBaseURL, mbContact)
+}
+
 // Routes registers ingest admin endpoints. Must be mounted under JWT + admin middleware.
 func (s *Service) Routes(r chi.Router) {
 	r.Post("/scan", s.triggerScan)
