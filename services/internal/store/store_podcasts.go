@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	pgx "github.com/jackc/pgx/v5"
 )
@@ -14,6 +16,27 @@ func (s *Store) ListPodcasts(ctx context.Context, limit, offset int32) ([]Podcas
 		ORDER BY title ASC
 		LIMIT $1 OFFSET $2
 	`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return pgx.CollectRows(rows, pgx.RowToStructByName[Podcast])
+}
+
+// SearchPodcasts returns podcasts matching a full-text query.
+func (s *Store) SearchPodcasts(ctx context.Context, p SearchPodcastsParams) ([]Podcast, error) {
+	orderBy := "ts_rank(search_vector, websearch_to_tsquery('english', $1)) DESC"
+	if strings.EqualFold(p.SortBy, "title") {
+		orderBy = "title ASC"
+	}
+
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT id, title, description, author, rss_url, link, cover_art_key, created_at, updated_at
+		FROM podcasts
+		WHERE search_vector @@ websearch_to_tsquery('english', $1)
+		ORDER BY %s
+		LIMIT $2
+	`, orderBy), p.ToTsquery, p.Limit)
 	if err != nil {
 		return nil, err
 	}

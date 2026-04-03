@@ -3,6 +3,13 @@ import { audioEngine } from '$lib/audio/engine';
 import { getApiBase } from '$lib/api/base';
 import { currentTrack, positionMs, durationMs } from './musicPlayer';
 import { currentAudiobook, abPositionMs, abDurationMs } from './audiobookPlayer';
+import {
+	currentEpisode,
+	currentPodcast,
+	podcastPositionMs,
+	podcastDurationMs,
+	getPodcastPiPAudioStream,
+} from './podcastPlayer';
 import { activePlayer } from './engine';
 import { lyricsLines, activeLyricIndex } from './lyrics';
 import { waveformPeaks } from './waveformPeaks';
@@ -38,6 +45,10 @@ function currentCoverKey(): string {
 		const book = get(currentAudiobook);
 		return book?.id ? `audiobook:${book.id}` : '';
 	}
+	if (mode === 'podcast') {
+		const episode = get(currentEpisode);
+		return episode?.podcast_id ? `podcast:${episode.podcast_id}` : '';
+	}
 	const track = get(currentTrack);
 	return track?.album_id ? `album:${track.album_id}` : '';
 }
@@ -48,6 +59,10 @@ function currentCoverUrl(): string {
 	if (mode === 'audiobook') {
 		const book = get(currentAudiobook);
 		return book?.id ? `${base}/covers/audiobook/${book.id}` : '';
+	}
+	if (mode === 'podcast') {
+		const episode = get(currentEpisode);
+		return episode?.podcast_id ? `${base}/covers/podcast/${episode.podcast_id}` : '';
 	}
 	const track = get(currentTrack);
 	return track?.album_id ? `${base}/covers/${track.album_id}` : '';
@@ -80,15 +95,31 @@ function drawBridgeFrame(): void {
 	const mode = get(activePlayer);
 	const track = get(currentTrack);
 	const book = get(currentAudiobook);
-	const title = mode === 'audiobook' ? (book?.title ?? 'Audiobook') : (track?.title ?? 'Now Playing');
+	const episode = get(currentEpisode);
+	const podcast = get(currentPodcast);
+	const title = mode === 'audiobook'
+		? (book?.title ?? 'Audiobook')
+		: mode === 'podcast'
+			? (episode?.title ?? 'Podcast')
+			: (track?.title ?? 'Now Playing');
 	const subtitle = mode === 'audiobook'
 		? (book?.author_name ?? '')
-		: (track?.artist_name ?? '');
+		: mode === 'podcast'
+			? (podcast?.title ?? podcast?.author ?? '')
+			: (track?.artist_name ?? '');
 	const lyricIdx = mode === 'music' ? get(activeLyricIndex) : -1;
 	const lines = mode === 'music' ? get(lyricsLines) : [];
 	const lyricLine = lyricIdx >= 0 ? (lines[lyricIdx]?.text ?? '') : '';
-	const posMs = mode === 'audiobook' ? get(abPositionMs) : get(positionMs);
-	const durMs = mode === 'audiobook' ? get(abDurationMs) : get(durationMs);
+	const posMs = mode === 'audiobook'
+		? get(abPositionMs)
+		: mode === 'podcast'
+			? get(podcastPositionMs)
+			: get(positionMs);
+	const durMs = mode === 'audiobook'
+		? get(abDurationMs)
+		: mode === 'podcast'
+			? get(podcastDurationMs)
+			: get(durationMs);
 	const progress = durMs > 0 ? Math.max(0, Math.min(1, posMs / durMs)) : 0;
 
 	const art = ensureCoverImage();
@@ -178,16 +209,17 @@ function stopDrawTimer(): void {
 }
 
 function buildBridgeStream(): MediaStream | null {
-	const audioStream = audioEngine.getPiPAudioStream();
-	if (!audioStream) return null;
-
 	const canvas = ensureBridgeCanvas();
 	const videoTrack = canvas.captureStream(12).getVideoTracks()[0];
 	if (!videoTrack) return null;
 
 	const out = new MediaStream();
 	out.addTrack(videoTrack);
-	for (const track of audioStream.getAudioTracks()) out.addTrack(track);
+	const mode = get(activePlayer);
+	const audioStream = mode === 'podcast'
+		? getPodcastPiPAudioStream()
+		: audioEngine.getPiPAudioStream();
+	for (const track of (audioStream?.getAudioTracks() ?? [])) out.addTrack(track);
 	return out;
 }
 
@@ -224,19 +256,18 @@ async function ensureBridgeVideo(): Promise<HTMLVideoElement | null> {
 
 export async function syncNativePictureInPictureBridge(playing: boolean): Promise<void> {
 	if (!supportsNativePiP()) return;
-	if (!audioEngine.isLoaded) {
+
+	ensureDrawTimer();
+	const video = await ensureBridgeVideo();
+	if (!video) {
 		await teardownNativePictureInPictureBridge();
 		return;
 	}
 
-	ensureDrawTimer();
-	const video = await ensureBridgeVideo();
-	if (!video) return;
-
 	// Keep the bridge video playing even while audio is paused so Chrome PiP
 	// retains the rendered frame/text instead of showing a blank window.
-	// The `playing` flag is still used by callers for state semantics; teardown
-	// on true stop/idle is handled separately via audioEngine.isLoaded checks.
+	// The `playing` flag is kept for call-site semantics; teardown on true
+	// stop/idle is handled by store-level state transitions.
 	await video.play().catch(() => { });
 }
 

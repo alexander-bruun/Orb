@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -263,21 +264,60 @@ func (s *Service) refreshAll(ctx context.Context) {
 	}
 }
 
-// EnsureDefaultPodcasts adds the default podcast feeds if they don't already exist.
-func (s *Service) EnsureDefaultPodcasts(ctx context.Context) error {
-	defaults := []string{
-		"https://feeds.megaphone.fm/thispastweekend",
-		"https://feeds.simplecast.com/54nAGcIl",
-		"https://feeds.simplecast.com/qm_9xx0g",
-		"https://podcast.darknetdiaries.com/",
-		"https://feeds.megaphone.fm/ear-biscuits",
-		"https://feeds.megaphone.fm/GLT1412515089",
+const defaultPodcastsSeededSettingKey = "podcasts.default_seeded_v1"
+const defaultPodcastsEnvKey = "PODCAST_DEFAULT_RSS_URLS"
+
+func parseDefaultPodcastRSSURLs() []string {
+	raw := strings.TrimSpace(os.Getenv(defaultPodcastsEnvKey))
+	if raw == "" {
+		return nil
 	}
+
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 8)
+	for _, part := range strings.Split(raw, ",") {
+		url := strings.TrimSpace(part)
+		if url == "" {
+			continue
+		}
+		if _, ok := seen[url]; ok {
+			continue
+		}
+		seen[url] = struct{}{}
+		out = append(out, url)
+	}
+	return out
+}
+
+// EnsureDefaultPodcasts adds default podcast feeds only on first boot.
+func (s *Service) EnsureDefaultPodcasts(ctx context.Context) error {
+	seeded, err := s.db.GetSiteSetting(ctx, defaultPodcastsSeededSettingKey)
+	if err != nil {
+		return fmt.Errorf("get default podcast seed setting: %w", err)
+	}
+	if seeded == "1" {
+		return nil
+	}
+
+	// Existing installs from before this flag should not re-seed deleted defaults.
+	userCount, err := s.db.CountUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("count users: %w", err)
+	}
+	if userCount > 0 {
+		return s.db.SetSiteSetting(ctx, defaultPodcastsSeededSettingKey, "1")
+	}
+
+	defaults := parseDefaultPodcastRSSURLs()
 
 	for _, url := range defaults {
 		if _, err := s.AddPodcastByRSS(ctx, url); err != nil {
 			slog.Error("failed to add default podcast", "url", url, "err", err)
 		}
+	}
+
+	if err := s.db.SetSiteSetting(ctx, defaultPodcastsSeededSettingKey, "1"); err != nil {
+		return fmt.Errorf("set default podcast seed setting: %w", err)
 	}
 
 	return nil

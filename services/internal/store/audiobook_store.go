@@ -283,6 +283,78 @@ func (s *Store) ListAudiobooks(ctx context.Context, p ListAudiobooksParams) ([]A
 	return result, rows.Err()
 }
 
+// SearchAudiobooks returns audiobooks matching a full-text query.
+func (s *Store) SearchAudiobooks(ctx context.Context, p SearchAudiobooksParams) ([]Audiobook, error) {
+	orderBy := "ts_rank(ab.search_vector, websearch_to_tsquery('english', $1)) DESC"
+	switch p.SortBy {
+	case "title":
+		orderBy = "ab.title ASC"
+	case "author":
+		orderBy = "ar.name ASC NULLS LAST, ab.title ASC"
+	case "year":
+		orderBy = "ab.published_year DESC NULLS LAST, ab.title ASC"
+	}
+
+	rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+		SELECT ab.id, ab.title, ab.edition, ab.author_id, ar.name,
+		       ab.cover_art_key, ab.series, ab.series_index, ab.series_source, ab.series_confidence,
+		       ab.published_year, ab.duration_ms, ab.format, ab.created_at
+		FROM audiobooks ab
+		LEFT JOIN artists ar ON ar.id = ab.author_id
+		WHERE ab.search_vector @@ websearch_to_tsquery('english', $1)
+		ORDER BY %s
+		LIMIT $2`, orderBy), p.ToTsquery, p.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []Audiobook
+	for rows.Next() {
+		var a Audiobook
+		var edition, authorID, authorName, coverArtKey, series, seriesSource sql.NullString
+		var seriesIndex, seriesConfidence sql.NullFloat64
+		var publishedYear sql.NullInt32
+		if err := rows.Scan(
+			&a.ID, &a.Title, &edition, &authorID, &authorName,
+			&coverArtKey, &series, &seriesIndex, &seriesSource, &seriesConfidence,
+			&publishedYear, &a.DurationMs, &a.Format, &a.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if edition.Valid {
+			a.Edition = &edition.String
+		}
+		if authorID.Valid {
+			a.AuthorID = &authorID.String
+		}
+		if authorName.Valid {
+			a.AuthorName = &authorName.String
+		}
+		if coverArtKey.Valid {
+			a.CoverArtKey = &coverArtKey.String
+		}
+		if series.Valid {
+			a.Series = &series.String
+		}
+		if seriesIndex.Valid {
+			a.SeriesIndex = &seriesIndex.Float64
+		}
+		if seriesSource.Valid {
+			a.SeriesSource = &seriesSource.String
+		}
+		if seriesConfidence.Valid {
+			a.SeriesConfidence = &seriesConfidence.Float64
+		}
+		if publishedYear.Valid {
+			v := int(publishedYear.Int32)
+			a.PublishedYear = &v
+		}
+		result = append(result, a)
+	}
+	return result, rows.Err()
+}
+
 // ListRecentAudiobooks returns the most recently added audiobooks.
 func (s *Store) ListRecentAudiobooks(ctx context.Context, limit int) ([]Audiobook, error) {
 	rows, err := s.pool.Query(ctx, `

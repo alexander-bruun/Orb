@@ -35,6 +35,19 @@
   let typesTracks = true;
   let typesAlbums = true;
   let typesArtists = true;
+  let typesAudiobooks = false;
+  let typesPodcasts = false;
+
+  function isDefaultMusicTypes(
+    types: ("tracks" | "albums" | "artists" | "audiobooks" | "podcasts")[]
+  ): boolean {
+    return (
+      types.length === 3 &&
+      types.includes("tracks") &&
+      types.includes("albums") &&
+      types.includes("artists")
+    );
+  }
 
   function buildFilters(): SearchFilters {
     const f: SearchFilters = {};
@@ -54,11 +67,14 @@
     if (!isNaN(pmax) && pmax > 0) f.bpm_max = pmax;
     if (sortTracks) f.sort_tracks = sortTracks;
     if (sortAlbums) f.sort_albums = sortAlbums;
-    const types: ("tracks" | "albums" | "artists")[] = [];
+    const types: ("tracks" | "albums" | "artists" | "audiobooks" | "podcasts")[] =
+      [];
     if (typesTracks) types.push("tracks");
     if (typesAlbums) types.push("albums");
     if (typesArtists) types.push("artists");
-    if (types.length < 3) f.types = types;
+    if (typesAudiobooks) types.push("audiobooks");
+    if (typesPodcasts) types.push("podcasts");
+    if (!isDefaultMusicTypes(types)) f.types = types;
     return f;
   }
 
@@ -73,12 +89,23 @@
     bpmMax = f.bpm_max ? String(f.bpm_max) : "";
     sortTracks = f.sort_tracks ?? "";
     sortAlbums = f.sort_albums ?? "";
-    typesTracks = !f.types || f.types.includes("tracks");
-    typesAlbums = !f.types || f.types.includes("albums");
-    typesArtists = !f.types || f.types.includes("artists");
+    if (!f.types || f.types.length === 0) {
+      typesTracks = true;
+      typesAlbums = true;
+      typesArtists = true;
+      typesAudiobooks = false;
+      typesPodcasts = false;
+      return;
+    }
+    typesTracks = f.types.includes("tracks");
+    typesAlbums = f.types.includes("albums");
+    typesArtists = f.types.includes("artists");
+    typesAudiobooks = f.types.includes("audiobooks");
+    typesPodcasts = f.types.includes("podcasts");
   }
 
   function hasActiveFilters(f: SearchFilters): boolean {
+    const hasTypeOverride = !!f.types && !isDefaultMusicTypes(f.types);
     return !!(
       f.genre ||
       f.year_from ||
@@ -90,7 +117,7 @@
       f.bpm_max ||
       f.sort_tracks ||
       f.sort_albums ||
-      (f.types && f.types.length < 3)
+      hasTypeOverride
     );
   }
 
@@ -132,6 +159,7 @@
       sortAlbums =
         "";
     typesTracks = typesAlbums = typesArtists = true;
+    typesAudiobooks = typesPodcasts = false;
     searchFilters.set({});
     if (localQuery.trim()) doSearch(localQuery, {});
   }
@@ -164,7 +192,9 @@
   $: hasResults =
     $searchResults.tracks.length > 0 ||
     $searchResults.albums.length > 0 ||
-    $searchResults.artists.length > 0;
+    $searchResults.artists.length > 0 ||
+    $searchResults.audiobooks.length > 0 ||
+    $searchResults.podcasts.length > 0;
 
   $: activeFilters = hasActiveFilters($searchFilters);
   $: activeFilterCount = [
@@ -178,7 +208,9 @@
     $searchFilters.bpm_max,
     $searchFilters.sort_tracks,
     $searchFilters.sort_albums,
-    $searchFilters.types && $searchFilters.types.length < 3 ? true : null,
+    $searchFilters.types && !isDefaultMusicTypes($searchFilters.types)
+      ? true
+      : null,
   ].filter(Boolean).length;
 </script>
 
@@ -214,7 +246,13 @@
           on:click={() => {
             localQuery = "";
             searchQuery.set("");
-            searchResults.set({ tracks: [], albums: [], artists: [] });
+            searchResults.set({
+              tracks: [],
+              albums: [],
+              artists: [],
+              audiobooks: [],
+              podcasts: [],
+            });
             searchInputEl?.focus();
           }}
           aria-label="Clear"
@@ -282,6 +320,14 @@
           >
           <label class="check-label"
             ><input type="checkbox" bind:checked={typesArtists} /> Artists</label
+          >
+          <label class="check-label"
+            ><input type="checkbox" bind:checked={typesAudiobooks} />
+            Audiobooks</label
+          >
+          <label class="check-label"
+            ><input type="checkbox" bind:checked={typesPodcasts} />
+            Podcasts</label
           >
         </fieldset>
 
@@ -491,6 +537,44 @@
             <div class="album-grid">
               {#each $searchResults.albums as album (album.id)}
                 <AlbumCard {album} />
+              {/each}
+            </div>
+          </section>
+        {/if}
+
+        {#if $searchResults.audiobooks.length}
+          <section>
+            <h2 class="section-title">
+              Audiobooks
+              <span class="count">{$searchResults.audiobooks.length}</span>
+            </h2>
+            <div class="media-list">
+              {#each $searchResults.audiobooks as audiobook (audiobook.id)}
+                <a class="media-item" href="/audiobooks/{audiobook.id}">
+                  <span class="media-title">{audiobook.title}</span>
+                  {#if audiobook.author_name}
+                    <span class="media-meta">{audiobook.author_name}</span>
+                  {/if}
+                </a>
+              {/each}
+            </div>
+          </section>
+        {/if}
+
+        {#if $searchResults.podcasts.length}
+          <section>
+            <h2 class="section-title">
+              Podcasts
+              <span class="count">{$searchResults.podcasts.length}</span>
+            </h2>
+            <div class="media-list">
+              {#each $searchResults.podcasts as podcast (podcast.id)}
+                <a class="media-item" href="/podcasts/{podcast.id}">
+                  <span class="media-title">{podcast.title}</span>
+                  {#if podcast.author}
+                    <span class="media-meta">{podcast.author}</span>
+                  {/if}
+                </a>
               {/each}
             </div>
           </section>
@@ -868,6 +952,36 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 16px;
+  }
+
+  .media-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .media-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    background: var(--surface);
+    text-decoration: none;
+  }
+  .media-item:hover {
+    border-color: var(--accent);
+  }
+
+  .media-title {
+    color: var(--text);
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .media-meta {
+    color: var(--text-muted);
+    font-size: 0.75rem;
   }
 
   .muted {

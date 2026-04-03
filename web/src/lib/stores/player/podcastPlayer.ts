@@ -111,11 +111,17 @@ export async function playEpisode(
 	podcast: Podcast,
 	startMs?: number,
 ) {
+	const isAndroid = nativePlatform() === 'android';
+
 	// If same episode and already loaded, just toggle
 	const current = get(currentEpisode);
 	if (current?.id === episode.id) {
-		togglePodcastPlayPause();
-		return;
+		const hasLocalAudioLoaded = !!(_audio && _audio.src);
+		const hasNativeAudioLoaded = isAndroid && engine.isNativePlayerReady();
+		if (hasLocalAudioLoaded || hasNativeAudioLoaded) {
+			togglePodcastPlayPause();
+			return;
+		}
 	}
 
 	_stopSaveInterval();
@@ -148,8 +154,6 @@ export async function playEpisode(
 	}
 	resolvedStartMs = resolvedStartMs ?? 0;
 	podcastPositionMs.set(resolvedStartMs);
-
-	const isAndroid = nativePlatform() === 'android';
 
 	if (isAndroid) {
 		// On Android use the unified engine (ExoPlayer under the hood)
@@ -201,7 +205,7 @@ export async function togglePodcastPlayPause() {
 		_stopSaveInterval();
 		_saveProgress(false);
 	} else if (state === 'paused' || state === 'loading') {
-		if (_audio) {
+		if (_audio && _audio.src) {
 			try {
 				await _audio.play();
 				podcastPlaybackState.set('playing');
@@ -210,6 +214,13 @@ export async function togglePodcastPlayPause() {
 				console.error('Podcast resume failed', e);
 			}
 		} else {
+			const ep = get(currentEpisode);
+			const podcast = get(currentPodcast);
+			if (ep && podcast) {
+				await playEpisode(ep, podcast, get(podcastPositionMs));
+				return;
+			}
+
 			engine.resume();
 			podcastPlaybackState.set('playing');
 			_startSaveInterval();
@@ -254,6 +265,34 @@ export async function markEpisodePlayed(completed: boolean) {
 	const ep = get(currentEpisode);
 	if (!ep) return;
 	await podcastsApi.updateProgress(ep.id, get(podcastPositionMs), completed);
+}
+
+export function restorePodcastState(episode: PodcastEpisode, podcast: Podcast, posMs: number) {
+	currentEpisode.set(episode);
+	currentPodcast.set(podcast);
+	podcastDurationMs.set(episode.duration_ms ?? 0);
+	podcastPositionMs.set(posMs);
+	podcastPlaybackState.set('paused');
+	engine.switchMode('podcast');
+	engine._writableCurrentContent.set({
+		id: episode.id,
+		title: episode.title,
+		artist: podcast.author ?? undefined,
+		coverUrl: `${getApiBase()}/covers/podcast/${episode.podcast_id}`,
+		durationMs: episode.duration_ms ?? 0,
+	});
+}
+
+export function getPodcastPiPAudioStream(): MediaStream | null {
+	if (!_audio) return null;
+	const capture = (_audio as HTMLMediaElement & { captureStream?: () => MediaStream }).captureStream;
+	if (typeof capture !== 'function') return null;
+	try {
+		const stream = capture.call(_audio);
+		return stream.getAudioTracks().length > 0 ? stream : null;
+	} catch {
+		return null;
+	}
 }
 
 export function closePodcast() {

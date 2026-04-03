@@ -487,11 +487,31 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		bpmMax = &v
 	}
 
-	// Determine which result types to include (default: all).
-	types := qs.Get("types") // comma-separated: "tracks,albums,artists"
-	wantTracks := types == "" || strings.Contains(types, "tracks")
-	wantAlbums := types == "" || strings.Contains(types, "albums")
-	wantArtists := types == "" || strings.Contains(types, "artists")
+	// Determine which result types to include.
+	// Defaults to music-only search (tracks + albums + artists).
+	typeSet := map[string]struct{}{}
+	rawTypes := strings.TrimSpace(qs.Get("types")) // comma-separated
+	if rawTypes != "" {
+		for _, t := range strings.Split(rawTypes, ",") {
+			t = strings.TrimSpace(strings.ToLower(t))
+			if t != "" {
+				typeSet[t] = struct{}{}
+			}
+		}
+	}
+	hasTypeFilter := len(typeSet) > 0
+	wantTracks := !hasTypeFilter
+	wantAlbums := !hasTypeFilter
+	wantArtists := !hasTypeFilter
+	wantAudiobooks := false
+	wantPodcasts := false
+	if hasTypeFilter {
+		_, wantTracks = typeSet["tracks"]
+		_, wantAlbums = typeSet["albums"]
+		_, wantArtists = typeSet["artists"]
+		_, wantAudiobooks = typeSet["audiobooks"]
+		_, wantPodcasts = typeSet["podcasts"]
+	}
 
 	out := map[string]any{}
 
@@ -548,6 +568,26 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		out["artists"] = result
 	} else {
 		out["artists"] = []any{}
+	}
+
+	if wantAudiobooks {
+		audiobooks, _ := s.db.SearchAudiobooks(r.Context(), store.SearchAudiobooksParams{
+			ToTsquery: q,
+			Limit:     20,
+		})
+		out["audiobooks"] = audiobooks
+	} else {
+		out["audiobooks"] = []any{}
+	}
+
+	if wantPodcasts {
+		podcasts, _ := s.db.SearchPodcasts(r.Context(), store.SearchPodcastsParams{
+			ToTsquery: q,
+			Limit:     20,
+		})
+		out["podcasts"] = podcasts
+	} else {
+		out["podcasts"] = []any{}
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, out)

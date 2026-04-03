@@ -14,9 +14,18 @@
     setPodcastSleepTimer,
     PODCAST_SLEEP_PRESETS,
   } from "$lib/stores/player/podcastPlayer";
-  import { podcastSleepTimerEnabled } from "$lib/stores/settings/theme";
+  import {
+    podcastSleepTimerEnabled,
+    listenAlongEnabled,
+  } from "$lib/stores/settings/theme";
   import { engineVolume, setVolume } from "$lib/stores/player/engine";
   import { expanded } from "$lib/components/layout/desktop/coverExpandStore";
+  import {
+    lpRole,
+    lpPanelOpen,
+    lpParticipants,
+    createAndConnect,
+  } from "$lib/stores/social/listenParty";
   import { getApiBase } from "$lib/api/base";
 
   let volumePopupOpen = false;
@@ -61,46 +70,55 @@
   <!-- Left: cover + metadata -->
   <div class="pod-info">
     {#if $currentEpisode}
-      <div class="cover-hover-wrap">
-        {#if $currentPodcast?.cover_art_key}
-          <img
-            src="{getApiBase()}/covers/podcast/{$currentEpisode.podcast_id}"
-            alt="cover"
-            class="pod-cover"
-          />
-        {:else}
-          <div class="pod-cover pod-cover-placeholder">
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-              <line x1="8" y1="23" x2="16" y2="23" />
-            </svg>
-          </div>
-        {/if}
-        <button
-          class="cover-expand-btn"
-          on:click={() => expanded.update((v) => !v)}
-          aria-label="Expand cover"
-        >
-          <svg width="16" height="16" viewBox="0 0 20 20"
-            ><path d="M4 4h12v12H4V4zm2 2v8h8V6H6z" fill="currentColor" /></svg
+      {#if !$expanded}
+        <div class="cover-hover-wrap">
+          {#if $currentPodcast?.cover_art_key}
+            <img
+              src="{getApiBase()}/covers/podcast/{$currentEpisode.podcast_id}"
+              alt="cover"
+              class="pod-cover"
+            />
+          {:else}
+            <div class="pod-cover pod-cover-placeholder">
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path
+                  d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"
+                />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+            </div>
+          {/if}
+          <button
+            class="cover-expand-btn"
+            on:click={() => expanded.update((v) => !v)}
+            aria-label="Expand cover"
           >
-        </button>
-      </div>
+            <svg width="16" height="16" viewBox="0 0 20 20"
+              ><path
+                d="M4 4h12v12H4V4zm2 2v8h8V6H6z"
+                fill="currentColor"
+              /></svg
+            >
+          </button>
+        </div>
+      {/if}
       <div class="pod-meta">
         <div class="pod-title">{$currentEpisode.title}</div>
         {#if $currentPodcast}
-          <div class="pod-sub">{$currentPodcast.title}</div>
+          <a class="pod-sub pod-sub-link" href="/podcasts/{$currentPodcast.id}"
+            >{$currentPodcast.title}</a
+          >
         {/if}
       </div>
     {/if}
@@ -248,6 +266,65 @@
 
     <!-- Right: sleep timer -->
     <div class="pod-right">
+      {#if $listenAlongEnabled}
+        {#if $lpRole === "host"}
+          <button
+            class="ctrl-btn icon-btn party-btn"
+            class:active={$lpPanelOpen}
+            on:click={() => lpPanelOpen.update((v) => !v)}
+            title="Listen Along"
+            aria-label="Listen Along panel"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="7" r="3" /><path
+                d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
+              />
+              <circle cx="18" cy="7" r="2.5" /><path
+                d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"
+              />
+            </svg>
+            {#if $lpParticipants.length > 0}
+              <span class="party-count">{$lpParticipants.length}</span>
+            {/if}
+          </button>
+        {:else if $lpRole === null}
+          <button
+            class="ctrl-btn icon-btn party-btn"
+            on:click={createAndConnect}
+            title="Start Listen Along"
+            aria-label="Start Listen Along"
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="7" r="3" /><path
+                d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"
+              />
+              <circle cx="18" cy="7" r="2.5" /><path
+                d="M22 21v-1.5a3.5 3.5 0 0 0-3.5-3.5H17"
+              />
+            </svg>
+          </button>
+        {/if}
+      {/if}
       {#if $podcastSleepTimerEnabled}
         <div class="sleep-wrap">
           <button
@@ -397,6 +474,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .pod-sub-link {
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .pod-sub-link:hover {
+    color: var(--text);
   }
 
   .pod-playback {
@@ -583,6 +667,19 @@
   }
   .icon-btn.active {
     color: var(--accent);
+  }
+  .party-btn {
+    position: relative;
+  }
+  .party-count {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    pointer-events: none;
   }
   .sleep-badge {
     position: absolute;

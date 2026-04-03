@@ -394,6 +394,21 @@ func (s *Service) ServeByAudiobookChapterID(w http.ResponseWriter, r *http.Reque
 	s.serveAudio(w, r, *chapter.FileKey, size, ext, 0, 0)
 }
 
+// ServeByPodcastEpisodeID serves a podcast episode by ID.
+func (s *Service) ServeByPodcastEpisodeID(w http.ResponseWriter, r *http.Request, episodeID string) {
+	s.servePodcastEpisodeByID(w, r, episodeID)
+}
+
+// ServePodcastCover serves podcast cover art by podcast ID.
+func (s *Service) ServePodcastCover(w http.ResponseWriter, r *http.Request, podcastID string) {
+	p, err := s.db.GetPodcast(r.Context(), podcastID)
+	if err != nil || p.CoverArtKey == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.serveCover(w, r, *p.CoverArtKey)
+}
+
 func (s *Service) serveAudio(w http.ResponseWriter, r *http.Request, key string, fileSize int64, format string, bitDepth, sampleRate int) {
 	rangeHeader := r.Header.Get("Range")
 
@@ -906,6 +921,10 @@ func (s *Service) AudiobookChapterStream(w http.ResponseWriter, r *http.Request)
 // If not downloaded, it proxies the request to the original audio URL.
 func (s *Service) PodcastEpisodeStream(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "episode_id")
+	s.servePodcastEpisodeByID(w, r, id)
+}
+
+func (s *Service) servePodcastEpisodeByID(w http.ResponseWriter, r *http.Request, id string) {
 	ep, err := s.db.GetPodcastEpisode(r.Context(), id)
 	if err != nil {
 		http.Error(w, "episode not found", http.StatusNotFound)
@@ -970,12 +989,7 @@ func (s *Service) AudiobookCover(w http.ResponseWriter, r *http.Request) {
 // Route: GET /covers/podcast/{id}
 func (s *Service) PodcastCover(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	p, err := s.db.GetPodcast(r.Context(), id)
-	if err != nil || p.CoverArtKey == nil {
-		http.NotFound(w, r)
-		return
-	}
-	s.serveCover(w, r, *p.CoverArtKey)
+	s.ServePodcastCover(w, r, id)
 }
 
 // ServeAudiobookCover serves cover art for an audiobook by ID — intended for

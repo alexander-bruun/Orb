@@ -1,5 +1,5 @@
 import { apiFetch } from './client';
-import type { Track, Album, Artist, Genre, RelatedArtist, SearchFilters, ArtistEvent } from '$lib/types';
+import type { Track, Album, Artist, Genre, RelatedArtist, SearchFilters, ArtistEvent, SearchResults } from '$lib/types';
 
 export const library = {
 	tracks: (limit = 50, offset = 0) =>
@@ -37,7 +37,7 @@ export const library = {
 			if (filters.sort_tracks) p.set('sort_tracks', filters.sort_tracks);
 			if (filters.sort_albums) p.set('sort_albums', filters.sort_albums);
 		}
-		return apiFetch<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>(`/library/search?${p}`);
+		return apiFetch<SearchResults>(`/library/search?${p}`);
 	},
 	recentlyPlayed: (limit = 100, from?: string, to?: string) => {
 		const p = new URLSearchParams({ limit: String(limit) });

@@ -1,15 +1,17 @@
 import { writable } from 'svelte/store';
-import type { Track, Album, Artist, SearchFilters, SavedFilter } from '$lib/types';
+import type { Track, Album, Artist, SearchFilters, SavedFilter, SearchResults } from '$lib/types';
 import { STORAGE_KEYS } from '$lib/constants';
 
 export const libraryTracks = writable<Track[]>([]);
 export const libraryAlbums = writable<Album[]>([]);
 export const libraryArtists = writable<Artist[]>([]);
-export const searchResults = writable<{
-	tracks: Track[];
-	albums: Album[];
-	artists: Artist[];
-}>({ tracks: [], albums: [], artists: [] });
+export const searchResults = writable<SearchResults>({
+	tracks: [],
+	albums: [],
+	artists: [],
+	audiobooks: [],
+	podcasts: []
+});
 export const searchQuery = writable('');
 export const searchFilters = writable<SearchFilters>({});
 

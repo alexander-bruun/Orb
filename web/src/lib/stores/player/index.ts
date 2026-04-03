@@ -55,11 +55,24 @@ import { activePlayer } from './engine';
 import {
 	toggleABPlayPause, pauseAudiobook,
 	skipForward, skipBackward, seekAudiobookMs,
-	currentAudiobook, abPlaybackState,
+	currentAudiobook, abPlaybackState, abPositionMs, abDurationMs,
 	restoreAudiobookState,
 } from './audiobookPlayer';
+import {
+	currentEpisode,
+	currentPodcast,
+	podcastPlaybackState,
+	podcastPositionMs,
+	podcastDurationMs,
+	restorePodcastState,
+	togglePodcastPlayPause,
+	skipForwardPodcast,
+	skipBackwardPodcast,
+	seekPodcastMs,
+} from './podcastPlayer';
 import { authStore } from '$lib/stores/auth';
 import { audiobooks as audiobooksApi } from '$lib/api/audiobooks';
+import { podcasts as podcastsApi } from '$lib/api/podcasts';
 import * as engine from './engine';
 import {
 	openNativePictureInPicture,
@@ -89,6 +102,9 @@ function writeState() {
 		const st = {
 			trackId: get(currentTrack)?.id ?? null,
 			pos: Math.floor(get(positionMs) / 1000),
+			podcastEpisodeId: get(currentEpisode)?.id ?? null,
+			podcastId: get(currentPodcast)?.id ?? null,
+			podcastPos: Math.floor(get(podcastPositionMs) / 1000),
 			queue: get(queue),
 			queueIndex: get(queueIndex),
 			volume: get(volume),
@@ -139,6 +155,8 @@ positionMs.subscribe(() => schedulePositionSave());
 playbackState.subscribe(() => scheduleStateSave());
 currentTrack.subscribe(() => scheduleStateSave());
 currentAudiobook.subscribe(() => scheduleStateSave());
+currentEpisode.subscribe(() => scheduleStateSave());
+currentPodcast.subscribe(() => scheduleStateSave());
 activePlayer.subscribe(() => scheduleStateSave());
 queueIndex.subscribe(() => scheduleStateSave());
 volume.subscribe(() => scheduleStateSave());
@@ -155,6 +173,7 @@ replayGainEnabled.subscribe(() => {
 		audioEngine.setReplayGainDb(rgDb);
 	}
 });
+podcastPositionMs.subscribe(() => schedulePositionSave());
 
 // ── Media Session API ────────────────────────────────────────────────────────
 
@@ -210,16 +229,41 @@ function syncAudiobookMediaMetadata() {
 	});
 }
 
+function syncPodcastMediaMetadata() {
+	if (!mediaSessionSupported()) return;
+	const episode = get(currentEpisode);
+	if (!episode) return;
+	const podcast = get(currentPodcast);
+	const base = typeof location !== 'undefined' ? location.origin : '';
+	navigator.mediaSession.metadata = new MediaMetadata({
+		title: episode.title,
+		artist: podcast?.author ?? '',
+		album: podcast?.title ?? '',
+		artwork: [{ src: `${base}${getApiBase()}/covers/podcast/${episode.podcast_id}`, sizes: '512x512', type: 'image/jpeg' }],
+	});
+}
+
 if (mediaSessionSupported()) {
 	navigator.mediaSession.setActionHandler('play', () => {
-		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') toggleABPlayPause();
+		else if (mode === 'podcast') togglePodcastPlayPause();
+		else togglePlayPause();
 	});
 	navigator.mediaSession.setActionHandler('pause', () => {
-		if (get(activePlayer) === 'audiobook') toggleABPlayPause(); else togglePlayPause();
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') toggleABPlayPause();
+		else if (mode === 'podcast') togglePodcastPlayPause();
+		else togglePlayPause();
 	});
 	navigator.mediaSession.setActionHandler('stop', () => {
-		if (get(activePlayer) === 'audiobook') {
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') {
 			pauseAudiobook();
+		} else if (mode === 'podcast') {
+			if (get(podcastPlaybackState) === 'playing') {
+				togglePodcastPlayPause();
+			}
 		} else {
 			audioEngine.stop();
 			positionMs.set(0);
@@ -227,22 +271,34 @@ if (mediaSessionSupported()) {
 		}
 	});
 	navigator.mediaSession.setActionHandler('previoustrack', () => {
-		if (get(activePlayer) === 'audiobook') skipBackward(10); else previous();
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') skipBackward(10);
+		else if (mode === 'podcast') skipBackwardPodcast(15);
+		else previous();
 	});
 	navigator.mediaSession.setActionHandler('nexttrack', () => {
-		if (get(activePlayer) === 'audiobook') skipForward(30); else next();
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') skipForward(30);
+		else if (mode === 'podcast') skipForwardPodcast(30);
+		else next();
 	});
 	navigator.mediaSession.setActionHandler('seekto', (details) => {
 		if (details.seekTime === undefined) return;
-		if (get(activePlayer) === 'audiobook') seekAudiobookMs(details.seekTime * 1000);
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') seekAudiobookMs(details.seekTime * 1000);
+		else if (mode === 'podcast') seekPodcastMs(details.seekTime * 1000);
 		else seek(details.seekTime);
 	});
 	navigator.mediaSession.setActionHandler('seekbackward', (details) => {
-		if (get(activePlayer) === 'audiobook') skipBackward(details.seekOffset ?? 10);
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') skipBackward(details.seekOffset ?? 10);
+		else if (mode === 'podcast') skipBackwardPodcast(details.seekOffset ?? 10);
 		else seek(Math.max(0, get(positionMs) / 1000 - (details.seekOffset ?? 10)));
 	});
 	navigator.mediaSession.setActionHandler('seekforward', (details) => {
-		if (get(activePlayer) === 'audiobook') skipForward(details.seekOffset ?? 30);
+		const mode = get(activePlayer);
+		if (mode === 'audiobook') skipForward(details.seekOffset ?? 30);
+		else if (mode === 'podcast') skipForwardPodcast(details.seekOffset ?? 30);
 		else seek(Math.min(get(durationMs) / 1000, get(positionMs) / 1000 + (details.seekOffset ?? 10)));
 	});
 	try {
@@ -269,7 +325,11 @@ if (mediaSessionSupported()) {
 
 function syncNativePiPBridgeFromState() {
 	const mode = get(activePlayer);
-	const st = mode === 'audiobook' ? get(abPlaybackState) : get(playbackState);
+	const st = mode === 'audiobook'
+		? get(abPlaybackState)
+		: mode === 'podcast'
+			? get(podcastPlaybackState)
+			: get(playbackState);
 	if (st === 'idle') {
 		teardownNativePictureInPictureBridge().catch(() => { });
 		return;
@@ -288,8 +348,21 @@ currentAudiobook.subscribe(() => {
 	if (get(activePlayer) === 'audiobook') syncAudiobookMediaMetadata();
 	syncNativePiPBridgeFromState();
 });
+currentEpisode.subscribe(() => {
+	if (get(activePlayer) === 'podcast') syncPodcastMediaMetadata();
+	syncNativePiPBridgeFromState();
+});
+currentPodcast.subscribe(() => {
+	if (get(activePlayer) === 'podcast') syncPodcastMediaMetadata();
+});
 abPlaybackState.subscribe((state) => {
 	if (get(activePlayer) === 'audiobook') {
+		syncMediaSessionPlaybackState(state === 'playing' ? 'playing' : state === 'paused' ? 'paused' : 'idle');
+	}
+	syncNativePiPBridgeFromState();
+});
+podcastPlaybackState.subscribe((state) => {
+	if (get(activePlayer) === 'podcast') {
 		syncMediaSessionPlaybackState(state === 'playing' ? 'playing' : state === 'paused' ? 'paused' : 'idle');
 	}
 	syncNativePiPBridgeFromState();
@@ -300,6 +373,10 @@ activePlayer.subscribe((mode) => {
 		syncAudiobookMediaMetadata();
 		const abState = get(abPlaybackState);
 		syncMediaSessionPlaybackState(abState === 'playing' ? 'playing' : 'paused');
+	} else if (mode === 'podcast') {
+		syncPodcastMediaMetadata();
+		const podState = get(podcastPlaybackState);
+		syncMediaSessionPlaybackState(podState === 'playing' ? 'playing' : 'paused');
 	} else {
 		syncMediaMetadata(get(currentTrack));
 		syncMediaSessionPlaybackState(get(playbackState));
@@ -404,15 +481,31 @@ if (isTauri() && !isAndroidNative) {
 // ── Position state sync (throttled) ──────────────────────────────────────────
 
 let _posStateTimer: ReturnType<typeof setTimeout> | null = null;
+function currentPositionForMode(): number {
+	const mode = get(activePlayer);
+	if (mode === 'audiobook') return get(abPositionMs);
+	if (mode === 'podcast') return get(podcastPositionMs);
+	return get(positionMs);
+}
+function currentDurationForMode(): number {
+	const mode = get(activePlayer);
+	if (mode === 'audiobook') return get(abDurationMs);
+	if (mode === 'podcast') return get(podcastDurationMs);
+	return get(durationMs);
+}
 function schedulePositionStateSync() {
 	if (_posStateTimer) return;
 	_posStateTimer = setTimeout(() => {
 		_posStateTimer = null;
-		syncPositionState(get(positionMs), get(durationMs));
+		syncPositionState(currentPositionForMode(), currentDurationForMode());
 	}, TIMINGS.POSITION_STATE_SYNC);
 }
 positionMs.subscribe(schedulePositionStateSync);
-durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
+abPositionMs.subscribe(schedulePositionStateSync);
+podcastPositionMs.subscribe(schedulePositionStateSync);
+durationMs.subscribe(() => syncPositionState(currentPositionForMode(), currentDurationForMode()));
+abDurationMs.subscribe(() => syncPositionState(currentPositionForMode(), currentDurationForMode()));
+podcastDurationMs.subscribe(() => syncPositionState(currentPositionForMode(), currentDurationForMode()));
 
 // ── Restore state ────────────────────────────────────────────────────────────
 
@@ -439,6 +532,41 @@ durationMs.subscribe(() => syncPositionState(get(positionMs), get(durationMs)));
 		if (st.discord === true) discordEnabled.set(true);
 		if (st.replayGain === true) replayGainEnabled.set(true);
 		if (st.smartShuffle === true) smartShuffleEnabled.set(true);
+
+		// Restore podcast player
+		if (st.activePlayer === 'podcast' && st.podcastEpisodeId) {
+			const [episodeRes, podcastRes, progressRes] = await Promise.all([
+				podcastsApi.getEpisode(st.podcastEpisodeId).catch(() => null),
+				st.podcastId ? podcastsApi.get(st.podcastId).catch(() => null) : Promise.resolve(null),
+				podcastsApi.getProgress(st.podcastEpisodeId).catch(() => null),
+			]);
+			const episode = episodeRes?.episode ?? null;
+			if (episode) {
+				let podcast = podcastRes?.podcast ?? null;
+				if (!podcast) {
+					const fallbackPodcastRes = await podcastsApi.get(episode.podcast_id).catch(() => null);
+					podcast = fallbackPodcastRes?.podcast ?? null;
+				}
+				if (podcast) {
+					const posMs = progressRes?.progress?.position_ms ?? (typeof st.podcastPos === 'number' ? st.podcastPos * 1000 : 0);
+					restorePodcastState(episode, podcast, posMs);
+				}
+			}
+			// Also restore music queue in the background
+			if (st.trackId) {
+				libraryApi.track(st.trackId).then((res) => {
+					if (!res?.track) return;
+					currentTrack.set(res.track);
+					durationMs.set(res.track.duration_ms);
+					positionMs.set((st.pos || 0) * 1000);
+					queueIndex.set(typeof st.queueIndex === 'number' ? st.queueIndex : 0);
+					if (Array.isArray(st.queue) && st.queue.length) {
+						queue.set(st.queue as Track[]);
+					}
+				}).catch(() => { });
+			}
+			return;
+		}
 
 		// Restore audiobook player
 		if (st.activePlayer === 'audiobook' && st.audiobookId) {

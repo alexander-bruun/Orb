@@ -10,6 +10,7 @@
     lpParticipants,
     lpGuestTrack,
     lpGuestAudiobook,
+    lpGuestPodcast,
     lpGuestItemType,
     lpGuestPositionMs,
     lpGuestDurationMs,
@@ -444,6 +445,35 @@
               </svg>
             </div>
           {/if}
+        {:else if $lpGuestItemType === "podcast"}
+          {#if $lpGuestPodcast?.podcast_id && $lpGuestToken}
+            <img
+              class="cover-art"
+              src="{getApiBase()}/listen/{sessionId}/cover/podcast/{$lpGuestPodcast.podcast_id}?guest_token={encodeURIComponent(
+                $lpGuestToken,
+              )}"
+              alt="Podcast cover"
+            />
+          {:else}
+            <div class="cover-placeholder">
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                opacity="0.3"
+              >
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+            </div>
+          {/if}
         {/if}
 
         <!-- Playback state overlay — top left -->
@@ -477,6 +507,9 @@
         {#if $lpGuestItemType === "track"}
           <div class="track-title">{$lpGuestTrack?.title ?? "—"}</div>
           <div class="track-artist">{$lpGuestTrack?.artist_name ?? ""}</div>
+        {:else if $lpGuestItemType === "podcast"}
+          <div class="track-title">{$lpGuestPodcast?.title ?? "—"}</div>
+          <div class="track-artist">{$lpGuestPodcast?.podcast_title ?? $lpGuestPodcast?.author ?? ""}</div>
         {:else}
           <div class="track-title">{$lpGuestAudiobook?.title ?? "—"}</div>
           <div class="track-artist">{$lpGuestAudiobook?.author_name ?? ""}</div>

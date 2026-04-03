@@ -36,6 +36,10 @@ Orb is configured via environment variables. Important options:
 - `AUDIOBOOK_POLL_INTERVAL` — how often the audiobook watcher polls for changes (default: `30s`)
 - `AUDIOBOOK_STABLE_TIME` — how long a file must be stable before it is ingested (default: `10s`)
 
+## Podcasts
+
+- `PODCAST_DEFAULT_RSS_URLS` — comma-separated RSS feed URLs seeded on first boot only (example: `https://feeds.megaphone.fm/thispastweekend,https://podcast.darknetdiaries.com/`)
+
 ## Discovery
 
 - `MDNS_ENABLED` — enable mDNS server discovery (default: `true`)

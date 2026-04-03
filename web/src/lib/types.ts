@@ -270,12 +270,20 @@ export interface SearchFilters {
 	bitrate_max?: number;
 	bpm_min?: number;
 	bpm_max?: number;
-	/** Which result sections to show. Defaults to all three. */
-	types?: ('tracks' | 'albums' | 'artists')[];
+	/** Which result sections to show. Defaults to music-only: tracks, albums, artists. */
+	types?: ('tracks' | 'albums' | 'artists' | 'audiobooks' | 'podcasts')[];
 	/** Sort for track results: relevance | title | year | bitrate | duration | bpm */
 	sort_tracks?: string;
 	/** Sort for album results: relevance | title | year */
 	sort_albums?: string;
+}
+
+export interface SearchResults {
+	tracks: Track[];
+	albums: Album[];
+	artists: Artist[];
+	audiobooks: Audiobook[];
+	podcasts: Podcast[];
 }
 
 /** A saved search filter preset stored in localStorage. */

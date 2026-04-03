@@ -62,6 +62,7 @@ services:
       HTTP_PORT: "8080"
       MUSIC_DIRS: /music
       AUDIOBOOK_DIRS: /audiobooks
+      PODCAST_DEFAULT_RSS_URLS: "https://feeds.megaphone.fm/thispastweekend,https://feeds.simplecast.com/54nAGcIl,https://feeds.simplecast.com/qm_9xx0g,https://podcast.darknetdiaries.com/,https://feeds.megaphone.fm/ear-biscuits,https://feeds.megaphone.fm/GLT1412515089"
     volumes:
       - audio_data:/data/audio
       - secrets:/run/secrets:ro

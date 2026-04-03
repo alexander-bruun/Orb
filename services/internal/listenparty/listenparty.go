@@ -46,7 +46,7 @@ var upgrader = websocket.Upgrader{
 // PlaybackState holds the current playback snapshot stored in Redis and
 // broadcast to guests on join and on each sync_state from the host.
 type PlaybackState struct {
-	ItemType     string  `json:"item_type"` // "track" or "audiobook"
+	ItemType     string  `json:"item_type"` // "track", "audiobook", or "podcast"
 	TrackID      string  `json:"track_id"`  // kept for compatibility
 	ItemID       string  `json:"item_id"`
 	ChapterID    string  `json:"chapter_id,omitempty"`
@@ -93,6 +93,15 @@ type AudiobookInfo struct {
 	Chapters   []store.AudiobookChapter `json:"chapters,omitempty"`
 }
 
+type PodcastInfo struct {
+	ID           string `json:"id"`
+	PodcastID    string `json:"podcast_id"`
+	Title        string `json:"title"`
+	PodcastTitle string `json:"podcast_title"`
+	Author       string `json:"author"`
+	DurationMs   int64  `json:"duration_ms"`
+}
+
 // --- WebSocket message types ---
 
 type inMsg struct {
@@ -113,6 +122,7 @@ type outMsg struct {
 	State         *PlaybackState `json:"state,omitempty"`
 	TrackInfo     *TrackInfo     `json:"track_info,omitempty"`
 	AudiobookInfo *AudiobookInfo `json:"audiobook_info,omitempty"`
+	PodcastInfo   *PodcastInfo   `json:"podcast_info,omitempty"`
 	Participants  []Participant  `json:"participants,omitempty"`
 	Participant   *Participant   `json:"participant,omitempty"`
 	Message       string         `json:"message,omitempty"`
@@ -315,8 +325,10 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/{id}/stream/{track_id}", s.guestStream) // guest token
 	r.Get("/{id}/stream/audiobook/{audiobook_id}", s.guestAudiobookStream)
 	r.Get("/{id}/stream/audiobook/chapter/{chapter_id}", s.guestAudiobookChapterStream)
+	r.Get("/{id}/stream/podcast/{episode_id}", s.guestPodcastStream)
 	r.Get("/{id}/cover/{album_id}", s.guestCover)                        // guest token
 	r.Get("/{id}/cover/audiobook/{audiobook_id}", s.guestAudiobookCover) // guest token
+	r.Get("/{id}/cover/podcast/{podcast_id}", s.guestPodcastCover)       // guest token
 	r.Get("/{id}/lyrics/{track_id}", s.guestLyrics)                      // guest token
 }
 
@@ -565,7 +577,7 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 
 	// Send joined confirmation with current playback state and metadata.
 	currentState := sess.State
-	ti, ai := s.fetchMetadata(currentState)
+	ti, ai, pi := s.fetchMetadata(currentState)
 	joined := mustMarshal(outMsg{
 		Type:          "joined",
 		Role:          "guest",
@@ -575,6 +587,7 @@ func (s *Service) runGuest(conn *websocket.Conn, h *hub, sess *Session) {
 		CurrentState:  &currentState,
 		TrackInfo:     ti,
 		AudiobookInfo: ai,
+		PodcastInfo:   pi,
 	})
 	c.send <- joined
 
@@ -632,6 +645,7 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 	var cachedItemID string
 	var cachedTrackInfo *TrackInfo
 	var cachedAudiobookInfo *AudiobookInfo
+	var cachedPodcastInfo *PodcastInfo
 
 	for {
 		_, raw, err := c.conn.ReadMessage()
@@ -670,18 +684,21 @@ func (c *client) readPumpHost(s *Service, h *hub, sess *Session) {
 			// Only fetch metadata info from the DB when the item actually changes.
 			var ti *TrackInfo
 			var ai *AudiobookInfo
+			var pi *PodcastInfo
 			if st.ItemID != cachedItemID {
-				ti, ai = s.fetchMetadataWithTimeout(st)
+				ti, ai, pi = s.fetchMetadataWithTimeout(st)
 				cachedItemID = st.ItemID
 				cachedTrackInfo = ti
 				cachedAudiobookInfo = ai
+				cachedPodcastInfo = pi
 			} else {
 				ti = cachedTrackInfo
 				ai = cachedAudiobookInfo
+				pi = cachedPodcastInfo
 			}
 
 			// Broadcast to guests.
-			out := mustMarshal(outMsg{Type: "sync", State: &st, TrackInfo: ti, AudiobookInfo: ai})
+			out := mustMarshal(outMsg{Type: "sync", State: &st, TrackInfo: ti, AudiobookInfo: ai, PodcastInfo: pi})
 			select {
 			case h.broadcast <- out:
 			default:
@@ -824,6 +841,26 @@ func (s *Service) guestAudiobookChapterStream(w http.ResponseWriter, r *http.Req
 	s.streamSvc.ServeByAudiobookChapterID(w, r, chapterID)
 }
 
+func (s *Service) guestPodcastStream(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	episodeID := chi.URLParam(r, "episode_id")
+	guestToken := r.URL.Query().Get("guest_token")
+	if guestToken == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
+		return
+	}
+	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
+	if err != nil || storedSessionID != sessionID {
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
+		return
+	}
+	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	s.streamSvc.ServeByPodcastEpisodeID(w, r, episodeID)
+}
+
 // --- Guest cover handler ---
 
 func (s *Service) guestCover(w http.ResponseWriter, r *http.Request) {
@@ -867,6 +904,26 @@ func (s *Service) guestAudiobookCover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.streamSvc.ServeAudiobookCover(w, r, audiobookID)
+}
+
+func (s *Service) guestPodcastCover(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "id")
+	podcastID := chi.URLParam(r, "podcast_id")
+	guestToken := r.URL.Query().Get("guest_token")
+	if guestToken == "" {
+		httputil.WriteErr(w, http.StatusUnauthorized, "missing guest_token")
+		return
+	}
+	storedSessionID, err := s.kv.Get(r.Context(), kvkeys.ListenGuestToken(guestToken)).Result()
+	if err != nil || storedSessionID != sessionID {
+		httputil.WriteErr(w, http.StatusUnauthorized, "invalid or expired guest token")
+		return
+	}
+	if _, err := s.loadSession(r.Context(), sessionID); err != nil {
+		httputil.WriteErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	s.streamSvc.ServePodcastCover(w, r, podcastID)
 }
 
 // --- Guest lyrics handler ---
@@ -972,25 +1029,25 @@ func (s *Service) guestLyrics(w http.ResponseWriter, r *http.Request) {
 
 // --- Helpers ---
 
-func (s *Service) fetchMetadata(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+func (s *Service) fetchMetadata(st PlaybackState) (*TrackInfo, *AudiobookInfo, *PodcastInfo) {
 	return s.fetchMetadataWithContext(context.Background(), st)
 }
 
-func (s *Service) fetchMetadataWithTimeout(st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+func (s *Service) fetchMetadataWithTimeout(st PlaybackState) (*TrackInfo, *AudiobookInfo, *PodcastInfo) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	return s.fetchMetadataWithContext(ctx, st)
 }
 
-func (s *Service) fetchMetadataWithContext(ctx context.Context, st PlaybackState) (*TrackInfo, *AudiobookInfo) {
+func (s *Service) fetchMetadataWithContext(ctx context.Context, st PlaybackState) (*TrackInfo, *AudiobookInfo, *PodcastInfo) {
 	if st.ItemID == "" && st.TrackID == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	if st.ItemType == "audiobook" {
 		book, err := s.db.GetAudiobook(ctx, st.ItemID)
 		if err != nil {
-			return nil, nil
+			return nil, nil, nil
 		}
 		ai := &AudiobookInfo{
 			ID:         book.ID,
@@ -1001,7 +1058,27 @@ func (s *Service) fetchMetadataWithContext(ctx context.Context, st PlaybackState
 		if book.AuthorName != nil {
 			ai.AuthorName = *book.AuthorName
 		}
-		return nil, ai
+		return nil, ai, nil
+	}
+
+	if st.ItemType == "podcast" {
+		ep, err := s.db.GetPodcastEpisode(ctx, st.ItemID)
+		if err != nil {
+			return nil, nil, nil
+		}
+		pi := &PodcastInfo{
+			ID:         ep.ID,
+			PodcastID:  ep.PodcastID,
+			Title:      ep.Title,
+			DurationMs: ep.DurationMs,
+		}
+		if p, err := s.db.GetPodcast(ctx, ep.PodcastID); err == nil {
+			pi.PodcastTitle = p.Title
+			if p.Author != nil {
+				pi.Author = *p.Author
+			}
+		}
+		return nil, nil, pi
 	}
 
 	// Default to track
@@ -1011,7 +1088,7 @@ func (s *Service) fetchMetadataWithContext(ctx context.Context, st PlaybackState
 	}
 	track, err := s.db.GetTrackByID(ctx, trackID)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	ti := &TrackInfo{
 		ID:         track.ID,
@@ -1034,7 +1111,7 @@ func (s *Service) fetchMetadataWithContext(ctx context.Context, st PlaybackState
 			ti.ArtistName = artist.Name
 		}
 	}
-	return ti, nil
+	return ti, nil, nil
 }
 
 // requireAuth extracts and validates the JWT from the request. On failure it

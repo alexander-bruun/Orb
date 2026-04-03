@@ -16,6 +16,11 @@ import {
 	abPositionMs,
 	abCurrentChapter,
 } from '$lib/stores/player/audiobookPlayer';
+import {
+	currentEpisode,
+	podcastPlaybackState,
+	podcastPositionMs,
+} from '$lib/stores/player/podcastPlayer';
 import { activePlayer } from '$lib/stores/player/engine';
 
 import { getApiBase, getWsBase } from '$lib/api/base';
@@ -59,8 +64,17 @@ export interface AudiobookInfo {
 	chapters?: AudiobookChapter[];
 }
 
+export interface PodcastInfo {
+	id: string;
+	podcast_id: string;
+	title: string;
+	podcast_title: string;
+	author: string;
+	duration_ms: number;
+}
+
 export interface SyncState {
-	item_type: 'track' | 'audiobook';
+	item_type: 'track' | 'audiobook' | 'podcast';
 	track_id?: string; // compat
 	item_id: string;
 	chapter_id?: string;
@@ -87,11 +101,13 @@ export const lpAccessCode = writable<string | null>(null);
 /** Guest-only: auth token for stream URLs */
 export const lpGuestToken = writable<string | null>(null);
 /** Guest-only: currently playing item type */
-export const lpGuestItemType = writable<'track' | 'audiobook' | null>(null);
+export const lpGuestItemType = writable<'track' | 'audiobook' | 'podcast' | null>(null);
 /** Guest-only: currently playing track metadata */
 export const lpGuestTrack = writable<TrackInfo | null>(null);
 /** Guest-only: currently playing audiobook metadata */
 export const lpGuestAudiobook = writable<AudiobookInfo | null>(null);
+/** Guest-only: currently playing podcast metadata */
+export const lpGuestPodcast = writable<PodcastInfo | null>(null);
 /** Guest-only: latest position in ms (updated from audio + ticks) */
 export const lpGuestPositionMs = writable(0);
 /** Guest-only: whether the host is playing */
@@ -232,7 +248,7 @@ function _handleHostMessage(msg: Record<string, unknown>) {
 }
 
 function _watchPlayerForHost() {
-	// Track / Audiobook changes
+	// Track / Audiobook / Podcast changes
 	const unsubActive = activePlayer.subscribe(() => _hostSendSync());
 
 	let lastHostItemId = '';
@@ -260,6 +276,18 @@ function _watchPlayerForHost() {
 		}
 	});
 
+	const unsubEpisode = currentEpisode.subscribe((episode) => {
+		if (get(activePlayer) !== 'podcast') return;
+		const eid = episode?.id ?? '';
+		if (eid && eid !== lastHostItemId) {
+			lastHostItemId = eid;
+			lastSentItemId = eid;
+			lastSentPositionMs = 0;
+			if (hostSyncTimer) { clearTimeout(hostSyncTimer); hostSyncTimer = null; }
+			_wsSend({ type: 'sync_state', state: { item_type: 'podcast', item_id: eid, position_ms: 0, playing: true } });
+		}
+	});
+
 	const unsubChapter = abCurrentChapter.subscribe((ch) => {
 		if (get(activePlayer) !== 'audiobook') return;
 		const cid = ch?.id ?? '';
@@ -277,6 +305,10 @@ function _watchPlayerForHost() {
 		if (get(activePlayer) !== 'audiobook') return;
 		if (st !== 'loading') _hostSendSync();
 	});
+	const unsubPodcastState = podcastPlaybackState.subscribe((st) => {
+		if (get(activePlayer) !== 'podcast') return;
+		if (st !== 'loading') _hostSendSync();
+	});
 
 	// Position updates
 	const unsubMusicPos = playerPositionMs.subscribe((posMs) => {
@@ -287,8 +319,24 @@ function _watchPlayerForHost() {
 		if (get(activePlayer) !== 'audiobook') return;
 		_handlePosDrift(posMs);
 	});
+	const unsubPodcastPos = podcastPositionMs.subscribe((posMs) => {
+		if (get(activePlayer) !== 'podcast') return;
+		_handlePosDrift(posMs);
+	});
 
-	playerUnsubscribers = [unsubActive, unsubTrack, unsubBook, unsubChapter, unsubMusicState, unsubABState, unsubMusicPos, unsubABPos];
+	playerUnsubscribers = [
+		unsubActive,
+		unsubTrack,
+		unsubBook,
+		unsubEpisode,
+		unsubChapter,
+		unsubMusicState,
+		unsubABState,
+		unsubPodcastState,
+		unsubMusicPos,
+		unsubABPos,
+		unsubPodcastPos,
+	];
 }
 
 function _handlePosDrift(posMs: number) {
@@ -346,7 +394,7 @@ function _hostSendSync() {
 			type: 'sync_state',
 			state: { item_type: 'track', item_id: trackId, position_ms: Math.round(posMs), playing: state === 'playing' },
 		});
-	} else {
+	} else if (mode === 'audiobook') {
 		const book = get(currentAudiobook);
 		const chapter = get(abCurrentChapter);
 		const state = get(abPlaybackState);
@@ -364,6 +412,25 @@ function _hostSendSync() {
 				item_type: 'audiobook',
 				item_id: bookId,
 				chapter_id: chapterId,
+				position_ms: Math.round(posMs),
+				playing: state === 'playing'
+			},
+		});
+	} else {
+		const episode = get(currentEpisode);
+		const state = get(podcastPlaybackState);
+		if (state === 'loading') return;
+		const posMs = get(podcastPositionMs);
+		const episodeId = episode?.id ?? '';
+		if (episodeId === lastSentItemId && state === 'idle') return;
+		lastSentItemId = episodeId;
+		lastSentChapterId = '';
+		lastSentPositionMs = posMs;
+		_wsSend({
+			type: 'sync_state',
+			state: {
+				item_type: 'podcast',
+				item_id: episodeId,
 				position_ms: Math.round(posMs),
 				playing: state === 'playing'
 			},
@@ -431,12 +498,14 @@ export async function connectAsGuest(sessionId: string, nickname: string, code?:
 					lpGuestParticipantId.set((msg.participant_id as string) ?? null);
 					if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
 					if (msg.audiobook_info) lpGuestAudiobook.set(msg.audiobook_info as AudiobookInfo);
+					if (msg.podcast_info) lpGuestPodcast.set(msg.podcast_info as PodcastInfo);
 
 					if (msg.current_state) {
 						_applyGuestSync(
 							msg.current_state as SyncState,
 							(msg.track_info as TrackInfo) ?? null,
 							(msg.audiobook_info as AudiobookInfo) ?? null,
+							(msg.podcast_info as PodcastInfo) ?? null,
 							sessionId,
 							token,
 							true,
@@ -481,11 +550,13 @@ function _handleGuestMessage(msg: Record<string, unknown>, sessionId: string) {
 			if (msg.state) {
 				if (msg.track_info) lpGuestTrack.set(msg.track_info as TrackInfo);
 				if (msg.audiobook_info) lpGuestAudiobook.set(msg.audiobook_info as AudiobookInfo);
+				if (msg.podcast_info) lpGuestPodcast.set(msg.podcast_info as PodcastInfo);
 
 				_applyGuestSync(
 					msg.state as SyncState,
 					(msg.track_info as TrackInfo) ?? null,
 					(msg.audiobook_info as AudiobookInfo) ?? null,
+					(msg.podcast_info as PodcastInfo) ?? null,
 					sessionId,
 					guestToken,
 					false,
@@ -522,6 +593,7 @@ function _applyGuestSync(
 	state: SyncState,
 	trackInfo: TrackInfo | null,
 	audiobookInfo: AudiobookInfo | null,
+	podcastInfo: PodcastInfo | null,
 	sessionId: string,
 	guestToken: string,
 	isJoin: boolean,
@@ -549,6 +621,9 @@ function _applyGuestSync(
 	} else if (state.item_type === 'audiobook' && audiobookInfo) {
 		lpGuestDurationMs.set(audiobookInfo.duration_ms);
 		guestChapterStartMs = 0;
+	} else if (state.item_type === 'podcast' && podcastInfo) {
+		lpGuestDurationMs.set(podcastInfo.duration_ms);
+		guestChapterStartMs = 0;
 	}
 
 	if (!state.item_id) return;
@@ -573,6 +648,8 @@ function _applyGuestSync(
 	let streamUrl = '';
 	if (state.item_type === 'track') {
 		streamUrl = `${getApiBase()}/listen/${sessionId}/stream/${state.item_id}?guest_token=${encodeURIComponent(guestToken)}`;
+	} else if (state.item_type === 'podcast') {
+		streamUrl = `${getApiBase()}/listen/${sessionId}/stream/podcast/${state.item_id}?guest_token=${encodeURIComponent(guestToken)}`;
 	} else {
 		if (state.chapter_id) {
 			streamUrl = `${getApiBase()}/listen/${sessionId}/stream/audiobook/chapter/${state.chapter_id}?guest_token=${encodeURIComponent(guestToken)}`;
@@ -616,7 +693,8 @@ function _ensureGuestAudio(): HTMLAudioElement {
 			if (guestAudio!.duration && isFinite(guestAudio!.duration)) {
 				// For tracks/single-file books, we can use the element duration.
 				// For multi-file audiobooks, lpGuestDurationMs is set from the book metadata.
-				if (get(lpGuestItemType) === 'track') {
+				const itemType = get(lpGuestItemType);
+				if (itemType === 'track' || itemType === 'podcast') {
 					lpGuestDurationMs.set(guestAudio!.duration * 1000);
 				}
 			}
@@ -694,6 +772,7 @@ function _resetState() {
 	lpGuestItemType.set(null);
 	lpGuestTrack.set(null);
 	lpGuestAudiobook.set(null);
+	lpGuestPodcast.set(null);
 	lpGuestPositionMs.set(0);
 	lpGuestDurationMs.set(0);
 	lpGuestPlaying.set(false);

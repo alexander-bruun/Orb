@@ -332,6 +332,20 @@ type SearchArtistsParams struct {
 	Limit     int
 }
 
+// SearchAudiobooksParams for searching audiobooks.
+type SearchAudiobooksParams struct {
+	ToTsquery string
+	Limit     int
+	SortBy    string // "relevance" | "title" | "author" | "year"
+}
+
+// SearchPodcastsParams for searching podcasts.
+type SearchPodcastsParams struct {
+	ToTsquery string
+	Limit     int
+	SortBy    string // "relevance" | "title"
+}
+
 // AddTrackToPlaylistParams for adding a track to a playlist.
 type AddTrackToPlaylistParams struct {
 	PlaylistID string

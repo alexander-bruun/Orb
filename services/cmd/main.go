@@ -232,7 +232,7 @@ func registerRoutes(
 		podcastHandler := podcast.NewHandler(podcastSvc, db)
 		r.Route("/podcasts", podcastHandler.Routes)
 
-		// Ensure default podcasts
+		// Ensure default podcasts on first boot only
 		go func() {
 			if err := podcastSvc.EnsureDefaultPodcasts(context.Background()); err != nil {
 				slog.Warn("ensure default podcasts failed", "err", err)
