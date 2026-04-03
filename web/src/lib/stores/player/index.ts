@@ -420,34 +420,90 @@ if (typeof document !== 'undefined') {
 // ── Discord Rich Presence ────────────────────────────────────────────────────
 
 if (isTauri() && !isAndroidNative) {
-	function pushDiscordPresence(track: Track | null) {
-		if (!get(discordEnabled) || !track) return;
+	type DiscordPresencePayload = {
+		title: string;
+		artist: string;
+		playing: boolean;
+		coverUrl: string | null;
+	};
+
+	function getDiscordPresencePayload(): DiscordPresencePayload | null {
+		if (!get(discordEnabled)) return null;
 		const apiBase = getApiBase();
-		const coverUrl = track.album_id && apiBase.startsWith('https://')
-			? `${apiBase}/covers/${track.album_id}`
-			: null;
-		invoke('discord_update', {
+		const mode = get(activePlayer);
+
+		if (mode === 'audiobook') {
+			const audiobook = get(currentAudiobook);
+			if (!audiobook) return null;
+			return {
+				title: audiobook.title,
+				artist: audiobook.author_name ?? '',
+				playing: get(abPlaybackState) === 'playing',
+				coverUrl: apiBase.startsWith('https://') ? `${apiBase}/covers/audiobook/${audiobook.id}` : null,
+			};
+		}
+
+		if (mode === 'podcast') {
+			const episode = get(currentEpisode);
+			if (!episode) return null;
+			const podcast = get(currentPodcast);
+			return {
+				title: episode.title,
+				artist: podcast?.title ?? podcast?.author ?? '',
+				playing: get(podcastPlaybackState) === 'playing',
+				coverUrl: podcast?.id && apiBase.startsWith('https://')
+					? `${apiBase}/covers/podcast/${podcast.id}`
+					: null,
+			};
+		}
+
+		const track = get(currentTrack);
+		if (!track) return null;
+		return {
 			title: track.title,
 			artist: track.artist_name ?? '',
 			playing: get(playbackState) === 'playing',
-			coverUrl,
-		}).catch((err) => console.error('[Discord] update failed:', err));
+			coverUrl: track.album_id && apiBase.startsWith('https://')
+				? `${apiBase}/covers/${track.album_id}`
+				: null,
+		};
+	}
+
+	function pushDiscordPresence() {
+		const payload = getDiscordPresencePayload();
+		if (!payload) return;
+		invoke('discord_update', payload).catch((err) => console.error('[Discord] update failed:', err));
 	}
 
 	function clearDiscordPresence() {
 		invoke('discord_clear').catch(() => { });
 	}
 
-	currentTrack.subscribe((track) => {
-		if (get(discordEnabled)) {
-			if (track) pushDiscordPresence(track);
-			else clearDiscordPresence();
-		}
-	});
+	function syncDiscordPresence() {
+		if (!get(discordEnabled)) return;
+		if (getDiscordPresencePayload()) pushDiscordPresence();
+		else clearDiscordPresence();
+	}
+
+	currentTrack.subscribe(() => syncDiscordPresence());
+	currentAudiobook.subscribe(() => syncDiscordPresence());
+	currentEpisode.subscribe(() => syncDiscordPresence());
+	currentPodcast.subscribe(() => syncDiscordPresence());
+	activePlayer.subscribe(() => syncDiscordPresence());
 
 	playbackState.subscribe((state) => {
 		if (get(discordEnabled) && state !== 'loading') {
-			pushDiscordPresence(get(currentTrack));
+			syncDiscordPresence();
+		}
+	});
+	abPlaybackState.subscribe((state) => {
+		if (get(discordEnabled) && state !== 'loading') {
+			syncDiscordPresence();
+		}
+	});
+	podcastPlaybackState.subscribe((state) => {
+		if (get(discordEnabled) && state !== 'loading') {
+			syncDiscordPresence();
 		}
 	});
 
@@ -457,8 +513,7 @@ if (isTauri() && !isAndroidNative) {
 			clearDiscordPresence();
 		} else {
 			await invoke('discord_connect').then(() => {
-				const track = get(currentTrack);
-				if (track) pushDiscordPresence(track);
+				syncDiscordPresence();
 			}).catch((err) => {
 				console.error('[Discord] connect failed:', err);
 			});
