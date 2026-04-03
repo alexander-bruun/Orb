@@ -52,6 +52,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Apply release version from git tag
+        run: scripts/set-tauri-version.sh "${{ github.ref_name }}"
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -116,6 +119,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Apply release version from git tag
+        run: scripts/set-tauri-version.sh "${{ github.ref_name }}"
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -159,6 +165,26 @@ jobs:
 
       - name: Initialize Tauri Android
         run: make android-init-ci
+
+      - name: Ensure Android cleartext HTTP is enabled
+        run: |
+          set -euo pipefail
+          BUILD_GRADLE="web/src-tauri/gen/android/app/build.gradle.kts"
+          if [ ! -f "$BUILD_GRADLE" ]; then
+            echo "Missing $BUILD_GRADLE after android init"
+            exit 1
+          fi
+
+          # Tauri Android init may regenerate this file with cleartext disabled.
+          sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/g' "$BUILD_GRADLE"
+
+          # If the placeholder is absent entirely, add it to defaultConfig.
+          if ! grep -q 'usesCleartextTraffic' "$BUILD_GRADLE"; then
+            sed -i '/defaultConfig {/a\        manifestPlaceholders["usesCleartextTraffic"] = "true"' "$BUILD_GRADLE"
+          fi
+
+          echo "Android usesCleartextTraffic settings:"
+          grep -n 'usesCleartextTraffic' "$BUILD_GRADLE"
 
       - name: Configure persisted Android signing keystore
         env:
