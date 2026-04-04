@@ -417,7 +417,7 @@
           class="input-sm narrow"
           type="number"
           min="1"
-          max="5000"
+          max="100"
           bind:value={limitCount}
           placeholder="unlimited"
         />
@@ -627,9 +627,6 @@
   .input-sm:focus {
     outline: none;
     border-color: var(--accent);
-  }
-  .input-sm.narrow {
-    flex: 0 0 100px;
   }
 
   .btn-remove {
