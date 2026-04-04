@@ -800,8 +800,8 @@ var (
 	// Strips common edition/quality tags from the end of a book title.
 	reEditionTag = regexp.MustCompile(`(?i)\s*[\(\[](unabridged|abridged|commercial\s*audiobook|audiobook)[\)\]]\s*$`)
 	// Strips leading/trailing "Book N" or "Part N" decorations in titles.
-	reBookTitlePrefix = regexp.MustCompile(`(?i)^(?:book|part|vol(?:ume)?\.?)\s+(\d+(?:\.\d+)?)\s*[-–:]\s*`)
-	reBookTitleSuffix = regexp.MustCompile(`(?i)\s*[-–:]?\s*(?:book|part|vol(?:ume)?\.?)\s+(\d+(?:\.\d+)?)\s*$`)
+	reBookTitlePrefix = regexp.MustCompile(`(?i)^(?:book|part|vol(?:ume)?\.?|tome|chapter|no\.?|number)\s+(\d+(?:\.\d+)?)\s*[-–:]\s*`)
+	reBookTitleSuffix = regexp.MustCompile(`(?i)\s*[-–:,]?\s*\b(?:book|part|vol(?:ume)?\.?|tome|chapter|no\.?|number)\s+(\d+(?:\.\d+)?)\s*$`)
 	// Strips trailing edition words without parentheses.
 	reEditionWordSuffix = regexp.MustCompile(`(?i)\s*[-–:]?\s*(unabridged|abridged|commercial\s+audiobook|audiobook)\s*$`)
 	// Strips a standalone year suffix like " (2019)" from titles.
