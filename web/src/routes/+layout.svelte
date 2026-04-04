@@ -39,6 +39,7 @@
   import MobileAvatar from "$lib/components/layout/mobile/MobileAvatar.svelte";
   import AudiobookBottomBar from "$lib/components/layout/desktop/AudiobookBottomBar.svelte";
   import MobileAudiobookPlayer from "$lib/components/layout/mobile/MobileAudiobookPlayer.svelte";
+  import MobilePodcastPlayer from "$lib/components/layout/mobile/MobilePodcastPlayer.svelte";
   import {
     currentAudiobook,
     abPlaybackState,
@@ -470,7 +471,7 @@
       <main class="content">
         {@render children()}
       </main>
-      {#if $currentEpisode && $podcastPlaybackState !== "idle"}
+      {#if $currentEpisode && $activePlayer === "podcast" && $podcastPlaybackState !== "idle"}
         <PodcastBottomBar />
       {:else if $currentAudiobook && $activePlayer === "audiobook"}
         <AudiobookBottomBar />
@@ -479,7 +480,9 @@
       {/if}
       <ListenPartyPanel />
     </div>
-    {#if $currentAudiobook && $activePlayer === "audiobook"}
+    {#if $currentEpisode && $activePlayer === "podcast" && $podcastPlaybackState !== "idle"}
+      <MobilePodcastPlayer />
+    {:else if $currentAudiobook && $activePlayer === "audiobook"}
       <MobileAudiobookPlayer />
     {:else}
       <MobilePlayer />
