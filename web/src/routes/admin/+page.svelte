@@ -23,6 +23,7 @@
     UserPlayStat,
     TrackPlayCount,
     ArtistPlayCount,
+    ArtistAdminItem,
     DailyPlayCount,
     StorageStats,
     InviteToken,
@@ -129,6 +130,14 @@
   let noSeriesTotal = 0;
   let noSeriesOffset = 0;
   let noSeriesLoading = false;
+
+  // Artists missing metadata
+  let unenrichedArtists: ArtistAdminItem[] = [];
+  let unenrichedTotal = 0;
+  let unenrichedOffset = 0;
+  let unenrichedLoading = false;
+  let artistEnriching: Record<string, boolean> = {};
+  let artistEnrichErrors: Record<string, string> = {};
 
   // Settings
   let smtpSettings: SiteSettings = {};
@@ -240,6 +249,7 @@
       await loadArtworkPage();
       await loadNoCoverPage();
       await loadNoSeriesPage();
+      await loadUnenrichedArtistsPage();
     }
     if (tab === "settings" && !smtpSettings.smtp_host) {
       smtpSettings = await adminApi.getSettings().catch(() => ({}));
@@ -519,6 +529,36 @@
       noSeriesAudiobooks = [];
     } finally {
       noSeriesLoading = false;
+    }
+  }
+
+  async function loadUnenrichedArtistsPage() {
+    unenrichedLoading = true;
+    try {
+      const r = await adminApi.artistsUnenriched(50, unenrichedOffset);
+      unenrichedArtists = r.artists ?? [];
+      unenrichedTotal = r.total;
+    } catch {
+      unenrichedArtists = [];
+    } finally {
+      unenrichedLoading = false;
+    }
+  }
+
+  async function reEnrichArtist(artistId: string) {
+    artistEnriching[artistId] = true;
+    delete artistEnrichErrors[artistId];
+    artistEnrichErrors = artistEnrichErrors;
+    try {
+      await adminApi.reEnrichArtist(artistId);
+      unenrichedArtists = unenrichedArtists.filter(a => a.id !== artistId);
+      unenrichedTotal = Math.max(0, unenrichedTotal - 1);
+    } catch (e: any) {
+      artistEnrichErrors[artistId] = e?.message ?? 'Failed';
+      artistEnrichErrors = artistEnrichErrors;
+    } finally {
+      artistEnriching[artistId] = false;
+      artistEnriching = artistEnriching;
     }
   }
 
@@ -965,21 +1005,29 @@
     </div>
 
     {#if storage}
-      <section class="panel">
-        <h2>Storage by Format</h2>
-        <div class="table-scroll">
-          <table>
-            <thead><tr><th>Format</th><th>Tracks</th><th>Size</th></tr></thead>
-            <tbody
-              >{#each storage.by_format as f}
-                <tr
-                  ><td>{f.format.toUpperCase()}</td><td class="plays"
-                    >{f.count.toLocaleString()}</td
-                  ><td class="plays">{fmtBytes(f.size_bytes)}</td></tr
-                >
-              {/each}</tbody
-            >
-          </table>
+      <section class="panel storage-panel">
+        <div class="storage-header">
+          <h2>Storage Usage</h2>
+          <div class="storage-totals">
+            <span class="storage-total-val">{fmtBytes(storage.total_size_bytes)}</span>
+            <span class="storage-total-label">{storage.track_count.toLocaleString()} tracks</span>
+          </div>
+        </div>
+        <div class="format-list">
+          {#each storage.by_format as f, i}
+            {@const pct = storage.total_size_bytes > 0
+              ? (f.size_bytes / storage.total_size_bytes) * 100
+              : 0}
+            <div class="format-row">
+              <span class="format-badge" style="--fi:{i}">{f.format.toUpperCase()}</span>
+              <div class="format-bar-track">
+                <div class="format-bar-fill" style="width:{pct.toFixed(2)}%;--fi:{i}"></div>
+              </div>
+              <span class="format-pct">{pct.toFixed(1)}%</span>
+              <span class="format-size">{fmtBytes(f.size_bytes)}</span>
+              <span class="format-count muted">{f.count.toLocaleString()} tracks</span>
+            </div>
+          {/each}
         </div>
       </section>
     {/if}
@@ -1636,6 +1684,70 @@
               on:click={() => {
                 noSeriesOffset += 50;
                 loadNoSeriesPage();
+              }}>Next →</button
+            >
+          </div>
+        {/if}
+      {/if}
+    </section>
+
+    <section class="panel" style="margin-top:1.25rem">
+      <div class="section-header">
+        <h2>Artists Missing Metadata ({unenrichedTotal})</h2>
+      </div>
+      {#if unenrichedLoading}
+        <p class="muted"><Spinner /></p>
+      {:else if unenrichedTotal === 0}
+        <p class="muted">All artists have metadata.</p>
+      {:else}
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Artist</th><th></th></tr></thead>
+            <tbody>
+              {#each unenrichedArtists as a (a.id)}
+                <tr>
+                  <td><a href="/artists/{a.id}">{a.name}</a></td>
+                  <td style="text-align:right">
+                    {#if artistEnrichErrors[a.id]}
+                      <span class="cover-error">{artistEnrichErrors[a.id]}</span>
+                    {/if}
+                    <button
+                      class="cover-btn"
+                      disabled={artistEnriching[a.id]}
+                      on:click={() => reEnrichArtist(a.id)}
+                    >
+                      {#if artistEnriching[a.id]}
+                        <span class="spinner" aria-hidden="true"></span> Enriching…
+                      {:else}
+                        Re-Enrich
+                      {/if}
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if unenrichedTotal > 50}
+          <div class="pagination">
+            <button
+              disabled={unenrichedOffset === 0}
+              on:click={() => {
+                unenrichedOffset -= 50;
+                loadUnenrichedArtistsPage();
+              }}>← Prev</button
+            >
+            <span class="muted"
+              >{unenrichedOffset + 1}–{Math.min(
+                unenrichedOffset + 50,
+                unenrichedTotal,
+              )} of {unenrichedTotal}</span
+            >
+            <button
+              disabled={unenrichedOffset + 50 >= unenrichedTotal}
+              on:click={() => {
+                unenrichedOffset += 50;
+                loadUnenrichedArtistsPage();
               }}>Next →</button
             >
           </div>
@@ -2603,6 +2715,87 @@
     font-size: 0.6rem;
     color: var(--text-secondary, #888);
     white-space: nowrap;
+  }
+
+  /* Storage usage section */
+  .storage-panel { }
+  .storage-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+  }
+  .storage-header h2 { margin: 0; }
+  .storage-totals {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .storage-total-val {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent, #a78bfa);
+  }
+  .storage-total-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #888);
+  }
+  .format-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .format-row {
+    display: grid;
+    grid-template-columns: 3.5rem 1fr 3.5rem 5rem 6rem;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .format-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    text-align: center;
+    background: color-mix(in srgb, var(--accent, #a78bfa) calc((1 - var(--fi) * 0.15) * 40%), transparent);
+    color: var(--accent, #a78bfa);
+  }
+  .format-bar-track {
+    height: 8px;
+    background: var(--surface2, rgba(255,255,255,0.06));
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .format-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent, #a78bfa) calc((1 - var(--fi) * 0.12) * 100%), #60a5fa calc(var(--fi) * 12%));
+    transition: width 0.4s ease;
+  }
+  .format-pct {
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--text-secondary, #888);
+  }
+  .format-size {
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .format-count {
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  @media (max-width: 600px) {
+    .format-row {
+      grid-template-columns: 3rem 1fr 3rem 4.5rem;
+    }
+    .format-count { display: none; }
   }
 
   .table-scroll {

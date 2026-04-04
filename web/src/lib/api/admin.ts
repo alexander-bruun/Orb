@@ -44,6 +44,13 @@ export interface ArtistPlayCount {
 	plays: number;
 }
 
+export interface ArtistAdminItem {
+	id: string;
+	name: string;
+	mbid?: string;
+	image_key?: string;
+}
+
 export interface DailyPlayCount {
 	date: string;
 	plays: number;
@@ -256,6 +263,15 @@ export const admin = {
 		}
 		return res.json();
 	},
+
+	// Artists
+	artistsUnenriched: (
+		limit = 50,
+		offset = 0
+	): Promise<{ artists: ArtistAdminItem[]; total: number }> =>
+		apiFetch(`/admin/artists/unenriched?limit=${limit}&offset=${offset}`),
+	reEnrichArtist: (artistId: string): Promise<{ status: string }> =>
+		apiFetch(`/admin/artists/${artistId}/re-enrich`, { method: 'POST' }),
 
 	// Metadata editing
 	updateAlbumMeta: (id: string, body: { title: string; release_year?: number | null; label?: string | null }): Promise<void> =>
