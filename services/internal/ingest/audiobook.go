@@ -806,6 +806,10 @@ var (
 	reEditionWordSuffix = regexp.MustCompile(`(?i)\s*[-–:]?\s*(unabridged|abridged|commercial\s+audiobook|audiobook)\s*$`)
 	// Strips a standalone year suffix like " (2019)" from titles.
 	reYearSuffix = regexp.MustCompile(`\s+\(\d{4}\)\s*$`)
+	// Strips any remaining trailing parenthetical annotation from audiobook titles,
+	// e.g. "(32 stories - various narrators)" or "(read by John Lee)".
+	// Applied after known edition/year extractors so those still populate the edition field.
+	reAudiobookTrailingParen = regexp.MustCompile(`\s*\([^)]*\)\s*$`)
 
 	// Part/disc directory detection for multi-part audiobook merging.
 	rePartDir = regexp.MustCompile(`(?i)^(part|disc|disk|cd|side)\s*(\d+|[abcdABCD])$`)
@@ -990,6 +994,7 @@ func parseBookDirName(name string) (title string, seriesIndex *float64, edition 
 func cleanBookTitleWithEdition(title string) (string, *string) {
 	title = reYearSuffix.ReplaceAllString(title, "")
 	title, edition := stripEditionSuffix(title)
+	title = reAudiobookTrailingParen.ReplaceAllString(title, "")
 	title = reBookTitlePrefix.ReplaceAllString(title, "")
 	title = reBookTitleSuffix.ReplaceAllString(title, "")
 	return strings.TrimSpace(title), edition
@@ -1343,6 +1348,8 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 		title = m.Title()
 		if title != "" {
 			title, edition = stripEditionSuffix(title)
+			title = reAudiobookTrailingParen.ReplaceAllString(title, "")
+			title = strings.TrimSpace(title)
 		}
 		authorName = coalesce(m.AlbumArtist(), m.Artist())
 		raw := m.Raw()
@@ -1706,6 +1713,7 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 			bookTitle = m.Album()
 			if bookTitle != "" {
 				bookTitle, edition = stripEditionSuffix(bookTitle)
+				bookTitle = strings.TrimSpace(reAudiobookTrailingParen.ReplaceAllString(bookTitle, ""))
 			}
 			raw := m.Raw()
 			// composer → author (preferred); fall back to album_artist / artist
