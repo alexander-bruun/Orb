@@ -73,6 +73,12 @@ fn set_audiobook_mode(is_audiobook: bool) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+fn set_podcast_mode(is_podcast: bool) -> Result<(), String> {
+    android_bridge::set_podcast_mode(is_podcast)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn set_playback_speed(speed: f32) -> Result<(), String> {
     android_bridge::set_playback_speed(speed)
 }
@@ -211,6 +217,7 @@ pub fn run() {
             set_shuffle_state,
             set_favorite_state,
             set_audiobook_mode,
+            set_podcast_mode,
             set_playback_speed,
             set_api_credentials,
             sync_downloads,

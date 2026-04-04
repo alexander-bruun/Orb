@@ -207,6 +207,33 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnABChapterStart(
     emit_to_frontend("native-ab-chapter-start");
 }
 
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPodcastSkipBack15(
+    _env: EnvUnowned,
+    _class: JClass,
+) {
+    emit_to_frontend("native-pod-skip-back-15");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPodcastSkipForward30(
+    _env: EnvUnowned,
+    _class: JClass,
+) {
+    emit_to_frontend("native-pod-skip-forward-30");
+}
+
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPodcastSpeedCycle(
+    _env: EnvUnowned,
+    _class: JClass,
+) {
+    emit_to_frontend("native-pod-speed-cycle");
+}
+
 // ── Playback commands: called from Rust Tauri commands ───────────────────────
 
 #[cfg(target_os = "android")]
@@ -345,6 +372,20 @@ pub fn set_favorite_state(favorited: bool) -> Result<(), String> {
             jni_str!("setFavoriteState"),
             jni_sig!("(Z)V"),
             &[JValue::Bool(favorited)],
+        )?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
+pub fn set_podcast_mode(is_podcast: bool) -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(
+            cls,
+            jni_str!("setPodcastMode"),
+            jni_sig!("(Z)V"),
+            &[JValue::Bool(is_podcast)],
         )?;
         Ok(())
     })

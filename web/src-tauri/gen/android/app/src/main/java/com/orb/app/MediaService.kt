@@ -55,6 +55,9 @@ class MediaService : MediaSessionService() {
     private val AB_SKIP_FORWARD_15 = "AB_SKIP_FORWARD_15"
     private val AB_SPEED_CYCLE = "AB_SPEED_CYCLE"
     private val AB_CHAPTER_START = "AB_CHAPTER_START"
+    private val POD_SKIP_BACK_15 = "POD_SKIP_BACK_15"
+    private val POD_SKIP_FORWARD_30 = "POD_SKIP_FORWARD_30"
+    private val POD_SPEED_CYCLE = "POD_SPEED_CYCLE"
 
     // Icon resources for different playback speeds (0.5x to 2x in 0.1 increments)
     private val speedIcons = mapOf(
@@ -83,6 +86,7 @@ class MediaService : MediaSessionService() {
     private var isShuffled = false
     private var isFavorited = false
     @Volatile private var isAudiobook = false
+    @Volatile private var isPodcast = false
 
     // ── Equalizer ────────────────────────────────────────────────────────────
     private var equalizer: Equalizer? = null
@@ -224,6 +228,12 @@ class MediaService : MediaSessionService() {
         private external fun nativeOnABSpeedCycle()
         @JvmStatic
         private external fun nativeOnABChapterStart()
+        @JvmStatic
+        private external fun nativeOnPodcastSkipBack15()
+        @JvmStatic
+        private external fun nativeOnPodcastSkipForward30()
+        @JvmStatic
+        private external fun nativeOnPodcastSpeedCycle()
 
         init {
             System.loadLibrary("orb_lib")
@@ -301,11 +311,25 @@ class MediaService : MediaSessionService() {
             val svc = instance ?: return
             Handler(Looper.getMainLooper()).post {
                 svc.isAudiobook = enabled
+                if (enabled) svc.isPodcast = false
                 svc.mediaSession?.setCustomLayout(svc.buildCustomLayout())
                 // Re-set the player on the session so it re-reads available
                 // commands from the ForwardingPlayer (which now conditionally
-                // hides SEEK_TO_NEXT/PREVIOUS in audiobook mode), causing the
+                // hides SEEK_TO_NEXT/PREVIOUS in audiobook/podcast mode), causing the
                 // notification to rebuild with the correct transport controls.
+                svc.wrappedPlayer?.let { wp ->
+                    svc.mediaSession?.player = wp
+                }
+            }
+        }
+
+        @JvmStatic
+        fun setPodcastMode(enabled: Boolean) {
+            val svc = instance ?: return
+            Handler(Looper.getMainLooper()).post {
+                svc.isPodcast = enabled
+                if (enabled) svc.isAudiobook = false
+                svc.mediaSession?.setCustomLayout(svc.buildCustomLayout())
                 svc.wrappedPlayer?.let { wp ->
                     svc.mediaSession?.player = wp
                 }
@@ -318,8 +342,8 @@ class MediaService : MediaSessionService() {
             Handler(Looper.getMainLooper()).post {
                 svc.currentSpeed = speed
                 svc.player?.setPlaybackParameters(PlaybackParameters(speed))
-                // Update notification icon immediately if audiobook mode
-                if (svc.isAudiobook) {
+                // Update speed icon in notification for audiobook and podcast modes
+                if (svc.isAudiobook || svc.isPodcast) {
                     svc.mediaSession?.setCustomLayout(svc.buildCustomLayout())
                 }
             }
@@ -653,7 +677,7 @@ class MediaService : MediaSessionService() {
         val forwardingPlayer = object : ForwardingPlayer(exoPlayer) {
             override fun getAvailableCommands(): Player.Commands {
                 val base = super.getAvailableCommands().buildUpon()
-                if (!isAudiobook) {
+                if (!isAudiobook && !isPodcast) {
                     base.add(Player.COMMAND_SEEK_TO_NEXT)
                         .add(Player.COMMAND_SEEK_TO_PREVIOUS)
                 }
@@ -662,7 +686,7 @@ class MediaService : MediaSessionService() {
 
             override fun isCommandAvailable(command: Int): Boolean =
                 if (command == Player.COMMAND_SEEK_TO_NEXT ||
-                    command == Player.COMMAND_SEEK_TO_PREVIOUS) !isAudiobook
+                    command == Player.COMMAND_SEEK_TO_PREVIOUS) (!isAudiobook && !isPodcast)
                 else super.isCommandAvailable(command)
 
             override fun seekToNext() {
@@ -719,6 +743,9 @@ class MediaService : MediaSessionService() {
                 .add(SessionCommand(AB_SKIP_FORWARD_15, Bundle.EMPTY))
                 .add(SessionCommand(AB_SPEED_CYCLE, Bundle.EMPTY))
                 .add(SessionCommand(AB_CHAPTER_START, Bundle.EMPTY))
+                .add(SessionCommand(POD_SKIP_BACK_15, Bundle.EMPTY))
+                .add(SessionCommand(POD_SKIP_FORWARD_30, Bundle.EMPTY))
+                .add(SessionCommand(POD_SPEED_CYCLE, Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -751,6 +778,15 @@ class MediaService : MediaSessionService() {
                 }
                 AB_CHAPTER_START -> {
                     try { nativeOnABChapterStart() } catch (_: Exception) {}
+                }
+                POD_SKIP_BACK_15 -> {
+                    try { nativeOnPodcastSkipBack15() } catch (_: Exception) {}
+                }
+                POD_SKIP_FORWARD_30 -> {
+                    try { nativeOnPodcastSkipForward30() } catch (_: Exception) {}
+                }
+                POD_SPEED_CYCLE -> {
+                    try { nativeOnPodcastSpeedCycle() } catch (_: Exception) {}
                 }
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -791,11 +827,11 @@ class MediaService : MediaSessionService() {
         }
     }
 
-    // ── Custom layout (shuffle + favorite buttons) ───────────────────────────
+    // ── Custom layout (mode-specific notification action buttons) ───────────
 
     private fun buildCustomLayout(): ImmutableList<CommandButton> {
-        return if (isAudiobook) {
-            ImmutableList.of(
+        return when {
+            isAudiobook -> ImmutableList.of(
                 CommandButton.Builder()
                     .setDisplayName("Skip back 15s")
                     .setIconResId(R.drawable.ic_replay_15)
@@ -817,22 +853,40 @@ class MediaService : MediaSessionService() {
                     .setSessionCommand(SessionCommand(AB_CHAPTER_START, Bundle.EMPTY))
                     .build()
             )
-        } else {
-            val shuffleIcon = if (isShuffled) R.drawable.ic_shuffle else R.drawable.ic_shuffle_off
-            val shuffleButton = CommandButton.Builder()
-                .setDisplayName("Shuffle")
-                .setIconResId(shuffleIcon)
-                .setSessionCommand(SessionCommand(SHUFFLE_COMMAND, Bundle.EMPTY))
-                .build()
+            isPodcast -> ImmutableList.of(
+                CommandButton.Builder()
+                    .setDisplayName("Back 15s")
+                    .setIconResId(R.drawable.ic_replay_15)
+                    .setSessionCommand(SessionCommand(POD_SKIP_BACK_15, Bundle.EMPTY))
+                    .build(),
+                CommandButton.Builder()
+                    .setDisplayName("Forward 30s")
+                    .setIconResId(R.drawable.ic_forward_30)
+                    .setSessionCommand(SessionCommand(POD_SKIP_FORWARD_30, Bundle.EMPTY))
+                    .build(),
+                CommandButton.Builder()
+                    .setDisplayName("Playback speed")
+                    .setIconResId(speedIcons[currentSpeed] ?: R.drawable.ic_playback_speed_1)
+                    .setSessionCommand(SessionCommand(POD_SPEED_CYCLE, Bundle.EMPTY))
+                    .build()
+            )
+            else -> {
+                val shuffleIcon = if (isShuffled) R.drawable.ic_shuffle else R.drawable.ic_shuffle_off
+                val shuffleButton = CommandButton.Builder()
+                    .setDisplayName("Shuffle")
+                    .setIconResId(shuffleIcon)
+                    .setSessionCommand(SessionCommand(SHUFFLE_COMMAND, Bundle.EMPTY))
+                    .build()
 
-            val favoriteIcon = if (isFavorited) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
-            val favoriteButton = CommandButton.Builder()
-                .setDisplayName("Favorite")
-                .setIconResId(favoriteIcon)
-                .setSessionCommand(SessionCommand(FAVORITE_COMMAND, Bundle.EMPTY))
-                .build()
+                val favoriteIcon = if (isFavorited) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
+                val favoriteButton = CommandButton.Builder()
+                    .setDisplayName("Favorite")
+                    .setIconResId(favoriteIcon)
+                    .setSessionCommand(SessionCommand(FAVORITE_COMMAND, Bundle.EMPTY))
+                    .build()
 
-            ImmutableList.of(shuffleButton, favoriteButton)
+                ImmutableList.of(shuffleButton, favoriteButton)
+            }
         }
     }
 
