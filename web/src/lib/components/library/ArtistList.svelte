@@ -5,6 +5,7 @@
   import TrackRow from "$lib/components/library/TrackRow.svelte";
 
   export let artists: Artist[] = [];
+  export let onSelect: ((artist: Artist) => void) | undefined = undefined;
 </script>
 
 <div class="artist-list">
@@ -12,7 +13,7 @@
     <div class="artist-card">
       <button
         class="artist-row"
-        on:click={() => goto(`/artists/${artist.id}`)}
+        on:click={() => onSelect ? onSelect(artist) : goto(`/artists/${artist.id}`)}
         aria-label="View artist {artist.name}"
       >
         {#if artist.image_key}
