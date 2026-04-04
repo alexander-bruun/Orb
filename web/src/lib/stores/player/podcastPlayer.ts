@@ -15,7 +15,7 @@ import { authStore } from '$lib/stores/auth';
 import type { Podcast, PodcastEpisode } from '$lib/types';
 import { nativePlatform } from '$lib/utils/platform';
 import * as engine from './engine';
-import type { ContentProvider } from './engine';
+import type { PodcastContentProvider } from './engine';
 
 export type PodcastPlaybackState = 'idle' | 'loading' | 'playing' | 'paused';
 
@@ -45,6 +45,7 @@ function _getAudio(): HTMLAudioElement {
 		_audio = new Audio();
 		_audio.preload = 'metadata';
 		_audio.volume = get(engine.engineVolume);
+		_audio.playbackRate = get(podcastSpeed);
 
 		_audio.addEventListener('loadedmetadata', () => {
 			if (_audio) {
@@ -159,6 +160,10 @@ export async function playEpisode(
 		// On Android use the unified engine (ExoPlayer under the hood)
 		const url = _episodeStreamUrl(episode.id);
 		try {
+			// Tell the native MediaService to switch to podcast notification layout
+			const { invoke } = await import('@tauri-apps/api/core');
+			try { await invoke('set_podcast_mode', { isPodcast: true }); } catch { /* ignore */ }
+
 			await engine.play(url, {
 				id: episode.id,
 				title: episode.title,
@@ -170,6 +175,13 @@ export async function playEpisode(
 				nativeUrl: url,
 				startMs: resolvedStartMs,
 			});
+
+			// Apply current playback speed to ExoPlayer
+			const speed = get(podcastSpeed);
+			if (speed !== 1.0) {
+				try { await invoke('set_playback_speed', { speed }); } catch { /* ignore */ }
+			}
+
 			podcastPlaybackState.set('playing');
 			_startSaveInterval();
 		} catch (e) {
@@ -303,6 +315,12 @@ export function closePodcast() {
 		_audio.src = '';
 	} else {
 		engine.pause();
+		// Clear podcast notification layout; revert to music mode buttons
+		if (nativePlatform() === 'android') {
+			import('@tauri-apps/api/core').then(({ invoke }) => {
+				invoke('set_podcast_mode', { isPodcast: false }).catch(() => {});
+			});
+		}
 	}
 	currentEpisode.set(null);
 	currentPodcast.set(null);
@@ -314,6 +332,29 @@ export function closePodcast() {
 	engine._writableMode.set('music');
 	engine._writableCurrentContent.set(null);
 }
+
+// ── Sleep timer ───────────────────────────────────────────────────────────────
+
+// ── Playback speed ────────────────────────────────────────────────────────────
+
+export const PODCAST_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+export const podcastSpeed = writable(1.0);
+
+export function setPodcastSpeed(rate: number) {
+	podcastSpeed.set(rate);
+	if (_audio) {
+		_audio.playbackRate = rate;
+	} else if (nativePlatform() === 'android') {
+		import('@tauri-apps/api/core').then(({ invoke }) => {
+			invoke('set_playback_speed', { speed: rate }).catch(() => {});
+		});
+	}
+}
+
+// Keep native engine playback rate in sync when on Android
+podcastSpeed.subscribe((rate) => {
+	if (_audio) _audio.playbackRate = rate;
+});
 
 // ── Sleep timer ───────────────────────────────────────────────────────────────
 
@@ -343,7 +384,7 @@ export function setPodcastSleepTimer(minutes: number) {
 
 // ── Engine content provider ───────────────────────────────────────────────────
 
-const podcastContentProvider: ContentProvider = {
+const podcastContentProvider: PodcastContentProvider = {
 	onTrackEnd() {
 		// Handled by the HTMLAudioElement 'ended' event above.
 	},
@@ -367,7 +408,7 @@ const podcastContentProvider: ContentProvider = {
 			_saveProgress(false);
 		}
 	},
-	onControlCommand(action: string, payload) {
+	onControlCommand(action: string, payload: Record<string, unknown> | undefined) {
 		switch (action) {
 			case 'toggle': togglePodcastPlayPause(); break;
 			case 'seek':
@@ -379,6 +420,18 @@ const podcastContentProvider: ContentProvider = {
 				if (payload?.volume !== undefined) engine.setVolume(payload.volume as number);
 				break;
 		}
+	},
+	onSkipForward(secs: number) {
+		skipForwardPodcast(secs);
+	},
+	onSkipBackward(secs: number) {
+		skipBackwardPodcast(secs);
+	},
+	onSpeedCycle() {
+		const speeds = PODCAST_SPEEDS;
+		const current = get(podcastSpeed);
+		const next = speeds[(speeds.indexOf(current) + 1) % speeds.length];
+		setPodcastSpeed(next);
 	},
 };
 

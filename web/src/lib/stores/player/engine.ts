@@ -75,6 +75,13 @@ export interface AudiobookContentProvider extends ContentProvider {
 	onJumpToChapterStart?(): void;
 }
 
+/** Extended provider for podcast mode — includes podcast-specific native callbacks. */
+export interface PodcastContentProvider extends ContentProvider {
+	onSkipForward?(secs: number): void;
+	onSkipBackward?(secs: number): void;
+	onSpeedCycle?(): void;
+}
+
 // ── Engine-owned stores (read-only for consumers) ────────────────────────────
 
 const _mode = writable<PlaybackMode>('music');
@@ -112,12 +119,12 @@ export const _writableBufferedPct = _bufferedPct;
 
 // ── Content provider registry ────────────────────────────────────────────────
 
-type AnyContentProvider = ContentProvider | MusicContentProvider | AudiobookContentProvider;
+type AnyContentProvider = ContentProvider | MusicContentProvider | AudiobookContentProvider | PodcastContentProvider;
 const providers = new Map<PlaybackMode, AnyContentProvider>();
 
 export function registerProvider(forMode: 'music', provider: MusicContentProvider): void;
 export function registerProvider(forMode: 'audiobook', provider: AudiobookContentProvider): void;
-export function registerProvider(forMode: 'podcast', provider: ContentProvider): void;
+export function registerProvider(forMode: 'podcast', provider: PodcastContentProvider): void;
 export function registerProvider(forMode: PlaybackMode, provider: AnyContentProvider): void;
 export function registerProvider(forMode: PlaybackMode, provider: AnyContentProvider) {
 	providers.set(forMode, provider);
@@ -129,6 +136,10 @@ function getMusicProvider(): MusicContentProvider | undefined {
 
 function getAudiobookProvider(): AudiobookContentProvider | undefined {
 	return providers.get('audiobook') as AudiobookContentProvider | undefined;
+}
+
+function getPodcastProvider(): PodcastContentProvider | undefined {
+	return providers.get('podcast') as PodcastContentProvider | undefined;
 }
 
 function activeProvider(): ContentProvider | undefined {
@@ -277,6 +288,17 @@ async function initNativeListeners() {
 	});
 	listen<void>('native-ab-chapter-start', () => {
 		getAudiobookProvider()?.onJumpToChapterStart?.();
+	});
+
+	// Podcast-mode notification actions
+	listen<void>('native-pod-skip-back-15', () => {
+		getPodcastProvider()?.onSkipBackward?.(15);
+	});
+	listen<void>('native-pod-skip-forward-30', () => {
+		getPodcastProvider()?.onSkipForward?.(30);
+	});
+	listen<void>('native-pod-speed-cycle', () => {
+		getPodcastProvider()?.onSpeedCycle?.();
 	});
 
 	// Volume changes from hardware buttons
