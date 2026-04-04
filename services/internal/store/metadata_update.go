@@ -30,14 +30,14 @@ func (s *Store) UpdateAudiobookMeta(ctx context.Context, p UpdateAudiobookMetaPa
 	_, err := s.pool.Exec(ctx, `
 		UPDATE audiobooks SET
 			title          = $2,
-			author_id      = CASE WHEN $3::boolean THEN $4 ELSE author_id END,
-			description    = $5,
-			series         = $6,
-			series_index   = $7,
-			series_source  = CASE WHEN $6 IS NULL THEN NULL ELSE 'manual' END,
-			series_confidence = CASE WHEN $6 IS NULL THEN NULL ELSE 1.0 END,
-			edition        = $8,
-			published_year = $9
+			author_id      = CASE WHEN $3::boolean THEN $4::text ELSE author_id END,
+			description    = $5::text,
+			series         = $6::text,
+			series_index   = $7::real,
+			series_source  = CASE WHEN $6::text IS NULL THEN NULL ELSE 'manual' END,
+			series_confidence = CASE WHEN $6::text IS NULL THEN NULL ELSE 1.0 END,
+			edition        = $8::text,
+			published_year = $9::integer
 		WHERE id = $1`,
 		p.ID,
 		p.Title,
