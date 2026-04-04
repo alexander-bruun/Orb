@@ -184,6 +184,59 @@ function actualIndex(logicalPos: number): number {
 
 export const isAndroidNative = typeof window !== 'undefined' && nativePlatform() === 'android';
 
+/**
+ * Return the track that would play next without advancing the queue.
+ * Returns null for radio mode or an empty queue (can't predict ahead of time).
+ */
+function peekNextTrack(): Track | null {
+	const uq = get(userQueue);
+	if (uq.length > 0) return uq[0];
+
+	const q = get(queue);
+	const idx = get(queueIndex);
+	const repeat = get(repeatMode);
+
+	if (repeat === 'one') return get(currentTrack);
+	if (idx < q.length - 1) return q[actualIndex(idx + 1)];
+	if (repeat === 'all' && q.length > 0) return q[actualIndex(0)];
+	// Radio mode or end of queue: cannot predict next track
+	return null;
+}
+
+/**
+ * Push the next track URL to the native layer so ExoPlayer can auto-advance
+ * when the WebView is suspended (app backgrounded).
+ * Non-blocking — errors are silently ignored.
+ */
+async function syncNativeNextTrack(): Promise<void> {
+	if (!isAndroidNative) return;
+	try {
+		const { invoke } = await import('@tauri-apps/api/core');
+		let nextTrack = peekNextTrack();
+
+		// Radio mode: at end of queue, replenish now so we can preload.
+		if (!nextTrack && get(radioMode)) {
+			await _replenishRadio(get(queue));
+			nextTrack = peekNextTrack();
+		}
+
+		if (!nextTrack) {
+			invoke('clear_preloaded_next_track').catch(() => {});
+			return;
+		}
+		const url = await buildNativeStreamUrl(nextTrack.id);
+		const coverUrl = nextTrack.album_id
+			? `${getApiBase()}/covers/${nextTrack.album_id}?token=${encodeURIComponent(get(authStore).token ?? '')}`
+			: undefined;
+		await invoke('preload_next_track', {
+			url,
+			title: nextTrack.title,
+			artist: nextTrack.artist_name ?? undefined,
+			coverUrl,
+		});
+	} catch { /* non-critical */ }
+}
+
 // ── Derived stores ───────────────────────────────────────────────────────────
 
 /** Returns the maximum output channel count the browser's audio hardware supports. */
@@ -392,6 +445,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 				nativeUrl: streamUrl,
 			});
 			engine.setNativePlayerReady(true);
+			syncNativeNextTrack().catch(() => {});
 		} else {
 			const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
 			audioEngine.setReplayGainDb(rgDb);

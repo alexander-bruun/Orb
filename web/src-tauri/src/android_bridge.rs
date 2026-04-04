@@ -622,6 +622,66 @@ pub fn set_eq_bands(enabled: bool, bands_json: String) -> Result<(), String> {
 /// Configure crossfade. When enabled, ExoPlayer fires nativeOnNext() [secs]
 /// seconds before the track ends; handlePlay() then cross-fades the volumes.
 #[cfg(target_os = "android")]
+pub fn preload_next_track(
+    url: String,
+    title: Option<String>,
+    artist: Option<String>,
+    cover_url: Option<String>,
+) -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        let url_jstring = env.new_string(&url)?;
+        let null = JObject::null();
+
+        let title_jstring;
+        let title_val = if let Some(ref t) = title {
+            title_jstring = env.new_string(t)?;
+            JValue::Object(&title_jstring)
+        } else {
+            JValue::Object(&null)
+        };
+
+        let artist_jstring;
+        let artist_val = if let Some(ref a) = artist {
+            artist_jstring = env.new_string(a)?;
+            JValue::Object(&artist_jstring)
+        } else {
+            JValue::Object(&null)
+        };
+
+        let cover_jstring;
+        let cover_val = if let Some(ref c) = cover_url {
+            cover_jstring = env.new_string(c)?;
+            JValue::Object(&cover_jstring)
+        } else {
+            JValue::Object(&null)
+        };
+
+        env.call_static_method(
+            cls,
+            jni_str!("setNextTrack"),
+            jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"),
+            &[
+                JValue::Object(&url_jstring),
+                title_val,
+                artist_val,
+                cover_val,
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
+pub fn clear_preloaded_next_track() -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, jni_str!("clearNextTrack"), jni_sig!("()V"), &[])?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
 pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;

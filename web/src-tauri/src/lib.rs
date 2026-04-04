@@ -165,6 +165,23 @@ fn set_eq_bands(enabled: bool, bands_json: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+fn preload_next_track(
+    url: String,
+    title: Option<String>,
+    artist: Option<String>,
+    cover_url: Option<String>,
+) -> Result<(), String> {
+    android_bridge::preload_next_track(url, title, artist, cover_url)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn clear_preloaded_next_track() -> Result<(), String> {
+    android_bridge::clear_preloaded_next_track()
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     android_bridge::set_crossfade_settings(enabled, secs)
 }
@@ -232,6 +249,8 @@ pub fn run() {
             set_eq_bands,
             set_crossfade_settings,
             set_gapless_enabled,
+            preload_next_track,
+            clear_preloaded_next_track,
             open_bluetooth_settings,
             get_offline_file_path,
             get_audio_output_max_channels,

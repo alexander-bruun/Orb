@@ -104,6 +104,20 @@ class MediaService : MediaSessionService() {
      */
     @Volatile private var crossfadeTriggered = false
 
+    // ── Native queue preloading ───────────────────────────────────────────────
+    // When the JS layer preloads the next track, we store it here so that
+    // STATE_ENDED can advance playback without waiting for the WebView to wake.
+    @Volatile private var pendingNextUrl: String? = null
+    @Volatile private var pendingNextTitle: String? = null
+    @Volatile private var pendingNextArtist: String? = null
+    @Volatile private var pendingNextCover: String? = null
+    /**
+     * Set to true after native auto-advances to the preloaded next track.
+     * The subsequent JS play_music call (when the WebView wakes) is suppressed
+     * so we don't restart the track that is already playing.
+     */
+    @Volatile private var nativeAutoAdvanced = false
+
     // Audio focus: tracks whether we paused due to a transient focus loss so we
     // can resume automatically when focus returns.
     @Volatile private var pausedByFocusLoss = false
@@ -357,6 +371,26 @@ class MediaService : MediaSessionService() {
             } else {
                 svc.apiClient?.updateCredentials(baseUrl, token)
             }
+        }
+
+        /** Store the next track to play natively when the current track ends. */
+        @JvmStatic
+        fun setNextTrack(url: String, title: String?, artist: String?, coverUrl: String?) {
+            val svc = instance ?: return
+            svc.pendingNextUrl = url
+            svc.pendingNextTitle = title
+            svc.pendingNextArtist = artist
+            svc.pendingNextCover = coverUrl
+        }
+
+        /** Clear any preloaded next track (e.g. end of queue, radio mode). */
+        @JvmStatic
+        fun clearNextTrack() {
+            val svc = instance ?: return
+            svc.pendingNextUrl = null
+            svc.pendingNextTitle = null
+            svc.pendingNextArtist = null
+            svc.pendingNextCover = null
         }
 
         /**
@@ -641,7 +675,21 @@ class MediaService : MediaSessionService() {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     if (!crossfadeTriggered) {
-                        // Normal end — no crossfade was triggered early.
+                        val nextUrl = pendingNextUrl
+                        if (nextUrl != null) {
+                            // Native auto-advance: play the preloaded next track immediately,
+                            // bypassing the JS layer so playback continues when backgrounded.
+                            val nextTitle = pendingNextTitle
+                            val nextArtist = pendingNextArtist
+                            val nextCover = pendingNextCover
+                            pendingNextUrl = null
+                            pendingNextTitle = null
+                            pendingNextArtist = null
+                            pendingNextCover = null
+                            doHandlePlay(nextUrl, nextTitle, nextArtist, nextCover)
+                            nativeAutoAdvanced = true
+                        }
+                        // Always notify JS so it can update queue state (and preload N+2).
                         try { nativeOnNext() } catch (_: Exception) {}
                     }
                     // Reset so the *next* track's end fires correctly.
@@ -988,6 +1036,17 @@ class MediaService : MediaSessionService() {
     // ── Playback (called from JNI) ───────────────────────────────────────────
 
     fun handlePlay(url: String, title: String?, artist: String?, coverUrl: String?) {
+        // If native already auto-advanced to this track (WebView was backgrounded),
+        // JS is just catching up — suppress the restart to avoid interrupting playback.
+        if (nativeAutoAdvanced) {
+            nativeAutoAdvanced = false
+            return
+        }
+        doHandlePlay(url, title, artist, coverUrl)
+    }
+
+    /** Internal play dispatch — bypasses the nativeAutoAdvanced suppression check. */
+    private fun doHandlePlay(url: String, title: String?, artist: String?, coverUrl: String?) {
         // Reset crossfade trigger for this new track.
         crossfadeTriggered = false
 
