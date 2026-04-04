@@ -399,6 +399,27 @@ func (s *Store) ListAlbumsWithoutCover(ctx context.Context, limit, offset int) (
 	return results, total, rows.Err()
 }
 
+// ListArtistsWithoutEnrichment returns artists where enriched_at IS NULL, paginated.
+func (s *Store) ListArtistsWithoutEnrichment(ctx context.Context, limit, offset int) ([]Artist, int, error) {
+	var total int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM artists WHERE enriched_at IS NULL`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, name, sort_name, mbid, image_key, created_at
+		FROM artists WHERE enriched_at IS NULL
+		ORDER BY name ASC
+		LIMIT $1 OFFSET $2
+	`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	artists, err := scanArtists(rows)
+	return artists, total, err
+}
+
 // GetIngestPathsForAlbum returns local source file paths for tracks in albumID.
 func (s *Store) GetIngestPathsForAlbum(ctx context.Context, albumID string) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `

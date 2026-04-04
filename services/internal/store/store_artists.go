@@ -36,11 +36,10 @@ func (s *Store) ListArtists(ctx context.Context, p ListArtistsParams) ([]Artist,
 func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, error) {
 	var a Artist
 	var mbid, artistType, country, beginDate, endDate, disambiguation, imageKey sql.NullString
-	var enrichedAt sql.NullTime
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, sort_name, mbid, artist_type, country, begin_date, end_date, disambiguation, image_key, enriched_at, created_at FROM artists WHERE id = $1`,
+		`SELECT id, name, sort_name, mbid, artist_type, country, begin_date, end_date, disambiguation, image_key, created_at FROM artists WHERE id = $1`,
 		artistID)
-	if err := row.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &artistType, &country, &beginDate, &endDate, &disambiguation, &imageKey, &enrichedAt, &a.CreatedAt); err != nil {
+	if err := row.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &artistType, &country, &beginDate, &endDate, &disambiguation, &imageKey, &a.CreatedAt); err != nil {
 		return Artist{}, err
 	}
 	if mbid.Valid {
@@ -63,9 +62,6 @@ func (s *Store) GetArtistByID(ctx context.Context, artistID string) (Artist, err
 	}
 	if imageKey.Valid {
 		a.ImageKey = &imageKey.String
-	}
-	if enrichedAt.Valid {
-		a.EnrichedAt = &enrichedAt.Time
 	}
 	return a, nil
 }

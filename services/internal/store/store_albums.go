@@ -120,7 +120,7 @@ func (s *Store) GetAlbumTitlesByIDs(ctx context.Context, ids []string) (map[stri
 
 func (s *Store) ListAlbumsByArtist(ctx context.Context, artistID string) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t2.id) as track_count
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t2.id) as track_count, COALESCE(MAX(t2.channels), 2) AS max_channels
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
 LEFT JOIN tracks t2 ON t2.album_id = al.id
@@ -142,7 +142,7 @@ ORDER BY al.release_year ASC, al.title ASC`,
 // ListAlbumsByArtist).
 func (s *Store) ListAlbumsWithFeaturedArtist(ctx context.Context, artistID string) ([]Album, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t2.id) AS track_count
+		`SELECT al.id, al.artist_id, ar.name, al.title, al.release_year, al.label, al.cover_art_key, al.mbid, al.created_at, COUNT(t2.id) AS track_count, COALESCE(MAX(t2.channels), 2) AS max_channels
 FROM albums al
 LEFT JOIN artists ar ON ar.id = al.artist_id
 LEFT JOIN tracks t2 ON t2.album_id = al.id

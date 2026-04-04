@@ -124,6 +124,8 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/albums/no-cover", s.albumsNoCover)
 	r.Post("/audiobooks/{id}/refetch-cover", s.refetchAudiobookCover)
 	r.Put("/audiobooks/{id}/cover", s.uploadAudiobookCover)
+	r.Get("/artists/unenriched", s.artistsUnenriched)
+	r.Post("/artists/{id}/re-enrich", s.reEnrichArtist)
 
 	// System backup / restore
 	r.Get("/backup", s.backup)
@@ -781,6 +783,72 @@ func (s *Service) uploadAudiobookCover(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("audit log failed", "action", "upload_cover", "err", err)
 	}
 	httputil.WriteOK(w, map[string]string{"cover_art_key": coverKey})
+}
+
+// GET /admin/artists/unenriched?limit=50&offset=0
+func (s *Service) artistsUnenriched(w http.ResponseWriter, r *http.Request) {
+	limit := httputil.QueryInt(r, "limit", 50)
+	offset := httputil.QueryInt(r, "offset", 0)
+	artists, total, err := s.db.ListArtistsWithoutEnrichment(r.Context(), limit, offset)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httputil.WriteOK(w, map[string]any{"artists": artists, "total": total})
+}
+
+// POST /admin/artists/{id}/re-enrich
+func (s *Service) reEnrichArtist(w http.ResponseWriter, r *http.Request) {
+	artistID := chi.URLParam(r, "id")
+	artist, err := s.db.GetArtistByID(r.Context(), artistID)
+	if err != nil {
+		httputil.WriteErr(w, http.StatusNotFound, "artist not found")
+		return
+	}
+	if s.mb == nil {
+		httputil.WriteErr(w, http.StatusServiceUnavailable, "MusicBrainz not configured")
+		return
+	}
+	ctx := r.Context()
+	mbResult, err := s.mb.EnrichArtist(ctx, artist.Name)
+	if err != nil || mbResult == nil {
+		// MusicBrainz returned nothing — still mark enriched_at so it's no longer "unenriched"
+		_ = s.db.UpdateArtistEnrichment(ctx, store.UpdateArtistEnrichmentParams{ID: artistID})
+		httputil.WriteOK(w, map[string]any{"status": "no_results"})
+		return
+	}
+
+	// Fetch artist image via Wikidata/WikiCommons URL relations
+	var imageKeyPtr *string
+	if imgData, imgErr := s.mb.FetchArtistImage(ctx, mbResult.URLRelations); imgErr == nil && imgData != nil {
+		imageKey := fmt.Sprintf("artists/%s.jpg", artistID)
+		if err := storeCoverArt(ctx, s.obj, imageKey, imgData); err == nil {
+			imageKeyPtr = &imageKey
+		}
+	}
+
+	if err := s.db.UpdateArtistEnrichment(ctx, store.UpdateArtistEnrichmentParams{
+		ID:             artistID,
+		Mbid:           adminStrPtr(mbResult.Mbid),
+		ArtistType:     adminStrPtr(mbResult.ArtistType),
+		Country:        adminStrPtr(mbResult.Country),
+		BeginDate:      adminStrPtr(mbResult.BeginDate),
+		EndDate:        adminStrPtr(mbResult.EndDate),
+		Disambiguation: adminStrPtr(mbResult.Disambiguation),
+		ImageKey:       imageKeyPtr,
+	}); err != nil {
+		httputil.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httputil.WriteOK(w, map[string]any{"status": "enriched"})
+}
+
+// adminStrPtr returns a pointer to s if non-empty, else nil.
+func adminStrPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // ── Metadata editing ─────────────────────────────────────────────────────────
