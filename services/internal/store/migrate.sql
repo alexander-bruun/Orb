@@ -1,57 +1,125 @@
 -- Applied automatically on every API startup.
--- All statements are idempotent (IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
+-- Clean schema: all columns defined in CREATE TABLE, no ALTER TABLE statements.
+
+-- ── Users ──────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS users (
-    id            TEXT        PRIMARY KEY,
-    username      TEXT        NOT NULL UNIQUE,
-    email         TEXT        NOT NULL UNIQUE,
-    password_hash TEXT        NOT NULL,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at TIMESTAMPTZ
+    id                           TEXT        PRIMARY KEY,
+    username                     TEXT        NOT NULL UNIQUE,
+    email                        TEXT        NOT NULL UNIQUE,
+    password_hash                TEXT        NOT NULL,
+    created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at                TIMESTAMPTZ,
+    totp_secret                  TEXT,
+    totp_enabled                 BOOLEAN     NOT NULL DEFAULT FALSE,
+    totp_backup_codes            TEXT,
+    is_admin                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    email_verified               BOOLEAN     NOT NULL DEFAULT FALSE,
+    email_verification_token     TEXT,
+    email_verification_expires_at TIMESTAMPTZ,
+    is_active                    BOOLEAN     NOT NULL DEFAULT TRUE,
+    storage_quota_bytes          BIGINT,
+    profile_public               BOOLEAN     NOT NULL DEFAULT FALSE,
+    bio                          TEXT,
+    display_name                 TEXT,
+    avatar_key                   TEXT,
+    subsonic_password            TEXT
 );
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret       TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled      BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT;
+-- ── Artists ────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS artists (
-    id            TEXT        PRIMARY KEY,
-    name          TEXT        NOT NULL,
-    sort_name     TEXT        NOT NULL,
-    mbid          TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id             TEXT        PRIMARY KEY,
+    name           TEXT        NOT NULL,
+    sort_name      TEXT        NOT NULL,
+    mbid           TEXT,
+    artist_type    TEXT,
+    country        TEXT,
+    begin_date     TEXT,
+    end_date       TEXT,
+    disambiguation TEXT,
+    image_key      TEXT,
+    enriched_at    TIMESTAMPTZ,
+    search_vector  tsvector,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── Albums ─────────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS albums (
-    id            TEXT        PRIMARY KEY,
-    artist_id     TEXT        REFERENCES artists(id) ON DELETE SET NULL,
-    title         TEXT        NOT NULL,
-    release_year  INT,
-    label         TEXT,
-    cover_art_key TEXT,
-    mbid          TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                    TEXT        PRIMARY KEY,
+    artist_id             TEXT        REFERENCES artists(id) ON DELETE SET NULL,
+    title                 TEXT        NOT NULL,
+    release_year          INT,
+    label                 TEXT,
+    cover_art_key         TEXT,
+    mbid                  TEXT,
+    album_type            TEXT,
+    release_date          TEXT,
+    release_group_mbid    TEXT,
+    enriched_at           TIMESTAMPTZ,
+    album_group_id        TEXT,
+    edition               TEXT,
+    search_vector         tsvector,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ── Tracks ─────────────────────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS tracks (
-    id            TEXT        PRIMARY KEY,
-    album_id      TEXT        REFERENCES albums(id) ON DELETE SET NULL,
-    artist_id     TEXT        REFERENCES artists(id) ON DELETE SET NULL,
-    title         TEXT        NOT NULL,
-    track_number  INT,
-    disc_number   INT         NOT NULL DEFAULT 1,
-    duration_ms   INT         NOT NULL,
-    file_key      TEXT        NOT NULL,
-    file_size     BIGINT      NOT NULL,
-    format        TEXT        NOT NULL,
-    bit_depth     INT,
-    sample_rate   INT         NOT NULL,
-    channels      INT         NOT NULL DEFAULT 2,
-    bitrate_kbps  INT,
-    seek_table    JSONB,
-    fingerprint   TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    id              TEXT        PRIMARY KEY,
+    album_id        TEXT        REFERENCES albums(id) ON DELETE SET NULL,
+    artist_id       TEXT        REFERENCES artists(id) ON DELETE SET NULL,
+    title           TEXT        NOT NULL,
+    track_number    INT,
+    track_index     INT,
+    disc_number     INT         NOT NULL DEFAULT 1,
+    duration_ms     INT         NOT NULL,
+    file_key        TEXT        NOT NULL,
+    file_size       BIGINT      NOT NULL,
+    format          TEXT        NOT NULL,
+    bit_depth       INT,
+    sample_rate     INT         NOT NULL,
+    channels        INT         NOT NULL DEFAULT 2,
+    bitrate_kbps    INT,
+    seek_table      JSONB,
+    fingerprint     TEXT,
+    lyrics          TEXT,
+    isrc            TEXT,
+    mbid            TEXT,
+    enriched_at     TIMESTAMPTZ,
+    waveform_peaks  JSONB,
+    audio_layouts   TEXT[]      NOT NULL DEFAULT '{"stereo"}',
+    has_atmos       BOOLEAN     NOT NULL DEFAULT FALSE,
+    audio_formats   JSONB,
+    search_vector   tsvector,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ── Playlists ──────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id            TEXT        PRIMARY KEY,
+    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name          TEXT        NOT NULL,
+    description   TEXT,
+    cover_art_key TEXT,
+    is_public     BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    playlist_id   TEXT        NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id      TEXT        NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    position      INT         NOT NULL,
+    added_by      TEXT        REFERENCES users(id),
+    added_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (playlist_id, track_id)
+);
+
+-- ── User Library ───────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS user_library (
     user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -67,40 +135,34 @@ CREATE TABLE IF NOT EXISTS user_favorites (
     PRIMARY KEY (user_id, track_id)
 );
 
-CREATE TABLE IF NOT EXISTS playlists (
-    id            TEXT        PRIMARY KEY,
-    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name          TEXT        NOT NULL,
-    description   TEXT,
-    cover_art_key TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS track_ratings (
+    user_id   TEXT            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    track_id  TEXT            NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    rating    SMALLINT        NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    rated_at  TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, track_id)
 );
 
-CREATE TABLE IF NOT EXISTS playlist_tracks (
-    playlist_id   TEXT        NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-    track_id      TEXT        NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    position      INT         NOT NULL,
-    added_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (playlist_id, track_id)
-);
+-- ── Queue and History ──────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS queue_entries (
-    id            BIGSERIAL   PRIMARY KEY,
-    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    track_id      TEXT        NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    position      INT         NOT NULL,
-    source        TEXT,
-    added_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    id        BIGSERIAL       PRIMARY KEY,
+    user_id   TEXT            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    track_id  TEXT            NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    position  INT             NOT NULL,
+    source    TEXT,
+    added_at  TIMESTAMPTZ     NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS play_history (
-    id                 BIGSERIAL   PRIMARY KEY,
-    user_id            TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    track_id           TEXT        NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    played_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    duration_played_ms INT         NOT NULL
+    id                 BIGSERIAL       PRIMARY KEY,
+    user_id            TEXT            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    track_id           TEXT            NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    played_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+    duration_played_ms INT             NOT NULL
 );
+
+-- ── Ingest State ───────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS ingest_state (
     path        TEXT        PRIMARY KEY,
@@ -110,109 +172,8 @@ CREATE TABLE IF NOT EXISTS ingest_state (
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Indexes
-CREATE INDEX IF NOT EXISTS tracks_album_id_idx        ON tracks(album_id);
-CREATE INDEX IF NOT EXISTS tracks_artist_id_idx       ON tracks(artist_id);
-CREATE INDEX IF NOT EXISTS albums_artist_id_idx       ON albums(artist_id);
-CREATE INDEX IF NOT EXISTS user_library_user_id_idx   ON user_library(user_id);
-CREATE INDEX IF NOT EXISTS user_favorites_user_id_idx ON user_favorites(user_id);
-CREATE INDEX IF NOT EXISTS playlist_tracks_pl_idx     ON playlist_tracks(playlist_id, position);
-CREATE INDEX IF NOT EXISTS queue_entries_user_idx     ON queue_entries(user_id, position);
-CREATE INDEX IF NOT EXISTS play_history_user_idx ON play_history(user_id, played_at DESC);
+-- ── Genres ─────────────────────────────────────────────────────────────────────
 
--- ── Podcasts ──────────────────────────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS podcasts (
-    id            TEXT        PRIMARY KEY,
-    title         TEXT        NOT NULL,
-    description   TEXT,
-    author        TEXT,
-    rss_url       TEXT        NOT NULL UNIQUE,
-    link          TEXT,
-    cover_art_key TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS podcast_episodes (
-    id            TEXT        PRIMARY KEY,
-    podcast_id    TEXT        NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
-    title         TEXT        NOT NULL,
-    description   TEXT,
-    pub_date      TIMESTAMPTZ NOT NULL,
-    guid          TEXT        NOT NULL,
-    link          TEXT,
-    audio_url     TEXT        NOT NULL,
-    duration_ms   BIGINT      NOT NULL DEFAULT 0,
-    file_key      TEXT,                    -- object-store key if downloaded
-    file_size     BIGINT      NOT NULL DEFAULT 0,
-    format        TEXT,                    -- mp3 | m4a | etc.
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (podcast_id, guid)
-);
-
-CREATE TABLE IF NOT EXISTS podcast_subscriptions (
-    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    podcast_id    TEXT        NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, podcast_id)
-);
-
-CREATE TABLE IF NOT EXISTS podcast_episode_progress (
-    user_id       TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    episode_id    TEXT        NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
-    position_ms   BIGINT      NOT NULL DEFAULT 0,
-    completed     BOOLEAN     NOT NULL DEFAULT FALSE,
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, episode_id)
-);
-
-CREATE INDEX IF NOT EXISTS podcast_episodes_podcast_id_idx ON podcast_episodes(podcast_id, pub_date DESC);
-CREATE INDEX IF NOT EXISTS podcast_subscriptions_user_idx ON podcast_subscriptions(user_id);
-CREATE INDEX IF NOT EXISTS podcast_episode_progress_user_idx ON podcast_episode_progress(user_id);
-
-ALTER TABLE podcasts ADD COLUMN IF NOT EXISTS search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(author, ''))) STORED;
-ALTER TABLE podcast_episodes ADD COLUMN IF NOT EXISTS search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED;
-
-CREATE INDEX IF NOT EXISTS podcasts_search_idx ON podcasts USING GIN(search_vector);
-CREATE INDEX IF NOT EXISTS podcast_episodes_search_idx ON podcast_episodes USING GIN(search_vector);
-
-
--- Full-text search columns (ADD COLUMN IF NOT EXISTS skips silently when already present)
-ALTER TABLE tracks  ADD COLUMN IF NOT EXISTS search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED;
-ALTER TABLE albums  ADD COLUMN IF NOT EXISTS search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, ''))) STORED;
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(name, ''))) STORED;
-
-CREATE INDEX IF NOT EXISTS tracks_search_idx  ON tracks  USING GIN(search_vector);
-CREATE INDEX IF NOT EXISTS albums_search_idx  ON albums  USING GIN(search_vector);
-CREATE INDEX IF NOT EXISTS artists_search_idx ON artists USING GIN(search_vector);
-
--- Synced lyrics stored in LRC format (nullable — not all tracks have lyrics)
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS lyrics TEXT;
-
--- MusicBrainz enrichment columns
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS artist_type     TEXT;
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS country         TEXT;
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS begin_date      TEXT;
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS end_date        TEXT;
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS disambiguation  TEXT;
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS enriched_at     TIMESTAMPTZ;
-
-ALTER TABLE albums ADD COLUMN IF NOT EXISTS album_type          TEXT;
-ALTER TABLE albums ADD COLUMN IF NOT EXISTS release_date        TEXT;
-ALTER TABLE albums ADD COLUMN IF NOT EXISTS release_group_mbid  TEXT;
-ALTER TABLE albums ADD COLUMN IF NOT EXISTS enriched_at         TIMESTAMPTZ;
-
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS isrc        TEXT;
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS mbid        TEXT;
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
-
--- Genre taxonomy
 CREATE TABLE IF NOT EXISTS genres (
     id   TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
@@ -236,6 +197,8 @@ CREATE TABLE IF NOT EXISTS track_genres (
     PRIMARY KEY (track_id, genre_id)
 );
 
+-- ── Artist Relationships ───────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS related_artists (
     artist_id  TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
     related_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
@@ -243,42 +206,6 @@ CREATE TABLE IF NOT EXISTS related_artists (
     PRIMARY KEY (artist_id, related_id, rel_type)
 );
 
-ALTER TABLE artists ADD COLUMN IF NOT EXISTS image_key TEXT;
-
-CREATE INDEX IF NOT EXISTS artist_genres_artist_idx ON artist_genres(artist_id);
-CREATE INDEX IF NOT EXISTS album_genres_album_idx   ON album_genres(album_id);
-CREATE INDEX IF NOT EXISTS track_genres_track_idx   ON track_genres(track_id);
-CREATE INDEX IF NOT EXISTS related_artists_idx      ON related_artists(artist_id);
-
--- Audio features for similarity computation
-CREATE TABLE IF NOT EXISTS track_features (
-    track_id     TEXT PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-    bpm          REAL,
-    key_estimate TEXT,
-    replay_gain  REAL,
-    extracted_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Migrate existing chromaprint columns to the new in-house feature set.
-ALTER TABLE track_features DROP COLUMN IF EXISTS chromaprint;
-ALTER TABLE track_features DROP COLUMN IF EXISTS chromaprint_dur;
-ALTER TABLE track_features ADD COLUMN IF NOT EXISTS bpm          REAL;
-ALTER TABLE track_features ADD COLUMN IF NOT EXISTS key_estimate TEXT;
-ALTER TABLE track_features ADD COLUMN IF NOT EXISTS replay_gain  REAL;
-
-CREATE TABLE IF NOT EXISTS track_similarity (
-    track_a  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    track_b  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    score    REAL NOT NULL,
-    PRIMARY KEY (track_a, track_b),
-    CHECK (track_a < track_b)
-);
-
-CREATE INDEX IF NOT EXISTS track_similarity_a_idx ON track_similarity(track_a, score DESC);
-CREATE INDEX IF NOT EXISTS track_similarity_b_idx ON track_similarity(track_b, score DESC);
-
--- Track featured artists: artists that appear as "feat." in the track title.
--- The title stored in the tracks table is the clean version (feat. part stripped).
 CREATE TABLE IF NOT EXISTS track_featured_artists (
     track_id  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
     artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
@@ -286,36 +213,45 @@ CREATE TABLE IF NOT EXISTS track_featured_artists (
     PRIMARY KEY (track_id, artist_id)
 );
 
-CREATE INDEX IF NOT EXISTS track_featured_artists_track_idx ON track_featured_artists(track_id);
+-- ── Audio Features & Similarity ────────────────────────────────────────────────
 
--- Album variants: group editions of the same album and store edition label.
-ALTER TABLE albums ADD COLUMN IF NOT EXISTS album_group_id TEXT;
-ALTER TABLE albums ADD COLUMN IF NOT EXISTS edition        TEXT;
-CREATE INDEX IF NOT EXISTS albums_group_id_idx ON albums(album_group_id);
-
--- Per-user streaming quality preferences.
-CREATE TABLE IF NOT EXISTS user_streaming_prefs (
-    user_id          TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    max_bitrate_kbps INT,          -- NULL = no limit; enforced as byte-rate throttle (any network)
-    max_sample_rate  INT,          -- NULL = no limit; informational / client advisory (any network)
-    max_bit_depth    INT,          -- NULL = no limit; informational / client advisory (any network)
-    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS track_features (
+    track_id     TEXT        PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    bpm          REAL,
+    key_estimate TEXT,
+    replay_gain  REAL,
+    extracted_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Network-specific quality overrides (override the any-network defaults above).
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_bitrate_kbps   INT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_sample_rate    INT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_max_bit_depth      INT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_bitrate_kbps INT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_sample_rate  INT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_max_bit_depth    INT;
--- On-the-fly transcode target format per network tier. NULL = no transcoding (pass-through + throttle).
--- Supported values: "mp3", "aac", "opus".
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS transcode_format        TEXT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS wifi_transcode_format   TEXT;
-ALTER TABLE user_streaming_prefs ADD COLUMN IF NOT EXISTS mobile_transcode_format TEXT;
 
--- Equalizer profiles.
--- bands is a JSONB array of {frequency: number, gain: number, type: string}.
+CREATE TABLE IF NOT EXISTS track_similarity (
+    track_a TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    track_b TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    score   REAL NOT NULL,
+    PRIMARY KEY (track_a, track_b),
+    CHECK (track_a < track_b)
+);
+
+-- ── User Streaming Preferences ────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS user_streaming_prefs (
+    user_id                  TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    max_bitrate_kbps         INT,
+    max_sample_rate          INT,
+    max_bit_depth            INT,
+    wifi_max_bitrate_kbps    INT,
+    wifi_max_sample_rate     INT,
+    wifi_max_bit_depth       INT,
+    mobile_max_bitrate_kbps  INT,
+    mobile_max_sample_rate   INT,
+    mobile_max_bit_depth     INT,
+    transcode_format         TEXT,
+    wifi_transcode_format    TEXT,
+    mobile_transcode_format  TEXT,
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── Equalizer Profiles ─────────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS eq_profiles (
     id         TEXT        PRIMARY KEY,
     user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -326,101 +262,19 @@ CREATE TABLE IF NOT EXISTS eq_profiles (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS eq_profiles_user_idx ON eq_profiles(user_id);
-
--- Per-user default EQ profile (one default per user).
 CREATE TABLE IF NOT EXISTS user_eq_default (
     user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE
 );
 
--- Per-genre EQ profile mapping: when a track's album/artist genre matches,
--- activate the corresponding profile automatically.
 CREATE TABLE IF NOT EXISTS user_genre_eq (
-    user_id    TEXT NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
-    genre_id   TEXT NOT NULL REFERENCES genres(id)   ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    genre_id   TEXT NOT NULL REFERENCES genres(id) ON DELETE CASCADE,
     profile_id TEXT NOT NULL REFERENCES eq_profiles(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, genre_id)
 );
 
-CREATE INDEX IF NOT EXISTS user_genre_eq_user_idx ON user_genre_eq(user_id);
-
--- Admin flag: grant a user elevated access to analytics and admin endpoints.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
-
--- Email verification.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified            BOOLEAN     NOT NULL DEFAULT FALSE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_expires_at TIMESTAMPTZ;
-
--- Pre-generated waveform peak data produced by audiowaveform during ingest.
--- Stored as a compact JSON float array (0–1 range, ~200 values).
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS waveform_peaks JSONB;
-
--- User lifecycle: active flag and storage quota.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active           BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS storage_quota_bytes BIGINT;
-
--- Invite tokens: admins generate these to allow new user registration.
-CREATE TABLE IF NOT EXISTS invite_tokens (
-    token      TEXT        PRIMARY KEY,
-    email      TEXT        NOT NULL,
-    created_by TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at TIMESTAMPTZ NOT NULL,
-    used_at    TIMESTAMPTZ,
-    used_by    TEXT        REFERENCES users(id) ON DELETE SET NULL
-);
-CREATE INDEX IF NOT EXISTS invite_tokens_email_idx ON invite_tokens(email);
-
--- Audit log: immutable record of admin and user actions.
-CREATE TABLE IF NOT EXISTS audit_logs (
-    id          BIGSERIAL   PRIMARY KEY,
-    actor_id    TEXT        REFERENCES users(id) ON DELETE SET NULL,
-    action      TEXT        NOT NULL,
-    target_type TEXT,
-    target_id   TEXT,
-    detail      JSONB,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at DESC);
-CREATE INDEX IF NOT EXISTS audit_logs_actor_idx      ON audit_logs(actor_id);
-
--- Site settings: runtime configuration stored in the database.
-CREATE TABLE IF NOT EXISTS site_settings (
-    key        TEXT        PRIMARY KEY,
-    value      TEXT        NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Webhooks: outgoing HTTP callbacks for system events.
-CREATE TABLE IF NOT EXISTS webhooks (
-    id          TEXT        PRIMARY KEY,
-    url         TEXT        NOT NULL,
-    secret      TEXT        NOT NULL,
-    events      TEXT[]      NOT NULL DEFAULT '{}',
-    enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
-    description TEXT        NOT NULL DEFAULT '',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Webhook delivery log: records every outbound delivery attempt.
-CREATE TABLE IF NOT EXISTS webhook_deliveries (
-    id           BIGSERIAL   PRIMARY KEY,
-    webhook_id   TEXT        NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
-    event        TEXT        NOT NULL,
-    payload      JSONB       NOT NULL,
-    status_code  INT,
-    error        TEXT,
-    delivered_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(webhook_id, delivered_at DESC);
-
--- Smart playlists: saved filter rules that evaluate to a dynamic track list.
--- rules is a JSONB array of {field, op, value} objects.
--- rule_match: 'all' (AND) | 'any' (OR).
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS track_index INT;
+-- ── Smart Playlists ───────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS smart_playlists (
     id            TEXT        PRIMARY KEY,
@@ -432,27 +286,84 @@ CREATE TABLE IF NOT EXISTS smart_playlists (
     sort_by       TEXT        NOT NULL DEFAULT 'title',
     sort_dir      TEXT        NOT NULL DEFAULT 'asc',
     limit_count   INT,
-    system        BOOLEAN     NOT NULL DEFAULT false,
+    system        BOOLEAN     NOT NULL DEFAULT FALSE,
     last_built_at TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-ALTER TABLE smart_playlists ADD COLUMN IF NOT EXISTS system BOOLEAN NOT NULL DEFAULT false;
-CREATE INDEX IF NOT EXISTS smart_playlists_user_idx ON smart_playlists(user_id);
 
--- Track ratings: per-user 1–5 star rating for tracks.
-CREATE TABLE IF NOT EXISTS track_ratings (
-    user_id   TEXT NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
-    track_id  TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    rating    SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
-    rated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (user_id, track_id)
+-- ── Playlist Collaboration ────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS playlist_collaborators (
+    playlist_id TEXT        NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    user_id     TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role        TEXT        NOT NULL DEFAULT 'editor',
+    invited_by  TEXT        NOT NULL REFERENCES users(id),
+    invited_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    accepted_at TIMESTAMPTZ,
+    PRIMARY KEY (playlist_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS track_ratings_user_idx ON track_ratings(user_id);
+
+CREATE TABLE IF NOT EXISTS playlist_invite_tokens (
+    token       TEXT        PRIMARY KEY,
+    playlist_id TEXT        NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    invited_by  TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role        TEXT        NOT NULL DEFAULT 'editor',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '7 days',
+    used_at     TIMESTAMPTZ
+);
+
+-- ── Podcasts ───────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS podcasts (
+    id            TEXT        PRIMARY KEY,
+    title         TEXT        NOT NULL,
+    description   TEXT,
+    author        TEXT,
+    rss_url       TEXT        NOT NULL UNIQUE,
+    link          TEXT,
+    cover_art_key TEXT,
+    search_vector tsvector,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id          TEXT        PRIMARY KEY,
+    podcast_id  TEXT        NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+    title       TEXT        NOT NULL,
+    description TEXT,
+    pub_date    TIMESTAMPTZ NOT NULL,
+    guid        TEXT        NOT NULL,
+    link        TEXT,
+    audio_url   TEXT        NOT NULL,
+    duration_ms BIGINT      NOT NULL DEFAULT 0,
+    file_key    TEXT,
+    file_size   BIGINT      NOT NULL DEFAULT 0,
+    format      TEXT,
+    search_vector tsvector,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (podcast_id, guid)
+);
+
+CREATE TABLE IF NOT EXISTS podcast_subscriptions (
+    user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    podcast_id TEXT        NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, podcast_id)
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episode_progress (
+    user_id     TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    episode_id  TEXT        NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+    position_ms BIGINT      NOT NULL DEFAULT 0,
+    completed   BOOLEAN     NOT NULL DEFAULT FALSE,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, episode_id)
+);
 
 -- ── Audiobooks ────────────────────────────────────────────────────────────────
--- Audiobooks are a separate content type from music. They have chapters,
--- narrators, series info, and per-user progress / bookmarks.
 
 CREATE TABLE IF NOT EXISTS audiobook_narrators (
     id         TEXT        PRIMARY KEY,
@@ -463,23 +374,28 @@ CREATE TABLE IF NOT EXISTS audiobook_narrators (
 );
 
 CREATE TABLE IF NOT EXISTS audiobooks (
-    id             TEXT        PRIMARY KEY,
-    title          TEXT        NOT NULL,
-    edition        TEXT,
-    author_id      TEXT        REFERENCES artists(id) ON DELETE SET NULL,
-    cover_art_key  TEXT,
-    description    TEXT,
-    series         TEXT,
-    series_index   REAL,
-    published_year INT,
-    isbn           TEXT,
-    ol_key         TEXT,        -- Open Library work key, e.g. "/works/OL82563W"
-    file_key       TEXT        NOT NULL,
-    file_size      BIGINT      NOT NULL,
-    format         TEXT        NOT NULL,
-    duration_ms    BIGINT      NOT NULL,
-    fingerprint    TEXT,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                 TEXT        PRIMARY KEY,
+    title              TEXT        NOT NULL,
+    edition            TEXT,
+    author_id          TEXT        REFERENCES artists(id) ON DELETE SET NULL,
+    cover_art_key      TEXT,
+    description        TEXT,
+    series             TEXT,
+    series_index       REAL,
+    series_source      TEXT,
+    series_confidence  REAL,
+    published_year     INT,
+    isbn               TEXT,
+    asin               TEXT,
+    subtitle           TEXT,
+    ol_key             TEXT,
+    file_key           TEXT,
+    file_size          BIGINT      NOT NULL,
+    format             TEXT        NOT NULL,
+    duration_ms        BIGINT      NOT NULL,
+    fingerprint        TEXT,
+    search_vector      tsvector,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS audiobook_narrator_links (
@@ -495,10 +411,9 @@ CREATE TABLE IF NOT EXISTS audiobook_chapters (
     title        TEXT        NOT NULL,
     start_ms     BIGINT      NOT NULL,
     end_ms       BIGINT      NOT NULL,
-    chapter_num  INT         NOT NULL DEFAULT 0
+    chapter_num  INT         NOT NULL DEFAULT 0,
+    file_key     TEXT
 );
-
-CREATE INDEX IF NOT EXISTS audiobook_chapters_book_idx ON audiobook_chapters(audiobook_id, chapter_num);
 
 CREATE TABLE IF NOT EXISTS audiobook_progress (
     user_id      TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -526,111 +441,140 @@ CREATE TABLE IF NOT EXISTS audiobook_ingest_state (
     ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS audiobooks_author_idx        ON audiobooks(author_id);
-CREATE INDEX IF NOT EXISTS audiobook_narrator_links_idx ON audiobook_narrator_links(audiobook_id);
-CREATE INDEX IF NOT EXISTS audiobook_progress_user_idx  ON audiobook_progress(user_id);
-CREATE INDEX IF NOT EXISTS audiobook_bookmarks_user_idx ON audiobook_bookmarks(user_id, audiobook_id);
+-- ── Social: Follows & Activity ─────────────────────────────────────────────────
 
--- Full-text search for audiobooks
-ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS search_vector tsvector
-    GENERATED ALWAYS AS (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(series, ''))) STORED;
+CREATE TABLE IF NOT EXISTS user_follows (
+    follower_id  TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followee_id  TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (follower_id, followee_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_activity (
+    id          TEXT        PRIMARY KEY,
+    user_id     TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type        TEXT        NOT NULL,
+    entity_type TEXT        NOT NULL,
+    entity_id   TEXT        NOT NULL,
+    metadata    JSONB,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── Admin & Scrobbling ────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS invite_tokens (
+    token      TEXT        PRIMARY KEY,
+    email      TEXT        NOT NULL,
+    created_by TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ,
+    used_by    TEXT        REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          BIGSERIAL   PRIMARY KEY,
+    actor_id    TEXT        REFERENCES users(id) ON DELETE SET NULL,
+    action      TEXT        NOT NULL,
+    target_type TEXT,
+    target_id   TEXT,
+    detail      JSONB,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS site_settings (
+    key        TEXT        PRIMARY KEY,
+    value      TEXT        NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS user_scrobble_settings (
+    user_id         TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    lastfm_enabled  BOOLEAN     NOT NULL DEFAULT FALSE,
+    lastfm_session_key TEXT,
+    lastfm_username TEXT,
+    lb_enabled      BOOLEAN     NOT NULL DEFAULT FALSE,
+    lb_token        TEXT,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── Webhooks ──────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id          TEXT        PRIMARY KEY,
+    url         TEXT        NOT NULL,
+    secret      TEXT        NOT NULL,
+    events      TEXT[]      NOT NULL DEFAULT '{}',
+    enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
+    description TEXT        NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id           BIGSERIAL   PRIMARY KEY,
+    webhook_id   TEXT        NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+    event        TEXT        NOT NULL,
+    payload      JSONB       NOT NULL,
+    status_code  INT,
+    error        TEXT,
+    delivered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ── Indexes ────────────────────────────────────────────────────────────────────
+
+CREATE INDEX IF NOT EXISTS albums_artist_id_idx ON albums(artist_id);
+CREATE INDEX IF NOT EXISTS albums_group_id_idx ON albums(album_group_id);
+
+CREATE INDEX IF NOT EXISTS tracks_album_id_idx ON tracks(album_id);
+CREATE INDEX IF NOT EXISTS tracks_artist_id_idx ON tracks(artist_id);
+
+CREATE INDEX IF NOT EXISTS user_library_user_id_idx ON user_library(user_id);
+CREATE INDEX IF NOT EXISTS user_favorites_user_id_idx ON user_favorites(user_id);
+CREATE INDEX IF NOT EXISTS track_ratings_user_idx ON track_ratings(user_id);
+
+CREATE INDEX IF NOT EXISTS playlist_tracks_pl_idx ON playlist_tracks(playlist_id, position);
+CREATE INDEX IF NOT EXISTS queue_entries_user_idx ON queue_entries(user_id, position);
+CREATE INDEX IF NOT EXISTS play_history_user_idx ON play_history(user_id, played_at DESC);
+
+CREATE INDEX IF NOT EXISTS artists_search_idx ON artists USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS albums_search_idx ON albums USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS tracks_search_idx ON tracks USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS podcasts_search_idx ON podcasts USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS podcast_episodes_search_idx ON podcast_episodes USING GIN(search_vector);
 CREATE INDEX IF NOT EXISTS audiobooks_search_idx ON audiobooks USING GIN(search_vector);
 
--- Multi-file audiobook support: each chapter can have its own stored file.
--- NULL means the chapter is a time-range inside the parent audiobook's file_key (M4B mode).
--- Non-NULL means the chapter is streamed from its own file (directory/MP3 mode).
-ALTER TABLE audiobook_chapters ADD COLUMN IF NOT EXISTS file_key TEXT;
+CREATE INDEX IF NOT EXISTS artist_genres_artist_idx ON artist_genres(artist_id);
+CREATE INDEX IF NOT EXISTS album_genres_album_idx ON album_genres(album_id);
+CREATE INDEX IF NOT EXISTS track_genres_track_idx ON track_genres(track_id);
 
--- The audiobook's file_key is now optional (NULL for directory-based multi-file books).
-ALTER TABLE audiobooks ALTER COLUMN file_key DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS related_artists_idx ON related_artists(artist_id);
+CREATE INDEX IF NOT EXISTS track_featured_artists_track_idx ON track_featured_artists(track_id);
 
--- Track how series was determined.
-ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS series_source TEXT;
-ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS series_confidence REAL;
+CREATE INDEX IF NOT EXISTS track_similarity_a_idx ON track_similarity(track_a, score DESC);
+CREATE INDEX IF NOT EXISTS track_similarity_b_idx ON track_similarity(track_b, score DESC);
 
--- Store edition/variant labels like "Unabridged".
-ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS edition TEXT;
+CREATE INDEX IF NOT EXISTS podcast_episodes_podcast_id_idx ON podcast_episodes(podcast_id, pub_date DESC);
+CREATE INDEX IF NOT EXISTS podcast_subscriptions_user_idx ON podcast_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS podcast_episode_progress_user_idx ON podcast_episode_progress(user_id);
 
--- Amazon Standard Identification Number extracted from folder-name annotation "[B0015T963C]".
-ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS asin TEXT;
+CREATE INDEX IF NOT EXISTS audiobook_chapters_book_idx ON audiobook_chapters(audiobook_id, chapter_num);
+CREATE INDEX IF NOT EXISTS audiobook_narrator_links_idx ON audiobook_narrator_links(audiobook_id);
+CREATE INDEX IF NOT EXISTS audiobook_progress_user_idx ON audiobook_progress(user_id);
+CREATE INDEX IF NOT EXISTS audiobook_bookmarks_user_idx ON audiobook_bookmarks(user_id, audiobook_id);
+CREATE INDEX IF NOT EXISTS audiobooks_author_idx ON audiobooks(author_id);
 
--- Subtitle extracted from folder-name or metadata (e.g. "Book Title - Subtitle Here").
-ALTER TABLE audiobooks ADD COLUMN IF NOT EXISTS subtitle TEXT;
-
--- ── Social: user profile extensions ─────────────────────────────────────────
-ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_public BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_key TEXT;
-
--- ── Social: who follows whom ──────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS user_follows (
-  follower_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  followee_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  followed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (follower_id, followee_id)
-);
-CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows(followee_id);
-
--- ── Social: activity feed ─────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS user_activity (
-  id          TEXT        PRIMARY KEY,
-  user_id     TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type        TEXT        NOT NULL,   -- 'play', 'favorite', 'playlist_create', 'playlist_follow'
-  entity_type TEXT        NOT NULL,   -- 'track', 'album', 'artist', 'playlist'
-  entity_id   TEXT        NOT NULL,
-  metadata    JSONB,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS user_activity_user_created ON user_activity(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS user_activity_created      ON user_activity(created_at DESC);
-
--- ── Social: playlist collaboration ───────────────────────────────────────────
-ALTER TABLE playlists ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE;
-ALTER TABLE playlist_tracks ADD COLUMN IF NOT EXISTS added_by TEXT REFERENCES users(id);
-
--- ── Subsonic API compatibility ────────────────────────────────────────────────
--- Plaintext password stored for Subsonic token auth (MD5 challenge).
--- Users who never set this will use plain-password auth instead.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS subsonic_password TEXT;
-
-CREATE TABLE IF NOT EXISTS playlist_collaborators (
-  playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role        TEXT NOT NULL DEFAULT 'editor',  -- 'editor' | 'viewer'
-  invited_by  TEXT NOT NULL REFERENCES users(id),
-  invited_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  accepted_at TIMESTAMPTZ,
-  PRIMARY KEY (playlist_id, user_id)
-);
+CREATE INDEX IF NOT EXISTS eq_profiles_user_idx ON eq_profiles(user_id);
+CREATE INDEX IF NOT EXISTS user_genre_eq_user_idx ON user_genre_eq(user_id);
+CREATE INDEX IF NOT EXISTS smart_playlists_user_idx ON smart_playlists(user_id);
 CREATE INDEX IF NOT EXISTS playlist_collaborators_user_idx ON playlist_collaborators(user_id);
 
-CREATE TABLE IF NOT EXISTS playlist_invite_tokens (
-  token       TEXT        PRIMARY KEY,
-  playlist_id TEXT        NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-  invited_by  TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role        TEXT        NOT NULL DEFAULT 'editor',
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at  TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '7 days',
-  used_at     TIMESTAMPTZ
-);
+CREATE INDEX IF NOT EXISTS user_follows_followee_idx ON user_follows(followee_id);
+CREATE INDEX IF NOT EXISTS user_activity_user_created ON user_activity(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS user_activity_created ON user_activity(created_at DESC);
 
--- ── Scrobbling: Last.fm and ListenBrainz per-user settings ───────────────────
-CREATE TABLE IF NOT EXISTS user_scrobble_settings (
-  user_id          TEXT        PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  lastfm_enabled   BOOLEAN     NOT NULL DEFAULT FALSE,
-  lastfm_session_key TEXT,                -- obtained via auth.getMobileSession; never returned to client
-  lastfm_username  TEXT,                  -- display only
-  lb_enabled       BOOLEAN     NOT NULL DEFAULT FALSE,
-  lb_token         TEXT,                  -- ListenBrainz user token; never returned to client
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+CREATE INDEX IF NOT EXISTS invite_tokens_email_idx ON invite_tokens(email);
+CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs(actor_id);
 
--- ── Multi-channel audio (Phase 1) ─────────────────────────────────────────────
--- audio_layouts: quick-filter array, e.g. '{"stereo","5.1","7.1","atmos"}'
--- has_atmos:     true when an Atmos passthrough stream is available
--- audio_formats: JSONB array of {type, codec, channels, passthrough, file_key}
---                one entry per layout; file_key is NULL for the primary stereo file
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS audio_layouts TEXT[]    NOT NULL DEFAULT '{"stereo"}';
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS has_atmos     BOOLEAN   NOT NULL DEFAULT FALSE;
-ALTER TABLE tracks ADD COLUMN IF NOT EXISTS audio_formats JSONB;
+CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(webhook_id, delivered_at DESC);
