@@ -343,4 +343,30 @@
     padding: 48px;
     color: var(--text-muted);
   }
+
+  @media (max-width: 640px) {
+    .page {
+      padding: 16px;
+    }
+    .page-header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .subscribe-box {
+      flex-direction: column;
+    }
+    .subscribe-box input {
+      width: 100%;
+    }
+    .subscribe-box button {
+      width: 100%;
+      padding: 10px 16px;
+    }
+    .grid {
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 16px;
+    }
+  }
 </style>

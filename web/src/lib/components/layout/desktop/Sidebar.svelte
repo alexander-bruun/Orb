@@ -151,11 +151,10 @@
     width: var(--sidebar-w);
     flex-shrink: 0;
     background: var(--bg-elevated);
-    border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     padding-top: 16px;
-    overflow-y: auto;
+    overflow: hidden;
   }
   .nav {
     display: flex;

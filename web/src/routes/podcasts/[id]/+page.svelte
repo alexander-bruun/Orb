@@ -1230,4 +1230,94 @@
       transform: rotate(360deg);
     }
   }
+
+  @media (max-width: 640px) {
+    .page {
+      padding: 16px;
+    }
+
+    /* Stack cover + info vertically */
+    .header {
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .cover-wrap {
+      width: 160px;
+      height: 160px;
+    }
+    .info {
+      width: 100%;
+    }
+    .title-row {
+      align-items: center;
+    }
+    .pod-title {
+      font-size: 1.4rem;
+    }
+    .title-trigger {
+      font-size: 1.4rem;
+    }
+    .title-input {
+      font-size: 1.2rem;
+    }
+    .desc-trigger {
+      max-width: 100%;
+    }
+    .rss-url-text {
+      max-width: 200px;
+    }
+
+    /* Episode controls: stack search + sort below heading */
+    .ep-controls {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    .controls-right {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .search-wrap {
+      width: 100%;
+    }
+    .search-input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .search-input:focus {
+      width: 100%;
+    }
+    .sort-btns {
+      width: 100%;
+    }
+    .sort-btn {
+      flex: 1;
+      justify-content: center;
+      padding: 6px 8px;
+    }
+
+    /* Bigger touch targets on episode rows */
+    .episode-row {
+      padding: 12px 8px;
+    }
+    .play-btn {
+      width: 38px;
+      height: 38px;
+    }
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+    }
+    .icon-btn-top {
+      width: 40px;
+      height: 40px;
+    }
+
+    /* Keep progress bar full width on mobile */
+    .ep-progress-bar {
+      max-width: 100%;
+    }
+  }
 </style>
