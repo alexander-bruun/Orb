@@ -810,6 +810,12 @@ var (
 	// e.g. "(32 stories - various narrators)" or "(read by John Lee)".
 	// Applied after known edition/year extractors so those still populate the edition field.
 	reAudiobookTrailingParen = regexp.MustCompile(`\s*\([^)]*\)\s*$`)
+	// Matches what may follow a series name embedded in a title, confirming it is
+	// just a volume index (e.g. "05.5", ", Book 2", "2"). Used by stripSeriesSuffixFromTitle.
+	reSeriesIndexRemainder = regexp.MustCompile(`(?i)^[,\s]*(?:book\s+|part\s+|vol(?:ume)?\s+)?\d+(?:\.\d+)?\s*$`)
+	// Strips a leading series index (e.g. " 05.5 - ", " 2 ") from the remainder
+	// after the series name has been removed from a title prefix.
+	reSeriesIndexLeader = regexp.MustCompile(`(?i)^\s*[,\s]*(?:book\s+|part\s+|vol(?:ume)?\s+)?\d+(?:\.\d+)?\s*[-–:,]?\s*`)
 
 	// Part/disc directory detection for multi-part audiobook merging.
 	rePartDir = regexp.MustCompile(`(?i)^(part|disc|disk|cd|side)\s*(\d+|[abcdABCD])$`)
@@ -998,6 +1004,71 @@ func cleanBookTitleWithEdition(title string) (string, *string) {
 	title = reBookTitlePrefix.ReplaceAllString(title, "")
 	title = reBookTitleSuffix.ReplaceAllString(title, "")
 	return strings.TrimSpace(title), edition
+}
+
+// stripSeriesSuffixFromTitle removes a trailing "SeriesName [N]" annotation
+// from title when the series name is known. The part following the series name
+// must be empty or a plain volume index (e.g. "05.5", ", Book 2") to avoid
+// false positives.
+//
+// Examples (series = "The Expanse"):
+//
+//	"Babylon's Ashes The Expanse 5.5" → "Babylon's Ashes"
+//	"Leviathan Wakes The Expanse"     → "Leviathan Wakes"
+//
+// Examples (series = "The Witcher"):
+//
+//	"Time of Contempt The Witcher, Book 2" → "Time of Contempt"
+func stripSeriesSuffixFromTitle(title, series string) string {
+	if series == "" || title == "" {
+		return title
+	}
+	lTitle := strings.ToLower(title)
+	lSeries := strings.ToLower(series)
+	idx := strings.LastIndex(lTitle, lSeries)
+	if idx <= 0 {
+		return title
+	}
+	if title[idx-1] != ' ' {
+		return title
+	}
+	rest := title[idx+len(series):]
+	if rest != "" && !reSeriesIndexRemainder.MatchString(rest) {
+		return title
+	}
+	cleaned := strings.TrimSpace(title[:idx])
+	if cleaned == "" {
+		return title
+	}
+	return cleaned
+}
+
+// stripSeriesPrefixFromTitle removes a leading "SeriesName N - " annotation
+// from title when the series name is known.
+//
+// Examples (series = "The Expanse"):
+//
+//	"The Expanse 05.5 Babylon's Ashes" → "Babylon's Ashes"
+//	"The Expanse 1 - Leviathan Wakes"  → "Leviathan Wakes"
+func stripSeriesPrefixFromTitle(title, series string) string {
+	if series == "" || title == "" {
+		return title
+	}
+	lTitle := strings.ToLower(title)
+	lSeries := strings.ToLower(series)
+	if !strings.HasPrefix(lTitle, lSeries) {
+		return title
+	}
+	// Require a space (not e.g. "The Witcher's ...")
+	if len(title) <= len(series) || title[len(series)] != ' ' {
+		return title
+	}
+	rest := title[len(series):]
+	cleaned := strings.TrimSpace(reSeriesIndexLeader.ReplaceAllString(rest, ""))
+	if cleaned == "" {
+		return title
+	}
+	return cleaned
 }
 
 // cleanSeriesName strips common tags and a trailing "Series" suffix.
@@ -1462,6 +1533,8 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 		seriesSource = "folder"
 		seriesConfidence = 0.7
 	}
+	title = stripSeriesSuffixFromTitle(title, seriesName)
+	title = stripSeriesPrefixFromTitle(title, seriesName)
 	slog.Info("audiobook series resolved (single-file)",
 		"path", path,
 		"title", title,
@@ -1870,6 +1943,8 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 		seriesSource = "folder"
 		seriesConfidence = 0.7
 	}
+	bookTitle = stripSeriesSuffixFromTitle(bookTitle, seriesName)
+	bookTitle = stripSeriesPrefixFromTitle(bookTitle, seriesName)
 	slog.Info("audiobook series resolved (directory)",
 		"dir", cand.dirPath,
 		"title", bookTitle,
