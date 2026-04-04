@@ -9,10 +9,7 @@
 
 ---
 
-<table align="center"><tr>
-  <td><img src="docs/desktop.png" alt="Orb Mobile UI" width="900"></td>
-  <td><img src="docs/mobile.png" alt="Orb Mobile UI" width="210"></td>
-</tr></table>
+<img src="docs/home.png" alt="Orb Mobile UI" width="900">
 
 ---
 

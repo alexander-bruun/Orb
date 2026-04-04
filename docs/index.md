@@ -9,10 +9,7 @@
 
 ---
 
-<table align="center"><tr>
-  <td><img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/desktop.png" alt="Orb Desktop UI" width="900"></td>
-  <td><img src="https://raw.githubusercontent.com/alexander-bruun/orb/main/docs/mobile.png" alt="Orb Mobile UI" width="210"></td>
-</tr></table>
+<img src="home.png" alt="Orb Mobile UI" width="900">
 
 ---
 
