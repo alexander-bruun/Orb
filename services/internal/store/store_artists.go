@@ -10,9 +10,9 @@ import (
 // UpsertArtist inserts or updates an artist.
 func (s *Store) UpsertArtist(ctx context.Context, p UpsertArtistParams) (Artist, error) {
 	var a Artist
-	row := s.pool.QueryRow(ctx, `INSERT INTO artists (id, name, sort_name, mbid)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, sort_name = EXCLUDED.sort_name, mbid = EXCLUDED.mbid RETURNING id, name, sort_name, mbid, created_at`,
+	row := s.pool.QueryRow(ctx, `INSERT INTO artists (id, name, sort_name, mbid, search_vector)
+VALUES ($1, $2, $3, $4, to_tsvector('english', $2 || ' ' || COALESCE($3, '')))
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, sort_name = EXCLUDED.sort_name, mbid = EXCLUDED.mbid, search_vector = EXCLUDED.search_vector RETURNING id, name, sort_name, mbid, created_at`,
 		p.ID, p.Name, p.SortName, p.Mbid)
 	var mbid sql.NullString
 	err := row.Scan(&a.ID, &a.Name, &a.SortName, &mbid, &a.CreatedAt)

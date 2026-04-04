@@ -12,9 +12,9 @@ import (
 // UpsertAlbum inserts or updates an album.
 func (s *Store) UpsertAlbum(ctx context.Context, p UpsertAlbumParams) (Album, error) {
 	var alb Album
-	row := s.pool.QueryRow(ctx, `INSERT INTO albums (id, artist_id, title, release_year, label, cover_art_key, mbid, album_group_id, edition)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.title, release_year = EXCLUDED.release_year, label = EXCLUDED.label, cover_art_key = COALESCE(EXCLUDED.cover_art_key, albums.cover_art_key), mbid = EXCLUDED.mbid, album_group_id = EXCLUDED.album_group_id, edition = EXCLUDED.edition RETURNING id, artist_id, title, release_year, label, cover_art_key, mbid, album_group_id, edition, created_at`,
+	row := s.pool.QueryRow(ctx, `INSERT INTO albums (id, artist_id, title, release_year, label, cover_art_key, mbid, album_group_id, edition, search_vector)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_tsvector('english', $3))
+ON CONFLICT (id) DO UPDATE SET artist_id = EXCLUDED.artist_id, title = EXCLUDED.title, release_year = EXCLUDED.release_year, label = EXCLUDED.label, cover_art_key = COALESCE(EXCLUDED.cover_art_key, albums.cover_art_key), mbid = EXCLUDED.mbid, album_group_id = EXCLUDED.album_group_id, edition = EXCLUDED.edition, search_vector = EXCLUDED.search_vector RETURNING id, artist_id, title, release_year, label, cover_art_key, mbid, album_group_id, edition, created_at`,
 		p.ID, p.ArtistID, p.Title, p.ReleaseYear, p.Label, p.CoverArtKey, p.Mbid, p.AlbumGroupID, p.Edition)
 	var artistID, label, coverArtKey, mbid, albumGroupID, edition sql.NullString
 	var releaseYear sql.NullInt64

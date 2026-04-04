@@ -578,3 +578,9 @@ CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON audit_logs(created_at DE
 CREATE INDEX IF NOT EXISTS audit_logs_actor_idx ON audit_logs(actor_id);
 
 CREATE INDEX IF NOT EXISTS webhook_deliveries_webhook_idx ON webhook_deliveries(webhook_id, delivered_at DESC);
+
+-- Backfill search_vector for rows created before this column was populated.
+-- WHERE search_vector IS NULL makes this idempotent on every startup.
+UPDATE artists SET search_vector = to_tsvector('english', name || ' ' || COALESCE(sort_name, '')) WHERE search_vector IS NULL;
+UPDATE albums  SET search_vector = to_tsvector('english', title)                                   WHERE search_vector IS NULL;
+UPDATE tracks  SET search_vector = to_tsvector('english', title)                                   WHERE search_vector IS NULL;
