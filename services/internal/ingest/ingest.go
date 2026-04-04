@@ -1037,7 +1037,26 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		return "", fmt.Errorf("read tags: %w", err)
 	}
 
-	albumArtistName := coalesce(m.AlbumArtist(), m.Artist(), "Unknown Artist")
+	// For FLAC files, dhowden/tag stores Vorbis Comments in a plain
+	// map[string]string and overwrites duplicate keys — so multi-artist files
+	// tagged with separate ARTIST entries (e.g. dBpoweramp style) lose all but
+	// the last artist.  Read the raw block ourselves and use the first entry as
+	// the canonical primary artist, joining the rest for featured-artist extraction.
+	rawArtistOverride := ""
+	if ext == ".flac" {
+		if flacArtists := flacAllArtists(buf); len(flacArtists) > 0 {
+			rawArtistOverride = strings.Join(flacArtists, "; ")
+		}
+	}
+
+	effectiveArtist := func() string {
+		if rawArtistOverride != "" {
+			return rawArtistOverride
+		}
+		return m.Artist()
+	}()
+
+	albumArtistName := coalesce(m.AlbumArtist(), effectiveArtist, "Unknown Artist")
 	if parts := splitArtistList(albumArtistName); len(parts) > 0 {
 		albumArtistName = parts[0]
 	}
@@ -1051,7 +1070,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 	var artistTagExtras []string
 	if m.AlbumArtist() == "" || strings.EqualFold(m.AlbumArtist(), "Various Artists") {
 		// No album artist or compilation: honour the per-track artist tag as primary.
-		trackArtistName = coalesce(m.Artist(), albumArtistName)
+		trackArtistName = coalesce(effectiveArtist, albumArtistName)
 		if parts := splitArtistList(trackArtistName); len(parts) > 1 {
 			trackArtistName = parts[0]
 			for _, p := range parts[1:] {
@@ -1066,7 +1085,7 @@ func (g *Ingester) ingestFile(ctx context.Context, path string, fi os.FileInfo, 
 		}
 	} else {
 		// Extract featured artists from the artist tag without changing the primary.
-		rawArtist := m.Artist()
+		rawArtist := effectiveArtist
 		if rawArtist != "" && !strings.EqualFold(rawArtist, albumArtistName) {
 			for _, p := range splitArtistList(rawArtist) {
 				if strings.EqualFold(p, albumArtistName) {
@@ -1854,6 +1873,66 @@ func readDSFInfoFromBytes(data []byte, ext string) (bitDepth, sampleRate, channe
 		durationMs = sampleCount * 1000 / int64(sampleRate)
 	}
 	return
+}
+
+// flacAllArtists parses the raw FLAC bytes and returns every ARTIST Vorbis
+// Comment value in document order. This is necessary because the dhowden/tag
+// library stores Vorbis Comments in a plain map[string]string, so when a
+// tagger like dBpoweramp writes multiple ARTIST fields (one per credited
+// artist) the library silently overwrites earlier values with the last one.
+// By reading the block ourselves we can return the full ordered list and use
+// the first entry as the canonical primary artist.
+func flacAllArtists(data []byte) []string {
+	if len(data) < 4 || string(data[0:4]) != "fLaC" {
+		return nil
+	}
+	pos := 4
+	for pos+4 <= len(data) {
+		header := data[pos : pos+4]
+		last := header[0]&0x80 != 0
+		blockType := header[0] & 0x7F
+		blockLen := int(uint32(header[1])<<16 | uint32(header[2])<<8 | uint32(header[3]))
+		pos += 4
+		if pos+blockLen > len(data) {
+			break
+		}
+		if blockType == 4 { // VORBIS_COMMENT
+			block := data[pos : pos+blockLen]
+			off := 0
+			if off+4 > len(block) {
+				break
+			}
+			vendorLen := int(binary.LittleEndian.Uint32(block[off : off+4]))
+			off += 4 + vendorLen
+			if off+4 > len(block) {
+				break
+			}
+			commentCount := int(binary.LittleEndian.Uint32(block[off : off+4]))
+			off += 4
+			var artists []string
+			for i := 0; i < commentCount; i++ {
+				if off+4 > len(block) {
+					break
+				}
+				commentLen := int(binary.LittleEndian.Uint32(block[off : off+4]))
+				off += 4
+				if off+commentLen > len(block) {
+					break
+				}
+				comment := string(block[off : off+commentLen])
+				off += commentLen
+				if strings.HasPrefix(strings.ToUpper(comment), "ARTIST=") {
+					artists = append(artists, comment[7:])
+				}
+			}
+			return artists
+		}
+		pos += blockLen
+		if last {
+			break
+		}
+	}
+	return nil
 }
 
 func deterministicID(seed string) string {
