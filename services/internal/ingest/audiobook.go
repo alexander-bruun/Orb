@@ -1347,9 +1347,7 @@ func (g *AudiobookIngester) ingestFileWithOptions(ctx context.Context, path stri
 	if tagErr == nil {
 		title = m.Title()
 		if title != "" {
-			title, edition = stripEditionSuffix(title)
-			title = reAudiobookTrailingParen.ReplaceAllString(title, "")
-			title = strings.TrimSpace(title)
+			title, edition = cleanBookTitleWithEdition(title)
 		}
 		authorName = coalesce(m.AlbumArtist(), m.Artist())
 		raw := m.Raw()
@@ -1712,8 +1710,7 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 			// album → book title
 			bookTitle = m.Album()
 			if bookTitle != "" {
-				bookTitle, edition = stripEditionSuffix(bookTitle)
-				bookTitle = strings.TrimSpace(reAudiobookTrailingParen.ReplaceAllString(bookTitle, ""))
+				bookTitle, edition = cleanBookTitleWithEdition(bookTitle)
 			}
 			raw := m.Raw()
 			// composer → author (preferred); fall back to album_artist / artist
@@ -1805,11 +1802,12 @@ func (g *AudiobookIngester) ingestDirectoryWithOptions(ctx context.Context, cand
 		bookTitle = bookDirBase
 	}
 	if bookTitle != "" {
-		if cleaned, ed := stripEditionSuffix(bookTitle); ed != nil {
+		cleaned, ed := cleanBookTitleWithEdition(bookTitle)
+		if cleaned != "" {
 			bookTitle = cleaned
-			if edition == nil {
-				edition = ed
-			}
+		}
+		if edition == nil {
+			edition = ed
 		}
 	}
 
