@@ -895,6 +895,35 @@ const musicContentProvider: MusicContentProvider = {
 	onPlayCommand(trackId: string, posMs: number, queue?: unknown[]) {
 		receivePlayCommand(trackId, posMs, queue as Track[] | undefined);
 	},
+	onNativeQueueAdvanced(index: number) {
+		// Native auto-advanced to this queue index while backgrounded.
+		// Sync JS state to match without triggering any native playback commands.
+		const q = get(queue);
+		const track = q[actualIndex(index)];
+		if (!track) return;
+		queueIndex.set(index);
+		currentTrack.set(track);
+		durationMs.set(track.duration_ms);
+		positionMs.set(0);
+		playbackState.set('playing');
+		engine._writablePlaybackState.set('playing');
+		engine._writableCurrentContent.set({
+			id: track.id,
+			title: track.title,
+			artist: track.artist_name,
+			album: track.album_id,
+			coverUrl: track.album_id
+				? `${getApiBase()}/covers/${track.album_id}`
+				: undefined,
+			durationMs: track.duration_ms,
+		});
+		engine._writableDurationMs.set(track.duration_ms);
+		engine._writablePositionMs.set(0);
+		// Record the play and schedule scrobble.
+		libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => {});
+		scheduleScrobble(track);
+		recentlyPlayedIds.add(track.id);
+	},
 	onPrevious() {
 		previous();
 	},
@@ -987,5 +1016,4 @@ if (isAndroidNative) {
 	shuffle.subscribe(debouncedNativeQueueSync);
 	shuffleOrder.subscribe(debouncedNativeQueueSync);
 	queue.subscribe(debouncedNativeQueueSync);
-	queueIndex.subscribe(debouncedNativeQueueSync);
 }

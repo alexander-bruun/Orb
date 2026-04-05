@@ -94,6 +94,21 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnNext(
     emit_to_frontend("native-next");
 }
 
+/// Emitted when native auto-advances in the queue. Carries the new queue index
+/// so JS can sync directly without replaying each step.
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnQueueAdvanced(
+    _env: EnvUnowned,
+    _class: JClass,
+    index: jint,
+) {
+    use tauri::Emitter;
+    if let Some(handle) = APP_HANDLE.get() {
+        let _ = handle.emit("native-queue-advanced", index as i32);
+    }
+}
+
 #[no_mangle]
 #[cfg(target_os = "android")]
 pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPrevious(

@@ -65,6 +65,8 @@ export interface MusicContentProvider extends ContentProvider {
 	onShuffleToggle?(): void;
 	onFavoriteToggle?(): void;
 	onPlayCommand?(trackId: string, posMs: number, queue?: unknown[]): void;
+	/** Native auto-advanced to this queue index — sync state without replaying. */
+	onNativeQueueAdvanced?(index: number): void;
 }
 
 /** Extended provider for audiobook mode — includes audiobook-specific native callbacks. */
@@ -264,6 +266,10 @@ async function initNativeListeners() {
 	// Music-mode notification actions
 	listen<void>('native-next', () => {
 		if (get(_mode) === 'music') activeProvider()?.onTrackEnd();
+	});
+	// Native queue auto-advance — sync JS state to the given index.
+	listen<number>('native-queue-advanced', (event) => {
+		if (get(_mode) === 'music') getMusicProvider()?.onNativeQueueAdvanced?.(event.payload);
 	});
 	listen<void>('native-previous', () => {
 		// Handled by music provider via registered callback

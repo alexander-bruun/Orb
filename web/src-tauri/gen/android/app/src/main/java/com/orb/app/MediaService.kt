@@ -255,6 +255,8 @@ class MediaService : MediaSessionService() {
         private external fun nativeOnPodcastSkipForward30()
         @JvmStatic
         private external fun nativeOnPodcastSpeedCycle()
+        @JvmStatic
+        private external fun nativeOnQueueAdvanced(index: Int)
 
         init {
             System.loadLibrary("orb_lib")
@@ -1152,12 +1154,14 @@ class MediaService : MediaSessionService() {
             val url = buildStreamUrlForTrack(trackToPlay.trackId)
             if (url != null) {
                 val coverUrl = buildCoverUrlForAlbum(trackToPlay.albumId)
-                nativeAutoAdvancedUrl = url
                 doHandlePlay(url, trackToPlay.title, trackToPlay.artist, coverUrl)
             }
+            // Tell JS exactly where we are so it can sync without replaying.
+            try { nativeOnQueueAdvanced(nativeQueueIndex) } catch (_: Exception) {}
+        } else {
+            // Queue exhausted, no autoplay — notify JS via legacy event.
+            try { nativeOnNext() } catch (_: Exception) {}
         }
-        // Always notify JS so it can sync queue state when the WebView wakes up.
-        try { nativeOnNext() } catch (_: Exception) {}
     }
 
     /**
@@ -1194,9 +1198,9 @@ class MediaService : MediaSessionService() {
                         val url = buildStreamUrlForTrack(track.trackId)
                         if (url != null) {
                             val coverUrl = buildCoverUrlForAlbum(track.albumId)
-                            nativeAutoAdvancedUrl = url
                             doHandlePlay(url, track.title, track.artist, coverUrl)
                         }
+                        try { nativeOnQueueAdvanced(nativeQueueIndex) } catch (_: Exception) {}
                     }
                 }
             } catch (e: Exception) {
