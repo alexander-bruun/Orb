@@ -104,19 +104,26 @@ class MediaService : MediaSessionService() {
      */
     @Volatile private var crossfadeTriggered = false
 
-    // ── Native queue preloading ───────────────────────────────────────────────
-    // When the JS layer preloads the next track, we store it here so that
-    // STATE_ENDED can advance playback without waiting for the WebView to wake.
-    @Volatile private var pendingNextUrl: String? = null
-    @Volatile private var pendingNextTitle: String? = null
-    @Volatile private var pendingNextArtist: String? = null
-    @Volatile private var pendingNextCover: String? = null
+    // ── Native queue management ─────────────────────────────────────────────
+    // JS syncs the full playback queue here so native can advance through
+    // tracks autonomously, even when the WebView is suspended.
+    data class QueueTrack(
+        val trackId: String,
+        val title: String?,
+        val artist: String?,
+        val albumId: String?,
+    )
+    private val nativeQueue = mutableListOf<QueueTrack>()
+    @Volatile private var nativeQueueIndex = -1
+    @Volatile private var nativeRepeatMode = "off" // "off" | "one" | "all"
+    @Volatile private var nativeAutoplayEnabled = false
+
     /**
-     * Set to true after native auto-advances to the preloaded next track.
-     * The subsequent JS play_music call (when the WebView wakes) is suppressed
-     * so we don't restart the track that is already playing.
+     * URL of the track that native auto-advanced to. When JS wakes up and
+     * calls play_music with the same URL, we suppress the restart.
+     * Cleared when JS sends a fresh queue sync or plays a different URL.
      */
-    @Volatile private var nativeAutoAdvanced = false
+    @Volatile private var nativeAutoAdvancedUrl: String? = null
 
     // Audio focus: tracks whether we paused due to a transient focus loss so we
     // can resume automatically when focus returns.
@@ -376,21 +383,59 @@ class MediaService : MediaSessionService() {
         /** Store the next track to play natively when the current track ends. */
         @JvmStatic
         fun setNextTrack(url: String, title: String?, artist: String?, coverUrl: String?) {
-            val svc = instance ?: return
-            svc.pendingNextUrl = url
-            svc.pendingNextTitle = title
-            svc.pendingNextArtist = artist
-            svc.pendingNextCover = coverUrl
+            // Legacy single-track preload — kept for backward compatibility.
+            // Prefer setPlaybackQueue() for full native queue management.
         }
 
         /** Clear any preloaded next track (e.g. end of queue, radio mode). */
         @JvmStatic
         fun clearNextTrack() {
+            // Legacy — queue is now managed via setPlaybackQueue().
+        }
+
+        /**
+         * Sync the full playback queue so native can advance autonomously.
+         * [queueJson] is a JSON array of {trackId, title, artist, albumId}.
+         * Queue should be in playback order (shuffle already resolved by JS).
+         */
+        @JvmStatic
+        fun setPlaybackQueue(queueJson: String, currentIndex: Int, repeatMode: String) {
             val svc = instance ?: return
-            svc.pendingNextUrl = null
-            svc.pendingNextTitle = null
-            svc.pendingNextArtist = null
-            svc.pendingNextCover = null
+            try {
+                val arr = JSONArray(queueJson)
+                synchronized(svc.nativeQueue) {
+                    svc.nativeQueue.clear()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        svc.nativeQueue.add(QueueTrack(
+                            trackId = o.getString("trackId"),
+                            title = svc.optNullableString(o, "title"),
+                            artist = svc.optNullableString(o, "artist"),
+                            albumId = svc.optNullableString(o, "albumId"),
+                        ))
+                    }
+                }
+                svc.nativeQueueIndex = currentIndex
+                svc.nativeRepeatMode = repeatMode
+                // JS is awake and has synced — clear any suppression.
+                svc.nativeAutoAdvancedUrl = null
+            } catch (e: Exception) {
+                Log.w(TAG, "setPlaybackQueue parse error: ${e.message}")
+            }
+        }
+
+        /** Update repeat mode without re-syncing the full queue. */
+        @JvmStatic
+        fun setNativeRepeatMode(mode: String) {
+            val svc = instance ?: return
+            svc.nativeRepeatMode = mode
+        }
+
+        /** Update autoplay setting so native can fetch more tracks when the queue ends. */
+        @JvmStatic
+        fun setNativeAutoplay(enabled: Boolean) {
+            val svc = instance ?: return
+            svc.nativeAutoplayEnabled = enabled
         }
 
         /**
@@ -675,22 +720,7 @@ class MediaService : MediaSessionService() {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     if (!crossfadeTriggered) {
-                        val nextUrl = pendingNextUrl
-                        if (nextUrl != null) {
-                            // Native auto-advance: play the preloaded next track immediately,
-                            // bypassing the JS layer so playback continues when backgrounded.
-                            val nextTitle = pendingNextTitle
-                            val nextArtist = pendingNextArtist
-                            val nextCover = pendingNextCover
-                            pendingNextUrl = null
-                            pendingNextTitle = null
-                            pendingNextArtist = null
-                            pendingNextCover = null
-                            doHandlePlay(nextUrl, nextTitle, nextArtist, nextCover)
-                            nativeAutoAdvanced = true
-                        }
-                        // Always notify JS so it can update queue state (and preload N+2).
-                        try { nativeOnNext() } catch (_: Exception) {}
+                        advanceNativeQueue()
                     }
                     // Reset so the *next* track's end fires correctly.
                     crossfadeTriggered = false
@@ -1036,13 +1066,143 @@ class MediaService : MediaSessionService() {
     // ── Playback (called from JNI) ───────────────────────────────────────────
 
     fun handlePlay(url: String, title: String?, artist: String?, coverUrl: String?) {
-        // If native already auto-advanced to this track (WebView was backgrounded),
-        // JS is just catching up — suppress the restart to avoid interrupting playback.
-        if (nativeAutoAdvanced) {
-            nativeAutoAdvanced = false
+        // If native already auto-advanced to this URL while the WebView was
+        // suspended, JS is just catching up — suppress the duplicate play.
+        val autoUrl = nativeAutoAdvancedUrl
+        if (autoUrl != null && autoUrl == url) {
+            nativeAutoAdvancedUrl = null
             return
         }
+        // Genuine new playback — clear suppression state.
+        nativeAutoAdvancedUrl = null
         doHandlePlay(url, title, artist, coverUrl)
+    }
+
+    // ── Native queue advancement ─────────────────────────────────────────────
+
+    /**
+     * Build a stream URL for the given track, preferring offline files.
+     */
+    private fun buildStreamUrlForTrack(trackId: String): String? {
+        val offlinePath = getOfflineFilePath(trackId)
+        if (offlinePath != null) return "file://$offlinePath"
+        val client = apiClient ?: return null
+        return client.streamUrl(trackId)
+    }
+
+    /**
+     * Build a cover art URL for the given album.
+     */
+    private fun buildCoverUrlForAlbum(albumId: String?): String? {
+        if (albumId == null) return null
+        val client = apiClient ?: return null
+        return client.coverUrl(albumId)
+    }
+
+    /**
+     * Advance to the next track in the native queue. Called from STATE_ENDED.
+     * Handles repeat modes, autoplay replenishment, and notifies JS.
+     */
+    private fun advanceNativeQueue() {
+        var nextTrack: QueueTrack?
+        var nextIndex: Int
+
+        synchronized(nativeQueue) {
+            if (nativeQueue.isEmpty()) {
+                try { nativeOnNext() } catch (_: Exception) {}
+                return
+            }
+
+            when (nativeRepeatMode) {
+                "one" -> {
+                    nextIndex = nativeQueueIndex
+                    nextTrack = nativeQueue.getOrNull(nextIndex)
+                }
+                "all" -> {
+                    nextIndex = if (nativeQueueIndex < nativeQueue.size - 1) {
+                        nativeQueueIndex + 1
+                    } else {
+                        0
+                    }
+                    nextTrack = nativeQueue.getOrNull(nextIndex)
+                }
+                else -> { // "off"
+                    nextIndex = nativeQueueIndex + 1
+                    nextTrack = if (nextIndex < nativeQueue.size) {
+                        nativeQueue[nextIndex]
+                    } else {
+                        null
+                    }
+                }
+            }
+        }
+
+        // Queue exhausted — try autoplay to replenish on a background thread.
+        if (nextTrack == null && nativeAutoplayEnabled && nativeRepeatMode == "off") {
+            val lastTrack = synchronized(nativeQueue) { nativeQueue.lastOrNull() }
+            if (lastTrack != null) {
+                fetchAndPlayAutoplay(lastTrack.trackId)
+                // nativeOnNext still fires below for JS sync.
+            }
+        }
+
+        val trackToPlay = nextTrack
+        if (trackToPlay != null) {
+            nativeQueueIndex = nextIndex
+            val url = buildStreamUrlForTrack(trackToPlay.trackId)
+            if (url != null) {
+                val coverUrl = buildCoverUrlForAlbum(trackToPlay.albumId)
+                nativeAutoAdvancedUrl = url
+                doHandlePlay(url, trackToPlay.title, trackToPlay.artist, coverUrl)
+            }
+        }
+        // Always notify JS so it can sync queue state when the WebView wakes up.
+        try { nativeOnNext() } catch (_: Exception) {}
+    }
+
+    /**
+     * Fetch autoplay tracks on a background thread and start playback
+     * on the main thread when results arrive.
+     */
+    private fun fetchAndPlayAutoplay(afterTrackId: String) {
+        val client = apiClient ?: return
+        val existingIds = synchronized(nativeQueue) { nativeQueue.map { it.trackId } }
+
+        ioExecutor.execute {
+            try {
+                val tracks = client.autoplay(afterTrackId, existingIds, 10)
+                if (tracks.isEmpty()) return@execute
+
+                val newQueueTracks = tracks.map { t ->
+                    QueueTrack(
+                        trackId = t.id,
+                        title = t.title,
+                        artist = t.artistName,
+                        albumId = t.albumId,
+                    )
+                }
+
+                mainHandler.post {
+                    synchronized(nativeQueue) {
+                        nativeQueue.addAll(newQueueTracks)
+                    }
+                    // Play the first autoplay track.
+                    val nextIdx = nativeQueueIndex + 1
+                    val track = synchronized(nativeQueue) { nativeQueue.getOrNull(nextIdx) }
+                    if (track != null) {
+                        nativeQueueIndex = nextIdx
+                        val url = buildStreamUrlForTrack(track.trackId)
+                        if (url != null) {
+                            val coverUrl = buildCoverUrlForAlbum(track.albumId)
+                            nativeAutoAdvancedUrl = url
+                            doHandlePlay(url, track.title, track.artist, coverUrl)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Native autoplay fetch failed: ${e.message}")
+            }
+        }
     }
 
     /** Internal play dispatch — bypasses the nativeAutoAdvanced suppression check. */

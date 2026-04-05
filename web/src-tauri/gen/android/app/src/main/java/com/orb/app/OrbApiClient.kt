@@ -168,6 +168,24 @@ class OrbApiClient(
         }
     }
 
+    /**
+     * Fetch autoplay recommendations for the given track.
+     * GET /recommend/autoplay?after={trackId}&exclude={ids}&limit={n}
+     */
+    fun autoplay(afterTrackId: String, excludeIds: List<String> = emptyList(), limit: Int = 10): List<BrowseTrack> {
+        val params = StringBuilder("after=$afterTrackId&limit=$limit")
+        if (excludeIds.isNotEmpty()) {
+            params.append("&exclude=${excludeIds.joinToString(",")}")
+        }
+        val json = get("/recommend/autoplay?$params") ?: return emptyList()
+        return try {
+            parseTrackArray(JSONArray(json))
+        } catch (e: Exception) {
+            Log.w(TAG, "autoplay parse error: ${e.message}")
+            emptyList()
+        }
+    }
+
     // ── URL builders (for ExoPlayer / cover art) ─────────────────────────────
 
     fun streamUrl(trackId: String): String =

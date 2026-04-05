@@ -682,6 +682,55 @@ pub fn clear_preloaded_next_track() -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
+pub fn set_playback_queue(queue_json: String, current_index: i32, repeat_mode: String) -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        let json_jstring = env.new_string(&queue_json)?;
+        let mode_jstring = env.new_string(&repeat_mode)?;
+        env.call_static_method(
+            cls,
+            jni_str!("setPlaybackQueue"),
+            jni_sig!("(Ljava/lang/String;ILjava/lang/String;)V"),
+            &[
+                JValue::Object(&json_jstring),
+                JValue::Int(current_index),
+                JValue::Object(&mode_jstring),
+            ],
+        )?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
+pub fn set_native_repeat_mode(mode: String) -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        let mode_jstring = env.new_string(&mode)?;
+        env.call_static_method(
+            cls,
+            jni_str!("setNativeRepeatMode"),
+            jni_sig!("(Ljava/lang/String;)V"),
+            &[JValue::Object(&mode_jstring)],
+        )?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
+pub fn set_native_autoplay(enabled: bool) -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(
+            cls,
+            jni_str!("setNativeAutoplay"),
+            jni_sig!("(Z)V"),
+            &[JValue::Bool(enabled)],
+        )?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
 pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;

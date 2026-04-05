@@ -204,35 +204,43 @@ function peekNextTrack(): Track | null {
 }
 
 /**
- * Push the next track URL to the native layer so ExoPlayer can auto-advance
- * when the WebView is suspended (app backgrounded).
+ * Sync the full playback queue to the native layer so it can advance
+ * through tracks autonomously when the WebView is suspended.
+ * The queue is sent in playback order (shuffle already resolved).
  * Non-blocking — errors are silently ignored.
  */
-async function syncNativeNextTrack(): Promise<void> {
+async function syncNativeQueue(): Promise<void> {
 	if (!isAndroidNative) return;
 	try {
 		const { invoke } = await import('@tauri-apps/api/core');
-		let nextTrack = peekNextTrack();
 
-		// Radio mode: at end of queue, replenish now so we can preload.
-		if (!nextTrack && get(radioMode)) {
+		// Radio mode: at end of queue, replenish now so native has tracks.
+		if (peekNextTrack() === null && get(radioMode)) {
 			await _replenishRadio(get(queue));
-			nextTrack = peekNextTrack();
 		}
 
-		if (!nextTrack) {
-			invoke('clear_preloaded_next_track').catch(() => {});
-			return;
-		}
-		const url = await buildNativeStreamUrl(nextTrack.id);
-		const coverUrl = nextTrack.album_id
-			? `${getApiBase()}/covers/${nextTrack.album_id}?token=${encodeURIComponent(get(authStore).token ?? '')}`
-			: undefined;
-		await invoke('preload_next_track', {
-			url,
-			title: nextTrack.title,
-			artist: nextTrack.artist_name ?? undefined,
-			coverUrl,
+		const q = get(queue);
+		const idx = get(queueIndex);
+		const repeat = get(repeatMode);
+		const shuf = get(shuffle);
+		const order = get(shuffleOrder);
+
+		// Build queue in playback order (resolve shuffle).
+		const queueJson = q.map((_t, i) => {
+			const realIdx = shuf && order.length > i ? order[i] : i;
+			const t = q[realIdx];
+			return {
+				trackId: t.id,
+				title: t.title,
+				artist: t.artist_name ?? null,
+				albumId: t.album_id ?? null,
+			};
+		});
+
+		await invoke('set_playback_queue', {
+			queueJson: JSON.stringify(queueJson),
+			currentIndex: idx,
+			repeatMode: repeat,
 		});
 	} catch { /* non-critical */ }
 }
@@ -445,7 +453,7 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 				nativeUrl: streamUrl,
 			});
 			engine.setNativePlayerReady(true);
-			syncNativeNextTrack().catch(() => {});
+			syncNativeQueue().catch(() => {});
 		} else {
 			const rgDb = get(replayGainEnabled) ? (track.replay_gain_track ?? 0) : 0;
 			audioEngine.setReplayGainDb(rgDb);
@@ -950,3 +958,34 @@ durationMs.subscribe((dur) => {
 		engine._writableDurationMs.set(dur);
 	}
 });
+
+// ── Native queue sync ───────────────────────────────────────────────────────
+// Re-sync the native queue whenever repeat mode, shuffle, or queue changes
+// so the native MediaService can advance autonomously while backgrounded.
+
+if (isAndroidNative) {
+	repeatMode.subscribe((mode) => {
+		import('@tauri-apps/api/core').then(({ invoke }) => {
+			invoke('set_native_repeat_mode', { mode }).catch(() => {});
+		});
+	});
+	autoplayEnabled.subscribe((enabled) => {
+		import('@tauri-apps/api/core').then(({ invoke }) => {
+			invoke('set_native_autoplay', { enabled }).catch(() => {});
+		});
+	});
+
+	// Debounce queue syncs — multiple stores fire during playTrack().
+	let _nativeQueueSyncTimer: ReturnType<typeof setTimeout> | null = null;
+	function debouncedNativeQueueSync() {
+		if (_nativeQueueSyncTimer) clearTimeout(_nativeQueueSyncTimer);
+		_nativeQueueSyncTimer = setTimeout(() => {
+			_nativeQueueSyncTimer = null;
+			syncNativeQueue().catch(() => {});
+		}, 100);
+	}
+	shuffle.subscribe(debouncedNativeQueueSync);
+	shuffleOrder.subscribe(debouncedNativeQueueSync);
+	queue.subscribe(debouncedNativeQueueSync);
+	queueIndex.subscribe(debouncedNativeQueueSync);
+}

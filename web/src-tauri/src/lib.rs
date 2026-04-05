@@ -182,6 +182,24 @@ fn clear_preloaded_next_track() -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+fn set_playback_queue(queue_json: String, current_index: i32, repeat_mode: String) -> Result<(), String> {
+    android_bridge::set_playback_queue(queue_json, current_index, repeat_mode)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn set_native_repeat_mode(mode: String) -> Result<(), String> {
+    android_bridge::set_native_repeat_mode(mode)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn set_native_autoplay(enabled: bool) -> Result<(), String> {
+    android_bridge::set_native_autoplay(enabled)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     android_bridge::set_crossfade_settings(enabled, secs)
 }
@@ -251,6 +269,9 @@ pub fn run() {
             set_gapless_enabled,
             preload_next_track,
             clear_preloaded_next_track,
+            set_playback_queue,
+            set_native_repeat_mode,
+            set_native_autoplay,
             open_bluetooth_settings,
             get_offline_file_path,
             get_audio_output_max_channels,
