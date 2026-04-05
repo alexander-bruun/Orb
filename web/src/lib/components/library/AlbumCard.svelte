@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import { getArtistName } from "$lib/stores/library/artists";
   import { currentTrack, playbackState } from "$lib/stores/player";
+  import { getApiBase } from "$lib/api/base";
 
   export let album: Album;
 
@@ -11,8 +12,6 @@
 
   $: isActiveAlbum = $currentTrack?.album_id === album.id;
   $: isPlaying = isActiveAlbum && $playbackState === "playing";
-
-  import { getApiBase } from "$lib/api/base";
 
   // Each straight edge uses a sine wave multiplied by a smoothstep envelope
   // that drives both amplitude and its derivative to zero at each endpoint.
@@ -36,8 +35,6 @@
       const pts: string[] = [];
       for (let i = 0; i <= steps; i++) {
         const u = i / steps;
-        // Smoothstep envelope fades the wave to zero over one wave period at
-        // each end, so the path arrives at the corner arc tangentially.
         const fade = 1 / waves;
         const t = Math.min(u / fade, (1 - u) / fade, 1);
         const env = t * t * (3 - 2 * t);
@@ -51,13 +48,13 @@
 
     return [
       `M ${r},0 L`,
-      edge(r, 0, e, 0, 0, -1), // top →
+      edge(r, 0, e, 0, 0, -1),
       `A ${r},${r} 0 0 1 ${size},${r} L`,
-      edge(size, r, size, e, 1, 0), // right ↓
+      edge(size, r, size, e, 1, 0),
       `A ${r},${r} 0 0 1 ${e},${size} L`,
-      edge(e, size, r, size, 0, 1), // bottom ←
+      edge(e, size, r, size, 0, 1),
       `A ${r},${r} 0 0 1 0,${e} L`,
-      edge(0, e, 0, r, -1, 0), // left ↑
+      edge(0, e, 0, r, -1, 0),
       `A ${r},${r} 0 0 1 ${r},0 Z`,
     ].join(" ");
   })();
@@ -86,6 +83,7 @@
         alt={album.title}
         class="cover"
         loading="lazy"
+        style="border-radius: 8px; border: 1px solid var(--border);"
       />
     {:else}
       <div class="cover placeholder album-fallback">♪</div>
@@ -133,8 +131,7 @@
     <span class="title">{album.title}</span>
     <div class="meta">
       {#if artistName}<span class="artist">{artistName}</span>{/if}
-      {#if album.release_year}<span class="year">{album.release_year}</span
-        >{/if}
+      {#if album.release_year}<span class="year">{album.release_year}</span>{/if}
     </div>
   </div>
 </button>
@@ -145,29 +142,15 @@
     flex-direction: column;
     gap: 8px;
     width: 100%;
-    max-width: 240px;
-    box-sizing: border-box;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
+    background: none;
+    border: none;
+    padding: 0;
     cursor: pointer;
     text-align: left;
-    transition:
-      background 0.15s,
-      border-color 0.15s;
-    position: relative;
+    transition: transform 0.18s;
   }
   .album-card:hover {
-    background: var(--bg-hover);
-    border-color: var(--accent);
-  }
-  .album-card.playing {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-  }
-  .album-card.playing:hover {
-    background: var(--bg-hover);
+    transform: translateY(-3px);
   }
 
   .cover-wrap {
@@ -176,14 +159,23 @@
     height: 0;
     padding-bottom: 100%;
     overflow: hidden;
-    border-radius: 4px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    transition: box-shadow 0.18s;
+    background: var(--bg-elevated);
   }
-  /* Allow wave SVG to bleed outside cover bounds while active or fading */
+  .album-card:hover .cover-wrap {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .album-card.playing .cover-wrap {
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+
+  /* Allow wave SVG to bleed outside cover bounds while active */
   .cover-wrap.wave-active {
     overflow: visible;
   }
 
-  /* Wavy border ring — positioned to match cover, with extra space for amplitude */
   .wave-ring {
     position: absolute;
     inset: -5px;
@@ -204,17 +196,22 @@
     opacity: 0.15;
   }
   @keyframes dash-travel {
-    to {
-      stroke-dashoffset: -1000;
-    }
+    to { stroke-dashoffset: -1000; }
   }
+
   .cover {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
+    transition: transform 0.25s;
   }
+  .album-card:hover .cover {
+    transform: scale(1.04);
+  }
+
   .placeholder {
     position: absolute;
     inset: 0;
@@ -228,6 +225,7 @@
     color: var(--text-muted);
     user-select: none;
   }
+
   .badge-single {
     position: absolute;
     top: 6px;
@@ -262,6 +260,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    padding: 0 2px;
   }
   .title {
     font-size: 0.875rem;
@@ -270,6 +269,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     color: var(--text);
+    line-height: 1.3;
   }
   .meta {
     display: flex;

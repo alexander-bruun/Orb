@@ -14,8 +14,6 @@
   import { playTrack, shuffle, startRadio } from "$lib/stores/player";
 
   import { getApiBase } from "$lib/api/base";
-  import Spinner from "$lib/components/ui/Spinner.svelte";
-
   interface SimilarArtist {
     id: string;
     name: string;
@@ -215,97 +213,61 @@
 </script>
 
 {#if loading}
-  <p class="muted"><Spinner /></p>
-{:else if artist}
-  <div class="header">
-    {#if artist.image_key}
-      <img
-        src="{getApiBase()}/covers/artist/{artist.id}"
-        alt={artist.name}
-        class="artist-photo"
-      />
-    {/if}
-    <div class="header-text">
-      <h1 class="title">{artist.name}</h1>
-      {#if artist.artist_type || artist.country || artist.begin_date}
-        <div class="artist-meta">
-          {#if artist.artist_type}
-            <span class="meta-item">{artist.artist_type}</span>
-          {/if}
-          {#if artist.country}
-            <span class="meta-item">{artist.country}</span>
-          {/if}
-          {#if artist.begin_date}
-            <span class="meta-item">{formatDates(artist)}</span>
-          {/if}
-        </div>
-      {/if}
-      {#if artist.disambiguation}
-        <p class="disambiguation">{artist.disambiguation}</p>
-      {/if}
-      {#if genres.length > 0}
-        <div class="genre-pills">
-          {#each genres as genre}
-            <a href="/genres/{genre.id}" class="genre-pill">{genre.name}</a>
-          {/each}
-        </div>
-      {/if}
+  <div class="hero-skeleton">
+    <div class="sk-photo"></div>
+    <div class="sk-info">
+      <div class="sk-line sk-name"></div>
+      <div class="sk-line sk-meta"></div>
+      <div class="sk-line sk-tags"></div>
     </div>
-    <div class="header-actions">
-      <button
-        class="btn-shuffle"
-        on:click={shuffleAll}
-        disabled={albums.length === 0 || shuffling}
-        title="Shuffle all songs"
-      >
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="16 3 21 3 21 8" /><line
-            x1="4"
-            y1="20"
-            x2="21"
-            y2="3"
-          />
-          <polyline points="21 16 21 21 16 21" /><line
-            x1="15"
-            y1="15"
-            x2="21"
-            y2="21"
-          />
-          <line x1="4" y1="4" x2="9" y2="9" />
-        </svg>
-        {shuffling ? "Loading…" : "Shuffle All"}
-      </button>
-      <button
-        class="btn-radio"
-        on:click={startArtistRadio}
-        disabled={radioLoading}
-        title="Start radio based on your listening history"
-      >
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <circle cx="12" cy="12" r="2" /><path
-            d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"
-          />
-        </svg>
-        {radioLoading ? "Loading…" : "Start Radio"}
-      </button>
+  </div>
+{:else if artist}
+  <div class="hero">
+    {#if artist.image_key}
+      <div class="hero-bg" aria-hidden="true">
+        <img src="{getApiBase()}/covers/artist/{artist.id}" alt="" class="hero-bg-img" />
+      </div>
+    {/if}
+    <div class="hero-body">
+      <div class="photo-wrap">
+        {#if artist.image_key}
+          <img src="{getApiBase()}/covers/artist/{artist.id}" alt={artist.name} class="artist-photo" />
+        {:else}
+          <div class="artist-photo photo-fallback">{artist.name[0]?.toUpperCase() ?? "?"}</div>
+        {/if}
+      </div>
+      <div class="hero-info">
+        <h1 class="hero-title">{artist.name}</h1>
+        {#if artist.artist_type || artist.country || artist.begin_date}
+          <div class="hero-meta-row">
+            {#if artist.artist_type}<span class="meta-chip">{artist.artist_type}</span>{/if}
+            {#if artist.country}<span class="meta-chip">{artist.country}</span>{/if}
+            {#if artist.begin_date}<span class="meta-chip">{formatDates(artist)}</span>{/if}
+          </div>
+        {/if}
+        {#if artist.disambiguation}
+          <p class="disambiguation">{artist.disambiguation}</p>
+        {/if}
+        {#if genres.length > 0}
+          <div class="genre-pills">
+            {#each genres as genre}
+              <a href="/genres/{genre.id}" class="genre-pill">{genre.name}</a>
+            {/each}
+          </div>
+        {/if}
+        <div class="hero-actions">
+          <button class="btn-play" on:click={shuffleAll} disabled={albums.length === 0 || shuffling}>
+            {#if shuffling}
+              <svg class="spin-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13" /></svg> Loading…
+            {:else}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg> Shuffle
+            {/if}
+          </button>
+          <button class="btn-icon btn-icon--accent" on:click={startArtistRadio} disabled={radioLoading} title="Start Radio">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2" /><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14" /></svg>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
   {#if bio}
@@ -456,130 +418,205 @@
 </svelte:head>
 
 <style>
-  .header {
+  /* ── Hero skeleton ── */
+  .hero-skeleton {
     display: flex;
-    align-items: flex-start;
-    gap: 20px;
-    margin-bottom: 32px;
+    gap: 24px;
+    align-items: flex-end;
+    padding: 32px 0 28px;
+    margin-bottom: 8px;
   }
+  .sk-photo {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    flex-shrink: 0;
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+  .sk-line {
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-name { height: 32px; width: min(280px, 70%); }
+  .sk-meta { height: 12px; width: min(200px, 55%); }
+  .sk-tags { height: 22px; width: min(240px, 60%); border-radius: 20px; }
+  @keyframes sk-pulse {
+    0%, 100% { opacity: 0.5; }
+    50%       { opacity: 1;   }
+  }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .hero-bg-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(40px) saturate(1.3) brightness(0.5);
+    transform: scale(1.1);
+  }
+  .hero-body {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 28px;
+    align-items: flex-end;
+    padding: 40px 28px 28px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--bg) 30%, transparent) 60%,
+      color-mix(in srgb, var(--bg) 70%, transparent) 100%
+    );
+  }
+
+  /* ── Photo ── */
+  .photo-wrap { flex-shrink: 0; }
   .artist-photo {
     width: 160px;
     height: 160px;
     border-radius: 50%;
     object-fit: cover;
-    flex-shrink: 0;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+    display: block;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   }
-  .header-text {
-    flex: 1;
-  }
-  .title {
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0;
-  }
-  .artist-meta {
+  .photo-fallback {
     display: flex;
-    gap: 12px;
     align-items: center;
-    margin-top: 6px;
-  }
-  .meta-item {
-    font-size: 0.8rem;
+    justify-content: center;
+    font-size: 4rem;
+    font-weight: 700;
     color: var(--text-muted);
+    background: var(--bg-hover);
+    user-select: none;
   }
-  .meta-item + .meta-item::before {
-    content: "·";
-    margin-right: 12px;
+
+  /* ── Hero info ── */
+  .hero-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  .hero-title {
+    font-size: clamp(1.75rem, 4vw, 2.8rem);
+    font-weight: 800;
+    margin: 0;
+    line-height: 1.1;
+    color: var(--text);
+  }
+  .hero-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .meta-chip {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 10px;
   }
   .disambiguation {
     font-size: 0.85rem;
     color: var(--text-muted);
     font-style: italic;
-    margin: 4px 0 0;
+    margin: 0;
   }
   .genre-pills {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 10px;
   }
   .genre-pill {
     display: inline-block;
-    padding: 4px 12px;
+    padding: 3px 10px;
     border-radius: 20px;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 500;
     text-decoration: none;
-    transition:
-      color 0.15s,
-      border-color 0.15s;
+    transition: color 0.15s, border-color 0.15s;
   }
-  .genre-pill:hover {
-    color: var(--text);
-    border-color: var(--accent);
-  }
-  .btn-shuffle {
+  .genre-pill:hover { color: var(--text); border-color: var(--accent); }
+
+  /* ── Hero actions ── */
+  .hero-actions {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 8px 18px;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    flex-shrink: 0;
-    margin-top: 8px;
-  }
-  .btn-shuffle:hover {
-    color: var(--text);
-    border-color: var(--text);
-  }
-  .btn-shuffle:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .header-actions {
-    display: flex;
-    flex-direction: column;
     gap: 8px;
-    flex-shrink: 0;
-  }
-  .btn-radio {
-    display: flex;
     align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--border);
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .btn-play {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--accent);
+    border: none;
     border-radius: 20px;
-    padding: 8px 18px;
-    color: var(--accent);
+    padding: 8px 20px;
+    color: #fff;
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-play:hover:not(:disabled) { background: var(--accent-hover, color-mix(in srgb, var(--accent) 80%, #000)); }
+  .btn-play:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .btn-icon:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); background: var(--bg-elevated); }
+  .btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-icon--accent {
+    color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 40%, transparent);
   }
-  .btn-radio:hover {
+  .btn-icon--accent:hover:not(:disabled) {
+    color: var(--accent);
     border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
   }
-  .btn-radio:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
+  @keyframes spin-anim { to { transform: rotate(360deg); } }
+  .spin-icon { display: inline-block; vertical-align: middle; animation: spin-anim 0.8s linear infinite; }
+
   .section {
     font-size: 1rem;
     font-weight: 600;
     color: var(--text-muted);
     margin-bottom: 16px;
-  }
-  .muted {
-    color: var(--text-muted);
   }
   .related-list {
     display: flex;
@@ -820,37 +857,23 @@
 
   /* ── Mobile ─────────────────────────────────────────────── */
   @media (max-width: 640px) {
-    .header {
+    .hero-body {
       flex-direction: column;
       align-items: center;
       text-align: center;
-      gap: 16px;
-      margin-bottom: 20px;
+      padding: 24px 16px 20px;
     }
     .artist-photo {
       width: min(140px, 50vw);
       height: min(140px, 50vw);
     }
-    .header-text {
-      width: 100%;
-    }
-    .title {
-      font-size: 1.75rem;
-    }
-    .artist-meta {
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .genre-pills {
-      justify-content: center;
-    }
-    .header-actions {
-      flex-direction: row;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    .related-list {
-      justify-content: center;
-    }
+    .hero-info { align-items: center; }
+    .hero-meta-row { justify-content: center; }
+    .genre-pills { justify-content: center; }
+    .hero-actions { justify-content: center; }
+    .hero-skeleton { flex-direction: column; align-items: center; }
+    .sk-photo { width: min(140px, 50vw); height: min(140px, 50vw); }
+    .sk-info { align-items: center; }
+    .related-list { justify-content: center; }
   }
 </style>

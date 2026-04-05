@@ -1287,7 +1287,7 @@
     display: flex;
     gap: 14px;
     overflow-x: auto;
-    padding-bottom: 8px;
+    padding: 8px 12px 2px 12px;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
@@ -1299,7 +1299,6 @@
     flex: 0 0 154px;
     min-width: 154px;
     max-width: 154px;
-    overflow: hidden;
     display: flex;
     flex-direction: column;
   }
@@ -1308,12 +1307,6 @@
     max-width: 154px;
     box-sizing: border-box;
   }
-  .slider-item :global(.cover-wrap) {
-    width: 128px;
-    height: 128px;
-    padding-bottom: 0;
-  }
-
   /* ── Smart playlists grid ────────────────────────────────────────────────── */
   .sp-grid {
     display: grid;

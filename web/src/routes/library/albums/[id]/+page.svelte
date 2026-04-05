@@ -307,329 +307,123 @@
 </script>
 
 {#if loading}
-  <p class="muted"><Spinner /></p>
+  <div class="hero-skeleton">
+    <div class="sk-cover"></div>
+    <div class="sk-info">
+      <div class="sk-line sk-type"></div>
+      <div class="sk-line sk-title"></div>
+      <div class="sk-line sk-artist"></div>
+      <div class="sk-line sk-meta"></div>
+    </div>
+  </div>
 {:else if album}
-  <div class="header">
+  <!-- ── Hero ─────────────────────────────────────────────────────── -->
+  <div class="hero">
     {#if album.cover_art_key}
-      <img
-        src="{getApiBase()}/covers/{album.id}"
-        alt={album.title}
-        class="cover"
-      />
-    {:else}
-      <div class="cover album-fallback">♪</div>
+      <div class="hero-bg" aria-hidden="true">
+        <img src="{getApiBase()}/covers/{album.id}" alt="" class="hero-bg-img" />
+      </div>
     {/if}
-    <div class="meta">
-      <p class="type">{album.album_type ?? "Album"}</p>
-
-      <!-- Title (editable) -->
-
-      <h1 class="title" class:editable={isAdmin}>
-        {#if editingField === "title"}
-          <input
-            class="inline-input title-input"
-            bind:value={editValue}
-            on:keydown={onKeydown}
-            on:blur={commitEdit}
-            disabled={saving}
-            use:focusOnMount
-          />
-        {:else if isAdmin}
-          <button
-            type="button"
-            class="editable-trigger title-trigger"
-            on:click={() => startEdit("title")}
-            aria-label="Edit album title"
-          >
-            {album.title}<span class="edit-hint">✎</span>
-          </button>
+    <div class="hero-body">
+      <div class="cover-wrap">
+        {#if album.cover_art_key}
+          <img src="{getApiBase()}/covers/{album.id}" alt={album.title} class="cover" />
         {:else}
-          {album.title}
-        {/if}
-      </h1>
-
-      {#if artistName}
-        {#if artistId}
-          <a href="/artists/{artistId}" class="artist">{artistName}</a>
-        {:else}
-          <p class="artist">{artistName}</p>
-        {/if}
-      {/if}
-
-      <div class="meta-row">
-        <!-- Year (editable) -->
-
-        {#if editingField === "release_year"}
-          <span class="year inline-field">
-            <input
-              class="inline-input year-input"
-              type="number"
-              bind:value={editValue}
-              on:keydown={onKeydown}
-              on:blur={commitEdit}
-              disabled={saving}
-              placeholder="Year"
-              use:focusOnMount
-            />
-          </span>
-        {:else if isAdmin}
-          <button
-            type="button"
-            class="year editable-trigger"
-            on:click={() => startEdit("release_year")}
-            aria-label="Edit release year"
-          >
-            {#if album.release_year != null}
-              {album.release_year}<span class="edit-hint">✎</span>
-            {:else}
-              <span class="muted-placeholder">+ Year</span><span
-                class="edit-hint">✎</span
-              >
-            {/if}
-          </button>
-        {:else}
-          <span class="year">
-            {album.release_year != null ? album.release_year : "—"}
-          </span>
-        {/if}
-
-        {#if discCount > 1}
-          <span class="disc-count">{discCount} discs</span>
-        {/if}
-
-        <!-- Label (editable) -->
-
-        {#if editingField === "label"}
-          <span class="label-info inline-field">
-            <input
-              class="inline-input label-input"
-              bind:value={editValue}
-              on:keydown={onKeydown}
-              on:blur={commitEdit}
-              disabled={saving}
-              placeholder="Label"
-              use:focusOnMount
-            />
-          </span>
-        {:else if isAdmin}
-          <button
-            type="button"
-            class="label-info editable-trigger"
-            on:click={() => startEdit("label")}
-            aria-label="Edit label"
-          >
-            {#if (album as any).label}
-              {(album as any).label}
-            {:else}
-              <span class="muted-placeholder">+ Label</span>
-            {/if}
-            <span class="edit-hint">✎</span>
-          </button>
-        {:else}
-          <span class="label-info">
-            {(album as any).label ?? "—"}
-          </span>
+          <div class="cover cover-fallback">♪</div>
         {/if}
       </div>
 
-      {#if saveError}
-        <p class="action-msg error-msg">{saveError}</p>
-      {/if}
+      <div class="hero-info">
+        <p class="type-badge">{album.album_type ?? "Album"}</p>
 
-      {#if genres.length > 0}
-        <div class="genre-pills">
-          {#each genres as genre}
-            <a href="/genres/{genre.id}" class="genre-pill">{genre.name}</a>
-          {/each}
-        </div>
-      {/if}
-
-      <div class="actions">
-        <button
-          class="btn-play"
-          on:click={isPlayingGlobal || isPausedThisAlbum
-            ? togglePlayPause
-            : playAll}
-          disabled={tracks.length === 0}
-        >
-          {#if isPlayingGlobal}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"
-              ><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg
-            > Pause
-          {:else if isPausedThisAlbum}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"
-              ><polygon points="5,3 19,12 5,21" /></svg
-            > Resume
+        <h1 class="hero-title" class:editable={isAdmin}>
+          {#if editingField === "title"}
+            <input class="inline-input title-input" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
+          {:else if isAdmin}
+            <button type="button" class="editable-trigger" on:click={() => startEdit("title")} aria-label="Edit album title">{album.title}<span class="edit-hint">✎</span></button>
           {:else}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"
-              ><polygon points="5,3 19,12 5,21" /></svg
-            > Play
+            {album.title}
           {/if}
-        </button>
-        <button
-          class="btn-shuffle"
-          on:click={shuffleAll}
-          disabled={tracks.length === 0}
-          title="Shuffle"
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <polyline points="16 3 21 3 21 8" /><line
-              x1="4"
-              y1="20"
-              x2="21"
-              y2="3"
-            />
-            <polyline points="21 16 21 21 16 21" /><line
-              x1="15"
-              y1="15"
-              x2="21"
-              y2="21"
-            />
-            <line x1="4" y1="4" x2="9" y2="9" />
-          </svg>
-          Shuffle
-        </button>
-        <button
-          class="btn-radio"
-          on:click={startAlbumRadio}
-          disabled={tracks.length === 0 || radioLoading}
-          title="Start radio based on this album"
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <circle cx="12" cy="12" r="2" /><path
-              d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"
-            />
-          </svg>
-          {radioLoading ? "Loading…" : "Start Radio"}
-        </button>
-        <button
-          class="btn-download"
-          on:click={downloadAll}
-          disabled={tracks.length === 0 || allDownloaded || downloading}
-          title="Download all tracks for offline playback"
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline
-              points="7 10 12 15 17 10"
-            /><line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          {#if allDownloaded}Downloaded{:else if downloading || dlActiveCount > 0}{dlDoneCount}/{tracks.length}{:else}Download{/if}
-        </button>
+        </h1>
 
-        {#if isAdmin}
-          <button
-            class="btn-admin"
-            on:click={handleRefetchCover}
-            disabled={refreshing}
-            title="Re-fetch cover art from MusicBrainz"
-          >
-            {#if refreshing}<svg
-                class="spin-sm"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                aria-hidden="true"
-                ><circle cx="12" cy="12" r="9" stroke-dasharray="44 13" /></svg
-              > Refreshing…
+        {#if artistName}
+          {#if artistId}
+            <a href="/artists/{artistId}" class="hero-artist">{artistName}</a>
+          {:else}
+            <p class="hero-artist">{artistName}</p>
+          {/if}
+        {/if}
+
+        <div class="hero-meta-row">
+          {#if editingField === "release_year"}
+            <input class="inline-input year-input" type="number" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} placeholder="Year" use:focusOnMount />
+          {:else if isAdmin}
+            <button type="button" class="editable-trigger meta-val" on:click={() => startEdit("release_year")} aria-label="Edit release year">{album.release_year ?? "—"}<span class="edit-hint">✎</span></button>
+          {:else}
+            <span class="meta-val">{album.release_year ?? "—"}</span>
+          {/if}
+          {#if discCount > 1}<span class="meta-sep">·</span><span class="meta-val">{discCount} discs</span>{/if}
+          <span class="meta-sep">·</span>
+          {#if editingField === "label"}
+            <input class="inline-input label-input" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} placeholder="Label" use:focusOnMount />
+          {:else if isAdmin}
+            <button type="button" class="editable-trigger meta-val" on:click={() => startEdit("label")} aria-label="Edit label">{(album as any).label ?? "—"}<span class="edit-hint">✎</span></button>
+          {:else}
+            <span class="meta-val">{(album as any).label ?? "—"}</span>
+          {/if}
+          <span class="meta-sep">·</span>
+          <span class="meta-val">{tracks.length} track{tracks.length !== 1 ? "s" : ""}</span>
+        </div>
+
+        {#if saveError}<p class="save-error">{saveError}</p>{/if}
+
+        {#if genres.length > 0}
+          <div class="genre-pills">
+            {#each genres as genre}
+              <a href="/genres/{genre.id}" class="genre-pill">{genre.name}</a>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="hero-actions">
+          <button class="btn-play" on:click={isPlayingGlobal && isAlbumActive || isPausedThisAlbum ? togglePlayPause : playAll} disabled={tracks.length === 0}>
+            {#if isPlayingGlobal && isAlbumActive}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg> Pause
+            {:else if isPausedThisAlbum}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg> Resume
             {:else}
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                ><rect x="3" y="3" width="18" height="18" rx="2" /><circle
-                  cx="8.5"
-                  cy="8.5"
-                  r="1.5"
-                /><polyline points="21 15 16 10 5 21" /></svg
-              >
-              Refresh cover
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg> Play
             {/if}
           </button>
-          <button
-            class="btn-admin"
-            on:click={handleRescan}
-            disabled={scanning}
-            title="Force re-scan all music files from disk"
-          >
-            {#if scanning}<svg
-                class="spin-sm"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                aria-hidden="true"
-                ><circle cx="12" cy="12" r="9" stroke-dasharray="44 13" /></svg
-              > Scanning…
+          <button class="btn-icon" on:click={shuffleAll} disabled={tracks.length === 0} title="Shuffle">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8" /><line x1="4" y1="20" x2="21" y2="3" /><polyline points="21 16 21 21 16 21" /><line x1="15" y1="15" x2="21" y2="21" /><line x1="4" y1="4" x2="9" y2="9" /></svg>
+          </button>
+          <button class="btn-icon btn-icon--accent" on:click={startAlbumRadio} disabled={tracks.length === 0 || radioLoading} title="Start Radio">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2" /><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14" /></svg>
+          </button>
+          <button class="btn-icon" class:btn-icon--done={allDownloaded} on:click={downloadAll} disabled={tracks.length === 0 || allDownloaded || downloading} title={allDownloaded ? "Downloaded" : "Download all"}>
+            {#if downloading || dlActiveCount > 0}
+              <svg class="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13" /></svg>
             {:else}
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-                ><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path
-                  d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
-                /></svg
-              >
-              Force rescan
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
             {/if}
           </button>
+          {#if isAdmin}
+            <button class="btn-admin" on:click={handleRefetchCover} disabled={refreshing} title="Refresh cover art">
+              {#if refreshing}<svg class="spin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13" /></svg>{:else}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>{/if}
+              Cover
+            </button>
+            <button class="btn-admin" on:click={handleRescan} disabled={scanning} title="Force rescan">
+              {#if scanning}<svg class="spin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="44 13" /></svg>{:else}<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6" /><path d="M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>{/if}
+              Rescan
+            </button>
+          {/if}
+        </div>
+
+        {#if refreshMsg || scanMsg}
+          <p class="action-msg" class:error-msg={refreshMsg.includes("fail") || scanMsg.includes("fail")}>{refreshMsg || scanMsg}</p>
         {/if}
       </div>
-
-      {#if refreshMsg || scanMsg}
-        <p
-          class="action-msg"
-          class:error-msg={refreshMsg.includes("fail") ||
-            scanMsg.includes("fail")}
-        >
-          {refreshMsg || scanMsg}
-        </p>
-      {/if}
     </div>
   </div>
 
@@ -637,12 +431,8 @@
     <div class="variant-picker">
       <span class="variant-label">Versions</span>
       {#each variants as v}
-        <a
-          href="/library/albums/{v.id}"
-          class="variant-pill"
-          class:active={v.id === album.id}
-        >
-          <span class="variant-edition">{v.edition ?? "Standard"}</span>
+        <a href="/library/albums/{v.id}" class="variant-pill" class:active={v.id === album.id}>
+          <span>{v.edition ?? "Standard"}</span>
           <span class="variant-count">{v.track_count ?? 0} tracks</span>
         </a>
       {/each}
@@ -653,39 +443,20 @@
 
   {#if similarAlbums.length > 0}
     <section class="similar-section">
-      <h2 class="similar-title">Similar Albums</h2>
+      <h2 class="section-label">Similar Albums</h2>
       <div class="carousel">
         {#each similarAlbums as sa (sa.id)}
-          <div
-            class="carousel-card"
-            role="button"
-            tabindex="0"
-            aria-label="Open {sa.title}"
-            on:click={() => goto(`/library/albums/${sa.id}`)}
-            on:keydown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                goto(`/library/albums/${sa.id}`);
-              }
-            }}
-          >
+          <button class="carousel-card" on:click={() => goto(`/library/albums/${sa.id}`)} aria-label="Open {sa.title}">
             <div class="carousel-cover-wrap">
               {#if sa.cover_art_key}
-                <img
-                  src="{getApiBase()}/covers/{sa.id}"
-                  alt={sa.title}
-                  class="carousel-cover"
-                  loading="lazy"
-                />
+                <img src="{getApiBase()}/covers/{sa.id}" alt={sa.title} class="carousel-cover" loading="lazy" />
               {:else}
                 <div class="carousel-cover carousel-placeholder">♪</div>
               {/if}
             </div>
             <span class="carousel-name" title={sa.title}>{sa.title}</span>
-            {#if sa.artist_name}<span class="carousel-artist"
-                >{sa.artist_name}</span
-              >{/if}
-          </div>
+            {#if sa.artist_name}<span class="carousel-artist">{sa.artist_name}</span>{/if}
+          </button>
         {/each}
       </div>
     </section>
@@ -697,47 +468,167 @@
 </svelte:head>
 
 <style>
-  .header {
+  /* ── Hero skeleton ── */
+  .hero-skeleton {
     display: flex;
     gap: 24px;
     align-items: flex-end;
-    margin-bottom: 32px;
+    padding: 32px 0 28px;
+    margin-bottom: 8px;
+  }
+  .sk-cover {
+    width: 200px;
+    height: 200px;
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    flex-shrink: 0;
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+  }
+  .sk-line {
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-type  { height: 10px; width: 60px; }
+  .sk-title { height: 28px; width: min(340px, 80%); }
+  .sk-artist{ height: 14px; width: min(180px, 50%); }
+  .sk-meta  { height: 12px; width: min(240px, 65%); }
+  @keyframes sk-pulse {
+    0%, 100% { opacity: 0.5; }
+    50%       { opacity: 1;   }
+  }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .hero-bg-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(40px) saturate(1.4) brightness(0.55);
+    transform: scale(1.1);
+  }
+  .hero-body {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 28px;
+    align-items: flex-end;
+    padding: 32px 28px 28px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--bg) 30%, transparent) 60%,
+      color-mix(in srgb, var(--bg) 70%, transparent) 100%
+    );
+  }
+
+  /* ── Cover ── */
+  .cover-wrap {
+    flex-shrink: 0;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    border-radius: 8px;
+    overflow: hidden;
   }
   .cover {
-    width: 180px;
-    height: 180px;
+    width: 200px;
+    height: 200px;
     object-fit: cover;
-    border-radius: 8px;
-    flex-shrink: 0;
+    display: block;
   }
-  .album-fallback {
+  .cover-fallback {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 4.5rem;
+    font-size: 5rem;
     color: var(--text-muted);
     background: var(--bg-hover);
     user-select: none;
   }
-  .meta {
+
+  /* ── Hero info ── */
+  .hero-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+    min-width: 0;
   }
-  .type {
-    font-size: 0.75rem;
+  .type-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-muted);
+    margin: 0;
+  }
+  .hero-title {
+    font-size: clamp(1.5rem, 3vw, 2.4rem);
+    font-weight: 800;
+    margin: 0;
+    line-height: 1.1;
+    color: var(--text);
+    cursor: default;
+  }
+  .hero-title.editable { cursor: pointer; }
+  .hero-title.editable:hover .edit-hint { opacity: 1; }
+  .hero-artist {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    margin: 0;
+  }
+  a.hero-artist:hover {
+    text-decoration: underline;
+    color: var(--text);
+  }
+  .hero-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .meta-val {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: default;
+  }
+  button.meta-val {
+    cursor: pointer;
+  }
+  button.meta-val:hover .edit-hint { opacity: 1; }
+  .meta-sep {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    opacity: 0.5;
+  }
+  .save-error {
+    font-size: 0.8rem;
+    color: #ef4444;
+    margin: 0;
   }
 
   /* ── Inline edit ── */
-  .editable {
-    cursor: pointer;
-    position: relative;
-  }
-  .editable:hover .edit-hint {
-    opacity: 1;
-  }
   .edit-hint {
     opacity: 0;
     font-size: 0.75em;
@@ -746,11 +637,17 @@
     transition: opacity 0.15s;
     pointer-events: none;
   }
-  .muted-placeholder {
-    opacity: 0.45;
-    font-style: italic;
+  .editable-trigger {
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
   }
-
+  .editable-trigger:hover .edit-hint { opacity: 1; }
   .inline-input {
     background: color-mix(in srgb, var(--accent) 8%, var(--bg));
     border: 1.5px solid var(--accent);
@@ -761,28 +658,71 @@
     outline: none;
     box-sizing: border-box;
   }
-  .inline-input:disabled {
-    opacity: 0.6;
-  }
+  .inline-input:disabled { opacity: 0.6; }
   .title-input {
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: clamp(1.5rem, 3vw, 2.4rem);
+    font-weight: 800;
     width: 100%;
   }
-  .year-input {
-    width: 80px;
-  }
-  .label-input {
-    width: 160px;
-  }
+  .year-input  { width: 80px; }
+  .label-input { width: 160px; }
 
-  .action-msg {
-    font-size: 0.8rem;
-    color: var(--accent);
-    margin: 2px 0 0;
+  /* ── Hero actions ── */
+  .hero-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    align-items: center;
+    flex-wrap: wrap;
   }
-  .action-msg.error-msg {
-    color: #ef4444;
+  .btn-play {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--accent);
+    border: none;
+    border-radius: 20px;
+    padding: 8px 20px;
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-play:hover:not(:disabled) { background: var(--accent-hover, color-mix(in srgb, var(--accent) 80%, #000)); }
+  .btn-play:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .btn-icon:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--text-muted);
+    background: var(--bg-elevated);
+  }
+  .btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-icon--accent {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  .btn-icon--accent:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
+  }
+  .btn-icon--done {
+    color: #22c55e;
+    border-color: color-mix(in srgb, #22c55e 40%, transparent);
   }
 
   .btn-admin {
@@ -796,82 +736,31 @@
     font-size: 0.78rem;
     padding: 5px 12px;
     cursor: pointer;
-    transition:
-      color 0.15s,
-      border-color 0.15s;
+    transition: color 0.15s, border-color 0.15s;
   }
-  .btn-admin:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--text-muted);
-  }
-  .btn-admin:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  @keyframes spin-anim {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  .spin-sm {
+  .btn-admin:hover:not(:disabled) { color: var(--text); border-color: var(--text-muted); }
+  .btn-admin:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  @keyframes spin-anim { to { transform: rotate(360deg); } }
+  .spin-icon {
     display: inline-block;
     vertical-align: middle;
     animation: spin-anim 0.8s linear infinite;
   }
 
-  /* ── Existing styles ── */
-  .title {
-    font-size: 2rem;
-    font-weight: 700;
-    margin: 0;
-    cursor: default;
+  .action-msg {
+    font-size: 0.8rem;
+    color: var(--accent);
+    margin: 2px 0 0;
   }
-  .title.editable {
-    cursor: pointer;
-  }
-  .artist {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    font-weight: 600;
-    text-decoration: none;
-  }
-  a.artist:hover {
-    text-decoration: underline;
-    color: var(--text);
-  }
-  .meta-row {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .year {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    cursor: default;
-  }
-  .disc-count {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-  }
-  .disc-count::before {
-    content: "·";
-    margin-right: 10px;
-  }
-  .label-info {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    cursor: default;
-  }
-  .label-info::before {
-    content: "·";
-    margin-right: 10px;
-  }
+  .action-msg.error-msg { color: #ef4444; }
+
+  /* ── Genre pills ── */
   .genre-pills {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 4px;
+    margin-top: 2px;
   }
   .genre-pill {
     display: inline-block;
@@ -882,105 +771,11 @@
     font-size: 0.7rem;
     font-weight: 500;
     text-decoration: none;
-    transition:
-      color 0.15s,
-      border-color 0.15s;
+    transition: color 0.15s, border-color 0.15s;
   }
-  .genre-pill:hover {
-    color: var(--text);
-    border-color: var(--accent);
-  }
-  .actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  .btn-play {
-    background: var(--accent);
-    border: none;
-    border-radius: 20px;
-    padding: 8px 20px;
-    color: #fff;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-play:hover {
-    background: var(--accent-hover);
-  }
-  .btn-play:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .btn-shuffle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 7px 16px;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-shuffle:hover {
-    color: var(--text);
-    border-color: var(--text);
-  }
-  .btn-shuffle:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .btn-radio {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-    border-radius: 20px;
-    padding: 7px 16px;
-    color: var(--accent);
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-radio:hover {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-  .btn-radio:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .btn-download {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 7px 16px;
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-download:hover {
-    color: var(--text);
-    border-color: var(--text);
-  }
-  .btn-download:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .muted {
-    color: var(--text-muted);
-  }
+  .genre-pill:hover { color: var(--text); border-color: var(--accent); }
 
+  /* ── Variant picker ── */
   .variant-picker {
     display: flex;
     align-items: center;
@@ -1006,68 +801,24 @@
     font-size: 0.8rem;
     text-decoration: none;
     color: var(--text-muted);
-    transition:
-      color 0.15s,
-      border-color 0.15s,
-      background 0.15s;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
   }
-  .variant-pill:hover {
-    color: var(--text);
-    border-color: var(--accent);
-  }
+  .variant-pill:hover { color: var(--text); border-color: var(--accent); }
   .variant-pill.active {
     color: var(--accent);
     border-color: var(--accent);
-    background: rgba(var(--accent-rgb, 99 102 241) / 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .variant-count {
     font-size: 0.7rem;
     color: var(--text-muted);
     opacity: 0.7;
   }
-  .variant-pill.active .variant-count {
-    opacity: 1;
-  }
-
-  @media (max-width: 640px) {
-    .header {
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-      gap: 16px;
-      margin-top: var(--page-padding);
-      margin-bottom: 20px;
-    }
-    .cover {
-      width: min(200px, 60vw);
-      height: min(200px, 60vw);
-    }
-    .meta {
-      width: 100%;
-      align-items: center;
-      text-align: center;
-    }
-    .title {
-      font-size: 1.5rem;
-    }
-    .actions {
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .meta-row {
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .genre-pills {
-      justify-content: center;
-    }
-  }
+  .variant-pill.active .variant-count { opacity: 1; }
 
   /* ── Similar Albums ── */
-  .similar-section {
-    margin-top: 40px;
-  }
-  .similar-title {
+  .similar-section { margin-top: 40px; }
+  .section-label {
     font-size: 1rem;
     font-weight: 700;
     margin: 0 0 16px;
@@ -1087,10 +838,12 @@
     flex-direction: column;
     gap: 6px;
     cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
   }
-  .carousel-card:hover .carousel-cover {
-    transform: scale(1.03);
-  }
+  .carousel-card:hover .carousel-cover { transform: scale(1.03); }
   .carousel-cover-wrap {
     width: 120px;
     height: 120px;
@@ -1126,5 +879,23 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .hero-body {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 20px 16px 20px;
+    }
+    .cover { width: min(180px, 55vw); height: min(180px, 55vw); }
+    .hero-info { align-items: center; }
+    .hero-meta-row { justify-content: center; }
+    .genre-pills { justify-content: center; }
+    .hero-actions { justify-content: center; }
+    .hero-skeleton { flex-direction: column; align-items: center; }
+    .sk-cover { width: min(180px, 55vw); height: min(180px, 55vw); }
+    .sk-info { align-items: center; }
   }
 </style>

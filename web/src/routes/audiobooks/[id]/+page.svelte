@@ -420,13 +420,27 @@
 </svelte:head>
 
 {#if loading}
-  <div class="loading-wrap"><div class="spinner"></div></div>
+  <div class="hero-skeleton">
+    <div class="sk-cover"></div>
+    <div class="sk-info">
+      <div class="sk-line sk-series"></div>
+      <div class="sk-line sk-title"></div>
+      <div class="sk-line sk-author"></div>
+      <div class="sk-line sk-meta"></div>
+    </div>
+  </div>
 {:else if error}
   <div class="error">{error}</div>
 {:else if book}
   <div class="detail">
     <!-- ── Hero ───────────────────────────────────────────────── -->
     <div class="hero">
+      {#if book.cover_art_key}
+        <div class="hero-bg" aria-hidden="true">
+          <img src="{getApiBase()}/covers/audiobook/{book.id}" alt="" class="hero-bg-img" />
+        </div>
+      {/if}
+      <div class="hero-body">
       <div class="cover-col">
         <div class="cover-wrap">
           {#if book.cover_art_key}
@@ -914,6 +928,7 @@
           {/if}
         </div>
       </div>
+      </div>
     </div>
 
     <!-- ── Chapters ────────────────────────────────────────────── -->
@@ -1119,24 +1134,42 @@
 {/if}
 
 <style>
-  .loading-wrap {
+  /* ── Hero skeleton ── */
+  .hero-skeleton {
     display: flex;
-    justify-content: center;
-    padding: 80px;
+    gap: 24px;
+    align-items: flex-end;
+    padding: 32px 0 28px;
+    margin-bottom: 8px;
   }
-  .spinner {
-    width: 32px;
-    height: 32px;
-    border: 3px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+  .sk-cover {
+    width: 160px;
+    height: 240px;
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    flex-shrink: 0;
+    animation: sk-pulse 1.4s ease-in-out infinite;
   }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+  .sk-info {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
   }
+  .sk-line {
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-series { height: 10px; width: 120px; }
+  .sk-title  { height: 28px; width: min(320px, 80%); }
+  .sk-author { height: 14px; width: min(160px, 50%); }
+  .sk-meta   { height: 22px; width: min(200px, 55%); border-radius: 20px; }
+  @keyframes sk-pulse {
+    0%, 100% { opacity: 0.5; }
+    50%       { opacity: 1; }
+  }
+
   .error {
     color: var(--text-muted);
     padding: 40px;
@@ -1150,21 +1183,50 @@
     gap: 40px;
   }
 
+  /* ── Hero ── */
   .hero {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 4px;
+  }
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .hero-bg-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(40px) saturate(1.4) brightness(0.5);
+    transform: scale(1.1);
+  }
+  .hero-body {
+    position: relative;
+    z-index: 1;
     display: flex;
     gap: 32px;
-    align-items: flex-start;
+    align-items: flex-end;
+    padding: 40px 28px 28px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--bg) 30%, transparent) 60%,
+      color-mix(in srgb, var(--bg) 70%, transparent) 100%
+    );
   }
   .cover-col {
     flex-shrink: 0;
   }
   .cover-wrap {
-    width: 180px;
-    height: 270px;
+    width: 160px;
+    height: 240px;
     border-radius: 10px;
     overflow: hidden;
     background: var(--bg-elevated);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   }
   .cover {
     width: 100%;
@@ -1762,10 +1824,11 @@
   }
 
   @media (max-width: 640px) {
-    .hero {
+    .hero-body {
       flex-direction: column;
       align-items: center;
       gap: 20px;
+      padding: 24px 16px 20px;
     }
     .cover-wrap {
       width: 140px;
@@ -1776,20 +1839,13 @@
       text-align: center;
       width: 100%;
     }
-    .progress-track {
-      max-width: 180px;
-    }
-    .description {
-      max-width: 100%;
-    }
-    .title {
-      font-size: 1.35rem;
-    }
-    .attrs {
-      justify-content: center;
-    }
-    .actions {
-      justify-content: center;
-    }
+    .progress-track { max-width: 180px; }
+    .description { max-width: 100%; }
+    .title { font-size: 1.35rem; }
+    .attrs { justify-content: center; }
+    .actions { justify-content: center; }
+    .hero-skeleton { flex-direction: column; align-items: center; }
+    .sk-cover { width: 140px; height: 210px; }
+    .sk-info { align-items: center; }
   }
 </style>

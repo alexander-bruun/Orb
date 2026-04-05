@@ -213,13 +213,6 @@
     }
   }
 
-  function handleBookCardKeydown(event: KeyboardEvent, book: Audiobook) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      goto(`/audiobooks/${book.id}`);
-    }
-  }
-
   onMount(async () => {
     scrollEl = document.querySelector("main.content");
     if (scrollEl)
@@ -319,13 +312,10 @@
         <h2 class="group-label">{key}</h2>
         <div class="grid">
           {#each grouped.get(key) ?? [] as book (book.id)}
-            <div
+            <button
               class="book-card"
-              role="button"
-              tabindex="0"
               aria-label={`Open ${book.title}`}
               on:click={() => goto(`/audiobooks/${book.id}`)}
-              on:keydown={(event) => handleBookCardKeydown(event, book)}
             >
               <div class="cover-wrap">
                 {#if book.cover_art_key}
@@ -353,21 +343,18 @@
                     </svg>
                   </div>
                 {/if}
-                <button
+                <div
                   class="play-btn"
+                  role="button"
+                  tabindex="-1"
                   aria-label="Play {book.title}"
                   on:click|stopPropagation={() => playAudiobook(book)}
+                  on:keydown|stopPropagation
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 16 16"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <path d="M4 2.5l10 5.5-10 5.5V2.5z" />
                   </svg>
-                </button>
+                </div>
               </div>
               <div class="info">
                 <span class="title" title={book.title}>{book.title}</span>
@@ -378,20 +365,14 @@
                 {/if}
                 <div class="meta-row">
                   {#if book.series}
-                    <button
-                      type="button"
+                    <a
                       class="series"
+                      href="/audiobooks/series/{encodeURIComponent(book.series)}"
                       title="View series: {book.series}"
-                      aria-label={`View series ${book.series}`}
-                      on:click|stopPropagation={() =>
-                        goto(
-                          `/audiobooks/series/${encodeURIComponent(book.series!)}`,
-                        )}
+                      on:click|stopPropagation
                     >
-                      {book.series}{book.series_index != null
-                        ? ` #${book.series_index}`
-                        : ""}
-                    </button>
+                      {book.series}{book.series_index != null ? ` #${book.series_index}` : ""}
+                    </a>
                   {/if}
                   {#if book.duration_ms}
                     <span class="duration">{fmtDuration(book.duration_ms)}</span
@@ -399,7 +380,7 @@
                   {/if}
                 </div>
               </div>
-            </div>
+            </button>
           {/each}
         </div>
       </section>
@@ -518,6 +499,7 @@
   }
 
   /* skeleton cards */
+  @keyframes sk-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
   .card-skeleton {
     display: flex;
     flex-direction: column;
@@ -526,23 +508,9 @@
   .skeleton-cover {
     width: 100%;
     padding-bottom: 150%;
-    border-radius: 8px;
-    background: linear-gradient(
-      90deg,
-      var(--bg-3, #2a2a2a) 25%,
-      var(--bg-2, #333) 50%,
-      var(--bg-3, #2a2a2a) 75%
-    );
-    background-size: 200% 100%;
-    animation: shimmer 1.4s ease-in-out infinite;
-  }
-  @keyframes shimmer {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    animation: sk-pulse 1.4s ease-in-out infinite;
   }
 
   /* real book cards */
@@ -551,15 +519,28 @@
     flex-direction: column;
     gap: 8px;
     cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    transition: transform 0.18s, box-shadow 0.18s;
+  }
+  .book-card:hover {
+    transform: translateY(-3px);
   }
 
   .cover-wrap {
     position: relative;
     width: 100%;
     padding-bottom: 150%;
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
     background: var(--bg-elevated);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    transition: box-shadow 0.18s;
+  }
+  .book-card:hover .cover-wrap {
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   }
 
   .cover {
@@ -593,7 +574,6 @@
     height: 36px;
     border-radius: 50%;
     background: var(--accent);
-    border: none;
     color: #fff;
     display: flex;
     align-items: center;
@@ -601,24 +581,21 @@
     cursor: pointer;
     opacity: 0;
     transform: translateY(4px);
-    transition:
-      opacity 0.2s,
-      transform 0.2s;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.2s, transform 0.2s, filter 0.15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   }
   .book-card:hover .play-btn {
     opacity: 1;
     transform: translateY(0);
   }
-  .play-btn:hover {
-    filter: brightness(1.1);
-  }
+  .play-btn:hover { filter: brightness(1.12); }
 
   .info {
     display: flex;
     flex-direction: column;
     gap: 3px;
     min-width: 0;
+    padding: 0 2px;
   }
 
   .title {
@@ -652,11 +629,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 120px;
-    cursor: pointer;
+    text-decoration: none;
   }
-  .series:hover {
-    text-decoration: underline;
-  }
+  .series:hover { text-decoration: underline; }
 
   .duration {
     font-size: 0.72rem;

@@ -269,18 +269,13 @@
 
 <div class="page">
   <div class="page-header">
-    <h2 class="title">
-      Albums
-      <span class="count">
-        {#if !loading && totalCount > 0 && albums.length < totalCount}
-          {albums.length} / {totalCount}
-        {:else}
-          {albums.length}
-        {/if}
-      </span>
-    </h2>
+    <div class="title-row">
+      <h1 class="title">Albums</h1>
+      {#if !loading && totalCount > 0}
+        <span class="count">{totalCount}</span>
+      {/if}
+    </div>
     <div class="sort-controls">
-      <span class="sort-label">Sort by</span>
       {#each SORT_MODES as { mode, label }}
         <button
           class="sort-btn"
@@ -289,7 +284,7 @@
         >
           {label}
           {#if sortBy === mode}
-            <span class="dir-icon">{sortDir === "asc" ? "↑" : "↓"}</span>
+            <span class="dir-arrow">{sortDir === "asc" ? "↑" : "↓"}</span>
           {/if}
         </button>
       {/each}
@@ -297,12 +292,20 @@
   </div>
 
   {#if loading}
-    <p class="muted"><Spinner /></p>
+    <div class="sk-grid">
+      {#each { length: 16 } as _}
+        <div class="sk-card">
+          <div class="sk-cover"></div>
+          <div class="sk-line sk-line--title"></div>
+          <div class="sk-line sk-line--sub"></div>
+        </div>
+      {/each}
+    </div>
   {:else}
     <AlbumGrid {grouped} {keys} />
     <div bind:this={sentinel} class="sentinel"></div>
     {#if loadingMore}
-      <p class="muted load-more-hint"><Spinner size={18} /></p>
+      <p class="load-more-hint"><Spinner size={18} /></p>
     {/if}
   {/if}
 </div>
@@ -321,36 +324,30 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 28px;
+    margin-bottom: 20px;
     flex-wrap: wrap;
     gap: 12px;
   }
-
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
   .title {
     font-size: 1.25rem;
-    font-weight: 600;
+    font-weight: 700;
+    margin: 0;
   }
-
   .count {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 400;
-    color: var(--muted);
-    margin-left: 6px;
-    vertical-align: middle;
+    color: var(--text-muted);
   }
 
   .sort-controls {
     display: flex;
     align-items: center;
     gap: 4px;
-  }
-
-  .sort-label {
-    font-size: 0.6875rem;
-    color: var(--muted);
-    margin-right: 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
 
   .sort-btn {
@@ -360,45 +357,65 @@
     font-weight: 600;
     padding: 4px 10px;
     border-radius: 4px;
-    color: var(--text-2);
+    color: var(--text-muted);
     border: 1px solid transparent;
-    transition:
-      color 0.15s,
-      border-color 0.15s,
-      background 0.15s;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-
   .sort-btn:hover {
     color: var(--text);
-    border-color: var(--border-2);
+    border-color: var(--border);
   }
-
   .sort-btn.active {
     color: var(--accent);
     border-color: var(--accent);
-    background: var(--accent-dim);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
-
-  .dir-icon {
+  .dir-arrow {
     display: inline-block;
     margin-left: 2px;
     font-size: 0.8em;
     font-weight: 700;
   }
 
-  .muted {
-    color: var(--text-2);
-    font-size: 0.875rem;
-  }
-
-  .sentinel {
-    height: 1px;
-  }
+  .sentinel { height: 1px; }
 
   .load-more-hint {
     text-align: center;
     padding: 16px 0;
+    color: var(--text-muted);
+    font-size: 0.875rem;
   }
+
+  /* ── Skeleton grid ── */
+  @keyframes sk-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+  .sk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+  }
+  .sk-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .sk-cover {
+    width: 100%;
+    padding-bottom: 100%;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-line {
+    border-radius: 4px;
+    background: var(--bg-hover);
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-line--title { height: 13px; width: 80%; }
+  .sk-line--sub   { height: 11px; width: 55%; }
 </style>

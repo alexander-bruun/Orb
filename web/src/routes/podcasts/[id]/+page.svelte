@@ -307,175 +307,103 @@
 
 <div class="page">
   {#if loading}
-    <div class="loading"><Spinner size={32} /></div>
-  {:else if podcast}
-    <div class="header">
-      <div class="cover-wrap">
-        {#if podcast.cover_art_key}
-          <img
-            src="{getApiBase()}/covers/podcast/{podcast.id}"
-            alt={podcast.title}
-            class="cover"
-          />
-        {:else}
-          <div class="cover placeholder">
-            <svg
-              width="64"
-              height="64"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              style="opacity:0.3"
-            >
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-              <line x1="8" y1="23" x2="16" y2="23" />
-            </svg>
-          </div>
-        {/if}
+    <div class="hero-skeleton">
+      <div class="sk-cover"></div>
+      <div class="sk-info">
+        <div class="sk-line sk-title"></div>
+        <div class="sk-line sk-author"></div>
+        <div class="sk-line sk-desc"></div>
+        <div class="sk-line sk-meta"></div>
       </div>
+    </div>
+  {:else if podcast}
+    <!-- ── Hero ─────────────────────────────────────────────────── -->
+    <div class="hero">
+      {#if podcast.cover_art_key}
+        <div class="hero-bg" aria-hidden="true">
+          <img src="{getApiBase()}/covers/podcast/{podcast.id}" alt="" class="hero-bg-img" />
+        </div>
+      {/if}
+      <div class="hero-body">
+        <div class="cover-wrap">
+          {#if podcast.cover_art_key}
+            <img src="{getApiBase()}/covers/podcast/{podcast.id}" alt={podcast.title} class="cover" />
+          {:else}
+            <div class="cover placeholder">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            </div>
+          {/if}
+        </div>
 
-      <div class="info">
-        <!-- Title -->
-        <div class="title-row">
+        <div class="hero-info">
+          <!-- Title -->
           <h1 class="pod-title">
             {#if editingField === "title"}
-              <input
-                class="inline-input title-input"
-                bind:value={editValue}
-                on:keydown={onKeydown}
-                on:blur={commitEdit}
-                disabled={saving}
-                use:focusOnMount
-              />
+              <input class="inline-input title-input" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
             {:else}
-              <button
-                type="button"
-                class="editable-trigger title-trigger"
-                on:click={() => startEdit("title")}
-                aria-label="Edit title"
-              >
+              <button type="button" class="editable-trigger title-trigger" on:click={() => startEdit("title")} aria-label="Edit title">
                 {podcast.title}<span class="edit-hint">✎</span>
               </button>
             {/if}
           </h1>
-          <button
-            class="icon-btn-top delete"
-            title="Delete podcast"
-            on:click={openDeleteConfirm}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <polyline points="3 6 5 6 21 6" /><path
-                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-              /><line x1="10" y1="11" x2="10" y2="17" /><line
-                x1="14"
-                y1="11"
-                x2="14"
-                y2="17"
-              />
-            </svg>
-          </button>
-        </div>
 
-        <!-- Author -->
-        <p class="author-field">
-          {#if editingField === "author"}
-            <input
-              class="inline-input"
-              bind:value={editValue}
-              on:keydown={onKeydown}
-              on:blur={commitEdit}
-              disabled={saving}
-              use:focusOnMount
-            />
-          {:else}
-            <button
-              type="button"
-              class="editable-trigger author-trigger"
-              on:click={() => startEdit("author")}
-              aria-label="Edit author"
-            >
-              {#if podcast.author}
-                {podcast.author}
+          <!-- Author -->
+          <p class="author-field">
+            {#if editingField === "author"}
+              <input class="inline-input" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
+            {:else}
+              <button type="button" class="editable-trigger author-trigger" on:click={() => startEdit("author")} aria-label="Edit author">
+                {#if podcast.author}{podcast.author}{:else}<span class="muted-placeholder">+ Author</span>{/if}
+                <span class="edit-hint">✎</span>
+              </button>
+            {/if}
+          </p>
+
+          <!-- Description -->
+          <div class="desc-field">
+            {#if editingField === "description"}
+              <textarea class="inline-input area" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount></textarea>
+            {:else}
+              <button type="button" class="editable-trigger desc-trigger" on:click={() => startEdit("description")} aria-label="Edit description">
+                {#if podcast.description}<span class="description-text">{podcast.description}</span>{:else}<span class="muted-placeholder">+ Description</span>{/if}
+                <span class="edit-hint">✎</span>
+              </button>
+            {/if}
+          </div>
+
+          <!-- RSS URL + meta row -->
+          <div class="hero-meta">
+            <div class="rss-field">
+              {#if editingField === "rss_url"}
+                <input class="inline-input rss-input" bind:value={editValue} on:keydown={onKeydown} on:blur={commitEdit} disabled={saving} use:focusOnMount />
               {:else}
-                <span class="muted-placeholder">+ Author</span>
+                <button type="button" class="editable-trigger rss-trigger" on:click={() => startEdit("rss_url")} aria-label="Edit RSS URL">
+                  <span class="rss-label">RSS</span>
+                  <span class="rss-url-text">{podcast.rss_url}</span>
+                  <span class="edit-hint">✎</span>
+                </button>
               {/if}
-              <span class="edit-hint">✎</span>
-            </button>
-          {/if}
-        </p>
+            </div>
+            <span class="meta-sep">·</span>
+            <span class="ep-count">{total} episode{total !== 1 ? "s" : ""}</span>
+          </div>
 
-        <!-- Description -->
-        <div class="desc-field">
-          {#if editingField === "description"}
-            <textarea
-              class="inline-input area"
-              bind:value={editValue}
-              on:keydown={onKeydown}
-              on:blur={commitEdit}
-              disabled={saving}
-              use:focusOnMount
-            ></textarea>
-          {:else}
-            <button
-              type="button"
-              class="editable-trigger desc-trigger"
-              on:click={() => startEdit("description")}
-              aria-label="Edit description"
-            >
-              {#if podcast.description}
-                <span class="description-text">{podcast.description}</span>
-              {:else}
-                <span class="muted-placeholder">+ Description</span>
-              {/if}
-              <span class="edit-hint">✎</span>
+          {#if saveError}<p class="save-error">{saveError}</p>{/if}
+
+          <div class="hero-actions">
+            <button class="btn-delete" title="Delete podcast" on:click={openDeleteConfirm}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              Delete
             </button>
-          {/if}
+          </div>
         </div>
-
-        <!-- RSS URL -->
-        <div class="rss-field">
-          {#if editingField === "rss_url"}
-            <input
-              class="inline-input rss-input"
-              bind:value={editValue}
-              on:keydown={onKeydown}
-              on:blur={commitEdit}
-              disabled={saving}
-              use:focusOnMount
-            />
-          {:else}
-            <button
-              type="button"
-              class="editable-trigger rss-trigger"
-              on:click={() => startEdit("rss_url")}
-              aria-label="Edit RSS URL"
-            >
-              <span class="rss-label">RSS:</span>
-              <span class="rss-url-text">{podcast.rss_url}</span>
-              <span class="edit-hint">✎</span>
-            </button>
-          {/if}
-        </div>
-
-        {#if saveError}
-          <p class="save-error">{saveError}</p>
-        {/if}
-
-        <p class="ep-count">{total} episode{total !== 1 ? "s" : ""}</p>
       </div>
     </div>
 
@@ -768,54 +696,109 @@
 
 <style>
   .page {
-    padding: 24px;
-  }
-  .loading {
-    display: flex;
-    justify-content: center;
-    padding: 64px;
+    padding: 0;
   }
 
-  .header {
+  /* ── Hero skeleton ── */
+  @keyframes sk-pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+  .hero-skeleton {
     display: flex;
-    gap: 32px;
-    margin-bottom: 48px;
+    gap: 28px;
+    align-items: flex-end;
+    padding: 40px 24px 32px;
+    margin-bottom: 8px;
   }
-  .cover-wrap {
+  .sk-cover {
     width: 200px;
     height: 200px;
+    border-radius: 12px;
+    background: var(--bg-elevated);
     flex-shrink: 0;
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-info { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .sk-line {
+    border-radius: 4px;
+    background: var(--bg-elevated);
+    animation: sk-pulse 1.4s ease-in-out infinite;
+  }
+  .sk-title  { height: 28px; width: min(320px, 80%); }
+  .sk-author { height: 14px; width: min(160px, 45%); }
+  .sk-desc   { height: 12px; width: min(400px, 90%); }
+  .sk-meta   { height: 11px; width: min(200px, 55%); }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative;
+    border-radius: 0;
+    overflow: hidden;
+    margin-bottom: 32px;
+  }
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .hero-bg-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(40px) saturate(1.4) brightness(0.5);
+    transform: scale(1.1);
+  }
+  .hero-body {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 32px;
+    align-items: flex-end;
+    padding: 48px 24px 32px;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--bg) 30%, transparent) 60%,
+      color-mix(in srgb, var(--bg) 75%, transparent) 100%
+    );
+  }
+
+  .cover-wrap {
+    flex-shrink: 0;
+    width: 200px;
+    height: 200px;
     border-radius: 12px;
     overflow: hidden;
     background: var(--bg-elevated);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   }
   .cover {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
   }
   .placeholder {
+    width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .info {
+
+  .hero-info {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    flex: 1;
   }
 
-  .title-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-  }
   .pod-title {
     margin: 0;
-    font-size: 2rem;
-    line-height: 1.2;
+    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--text);
   }
 
   /* ── Inline editing ─────────────────────────────────────────── */
@@ -834,22 +817,14 @@
     gap: 6px;
     transition: background 0.15s;
   }
-  .editable-trigger:hover {
-    background: var(--bg-elevated);
-  }
-  .title-trigger {
-    font-size: 2rem;
-    font-weight: 700;
-  }
-  .author-trigger {
-    color: var(--accent);
-    font-weight: 600;
-  }
+  .editable-trigger:hover { background: color-mix(in srgb, var(--bg-elevated) 60%, transparent); }
+  .title-trigger { font-size: clamp(1.5rem, 3vw, 2.2rem); font-weight: 800; }
+  .author-trigger { color: var(--accent); font-weight: 600; }
   .desc-trigger {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: 0.875rem;
     line-height: 1.5;
-    max-width: 700px;
+    max-width: 640px;
     display: flex;
     align-items: flex-start;
   }
@@ -866,18 +841,12 @@
     font-size: 0.75em;
     flex-shrink: 0;
   }
-  .editable-trigger:hover .edit-hint {
-    opacity: 0.7;
-  }
-  .muted-placeholder {
-    color: var(--text-muted);
-    font-style: italic;
-    font-weight: 400;
-  }
+  .editable-trigger:hover .edit-hint { opacity: 0.7; }
+  .muted-placeholder { color: var(--text-muted); font-style: italic; font-weight: 400; }
 
   .inline-input {
-    background: var(--bg-elevated);
-    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+    border: 1.5px solid var(--accent);
     color: var(--text);
     padding: 4px 8px;
     border-radius: 4px;
@@ -886,80 +855,67 @@
     font-weight: inherit;
     width: 100%;
     outline: none;
+    box-sizing: border-box;
   }
-  .title-input {
-    font-size: 1.8rem;
-    font-weight: 700;
-  }
-  .rss-input {
-    font-size: 0.78rem;
-    max-width: 500px;
-  }
-  .area {
-    min-height: 80px;
-    resize: vertical;
-    font-size: 0.9rem;
-    max-width: 700px;
-  }
+  .title-input { font-size: clamp(1.5rem, 3vw, 2.2rem); font-weight: 800; }
+  .rss-input { font-size: 0.78rem; max-width: 500px; }
+  .area { min-height: 80px; resize: vertical; font-size: 0.875rem; max-width: 640px; }
 
-  .author-field {
-    margin: 0;
+  .author-field { margin: 0; }
+  .desc-field { margin: 0; }
+
+  /* ── Hero meta row ── */
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 2px;
   }
-  .desc-field {
-    margin: 0;
-  }
-  .rss-field {
-    margin: 0;
-  }
+  .rss-field { margin: 0; }
   .rss-label {
     font-weight: 600;
     color: var(--text-muted);
-    font-size: 0.78rem;
+    font-size: 0.75rem;
+    background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
   }
   .rss-url-text {
-    max-width: 500px;
+    max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .description-text {
-    white-space: pre-wrap;
-  }
-
-  .save-error {
-    color: #ef4444;
-    font-size: 0.82rem;
-    margin: 0;
-  }
-
-  .icon-btn-top {
-    background: transparent;
+    font-size: 0.78rem;
     color: var(--text-muted);
-    border: none;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
+  }
+  .meta-sep { color: var(--text-muted); opacity: 0.5; font-size: 0.8rem; }
+  .ep-count { color: var(--text-muted); font-size: 0.8rem; }
+  .description-text { white-space: pre-wrap; }
+  .save-error { color: #ef4444; font-size: 0.82rem; margin: 0; }
+
+  /* ── Hero actions ── */
+  .hero-actions { display: flex; gap: 8px; margin-top: 6px; }
+  .btn-delete {
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition:
-      background 0.2s,
-      color 0.2s;
-  }
-  .icon-btn-top.delete:hover {
+    gap: 6px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, #ef4444 40%, var(--border));
+    border-radius: 20px;
     color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
+    font-size: 0.78rem;
+    padding: 5px 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
   }
-
-  .ep-count {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    margin: 0;
-  }
+  .btn-delete:hover { background: rgba(239,68,68,0.1); border-color: #ef4444; }
 
   /* ── Episodes ───────────────────────────────────────────────── */
+  .episodes {
+    padding: 0 24px 24px;
+  }
   .ep-controls {
     display: flex;
     align-items: center;
@@ -1232,42 +1188,24 @@
   }
 
   @media (max-width: 640px) {
-    .page {
-      padding: 16px;
-    }
-
-    /* Stack cover + info vertically */
-    .header {
+    .hero-body {
       flex-direction: column;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 28px;
+      text-align: center;
+      padding: 28px 16px 24px;
+      gap: 20px;
     }
-    .cover-wrap {
-      width: 160px;
-      height: 160px;
-    }
-    .info {
-      width: 100%;
-    }
-    .title-row {
-      align-items: center;
-    }
-    .pod-title {
-      font-size: 1.4rem;
-    }
-    .title-trigger {
-      font-size: 1.4rem;
-    }
-    .title-input {
-      font-size: 1.2rem;
-    }
-    .desc-trigger {
-      max-width: 100%;
-    }
-    .rss-url-text {
-      max-width: 200px;
-    }
+    .cover-wrap { width: 160px; height: 160px; }
+    .hero-info { align-items: center; width: 100%; }
+    .hero-meta { justify-content: center; }
+    .hero-actions { justify-content: center; }
+    .desc-trigger { max-width: 100%; }
+    .rss-url-text { max-width: 180px; }
+    .hero-skeleton { flex-direction: column; align-items: center; padding: 24px 16px; }
+    .sk-cover { width: 160px; height: 160px; }
+    .sk-info { align-items: center; }
+
+    .episodes { padding: 0 16px 20px; }
 
     /* Episode controls: stack search + sort below heading */
     .ep-controls {
@@ -1310,7 +1248,7 @@
       width: 34px;
       height: 34px;
     }
-    .icon-btn-top {
+    .btn-delete {
       width: 40px;
       height: 40px;
     }
