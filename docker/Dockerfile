@@ -1,4 +1,4 @@
-FROM golang:1.26.1-bookworm AS go-builder
+FROM golang:1.26.2-bookworm AS go-builder
 WORKDIR /src
 
 # Cache module downloads separately from source changes
