@@ -249,7 +249,17 @@
               <li>
                 <a href="/playlists/{pl.id}" class="playlist-item">
                   <div class="playlist-art">
-                    {#if coverGrids[pl.id] && coverGrids[pl.id].length > 0}
+                    {#if coverGrids[pl.id] && coverGrids[pl.id].length === 1}
+                      <!-- Composite image (server-generated 2x2 grid) -->
+                      <img
+                        src={coverGrids[pl.id][0]}
+                        alt=""
+                        on:error={(e) =>
+                          ((e.currentTarget as HTMLImageElement).style.display =
+                            "none")}
+                      />
+                    {:else if coverGrids[pl.id] && coverGrids[pl.id].length >= 4}
+                      <!-- Grid of 4 individual covers -->
                       <div class="art-grid">
                         {#each Array(4) as _, i}
                           {#if coverGrids[pl.id][i]}
@@ -265,6 +275,7 @@
                         {/each}
                       </div>
                     {:else}
+                      <!-- Fallback single cover -->
                       <img
                         src="{getApiBase()}/covers/playlist/{pl.id}"
                         alt=""

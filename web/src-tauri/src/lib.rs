@@ -85,8 +85,14 @@ fn set_playback_speed(speed: f32) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn set_api_credentials(base_url: String, token: String) -> Result<(), String> {
-    android_bridge::set_api_credentials(base_url, token)
+fn clear_api_credentials() -> Result<(), String> {
+    android_bridge::clear_api_credentials()
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn set_api_credentials(base_url: String, token: String, refresh_token: String) -> Result<(), String> {
+    android_bridge::set_api_credentials(base_url, token, refresh_token)
 }
 
 #[cfg(target_os = "android")]
@@ -98,8 +104,6 @@ fn sync_downloads(metadata_json: String) -> Result<(), String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 async fn save_offline_file(track_id: String, data: Vec<u8>) -> Result<String, String> {
-    // Run blocking file I/O on a dedicated thread pool so the WebView IPC thread
-    // is not stalled while writing large audio files (can be 100+ MB).
     tauri::async_runtime::spawn_blocking(move || android_bridge::save_offline_file(track_id, data))
         .await
         .map_err(|e| e.to_string())?
@@ -165,23 +169,6 @@ fn set_eq_bands(enabled: bool, bands_json: String) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn preload_next_track(
-    url: String,
-    title: Option<String>,
-    artist: Option<String>,
-    cover_url: Option<String>,
-) -> Result<(), String> {
-    android_bridge::preload_next_track(url, title, artist, cover_url)
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn clear_preloaded_next_track() -> Result<(), String> {
-    android_bridge::clear_preloaded_next_track()
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
 fn set_playback_queue(queue_json: String, current_index: i32, repeat_mode: String) -> Result<(), String> {
     android_bridge::set_playback_queue(queue_json, current_index, repeat_mode)
 }
@@ -200,14 +187,20 @@ fn set_native_autoplay(enabled: bool) -> Result<(), String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+fn get_playback_snapshot() -> Result<String, String> {
+    android_bridge::get_playback_snapshot()
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
 fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     android_bridge::set_crossfade_settings(enabled, secs)
 }
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn set_gapless_enabled(enabled: bool) -> Result<(), String> {
-    android_bridge::set_gapless_enabled(enabled)
+fn set_gapless_enabled(_enabled: bool) -> Result<(), String> {
+    Ok(()) // ExoPlayer handles buffering natively; no additional setup needed.
 }
 
 #[cfg(target_os = "android")]
@@ -255,6 +248,7 @@ pub fn run() {
             set_podcast_mode,
             set_playback_speed,
             set_api_credentials,
+            clear_api_credentials,
             sync_downloads,
             save_offline_file,
             download_track_native,
@@ -265,10 +259,9 @@ pub fn run() {
             get_volume,
             get_device_id,
             set_eq_bands,
+            get_playback_snapshot,
             set_crossfade_settings,
             set_gapless_enabled,
-            preload_next_track,
-            clear_preloaded_next_track,
             set_playback_queue,
             set_native_repeat_mode,
             set_native_autoplay,

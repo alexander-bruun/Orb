@@ -14,7 +14,8 @@
   aria-label="View playlist {playlist.name}"
 >
   <div class="cover cover-grid">
-    {#if coverGrid && coverGrid.length > 0}
+    {#if coverGrid && coverGrid.length >= 2}
+      <!-- Grid of up to 4 individual cover images -->
       <div class="grid">
         {#each Array(4) as _, i}
           {#if coverGrid[i]}
@@ -24,12 +25,36 @@
               class="grid-img"
               loading="lazy"
             />
+          {:else if coverGrid[0]}
+            <img
+              src={coverGrid[0]}
+              alt="cover"
+              class="grid-img"
+              loading="lazy"
+            />
           {:else}
             <span class="grid-fallback">♪</span>
           {/if}
         {/each}
       </div>
+    {:else if coverGrid && coverGrid.length === 1}
+      <!-- Single album cover -->
+      <img
+        src={coverGrid[0]}
+        alt="cover"
+        style="width:100%;height:100%;object-fit:cover;border-radius:4px;"
+        loading="lazy"
+        on:error={(e) => {
+          if (e.target) (e.target as HTMLImageElement).style.display = "none";
+        }}
+      />
+      <span
+        class="placeholder"
+        style="position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;"
+        >♪</span
+      >
     {:else}
+      <!-- Fallback playlist cover -->
       <img
         src="{getApiBase()}/covers/playlist/{playlist.id}"
         alt="cover"

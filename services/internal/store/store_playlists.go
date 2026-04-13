@@ -381,6 +381,30 @@ func (s *Store) GetPlaylistByID(ctx context.Context, id string) (Playlist, error
 	return scanPlaylist(row)
 }
 
+// PlaylistAlbumIDs returns up to `limit` distinct album IDs from a playlist's tracks (by position order).
+func (s *Store) PlaylistAlbumIDs(ctx context.Context, playlistID string, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT DISTINCT ON (t.album_id) t.album_id
+FROM tracks t
+JOIN playlist_tracks pt ON pt.track_id = t.id
+WHERE pt.playlist_id = $1 AND t.album_id IS NOT NULL
+ORDER BY t.album_id, pt.position
+LIMIT $2`, playlistID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 func (s *Store) ListPlaylistTracks(ctx context.Context, id string) ([]Track, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.track_index, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm, t.audio_layouts, t.has_atmos, t.audio_formats
@@ -434,29 +458,6 @@ func (s *Store) UpdatePlaylistTrackOrder(ctx context.Context, p UpdatePlaylistTr
 		`UPDATE playlist_tracks SET position = $3 WHERE playlist_id = $1 AND track_id = $2`,
 		p.PlaylistID, p.TrackID, p.Position)
 	return err
-}
-
-// ListPlaylistTopPlayedTracks returns the top 4 most played tracks in a playlist.
-func (s *Store) ListPlaylistTopPlayedTracks(ctx context.Context, playlistID string) ([]Track, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT t.id, t.album_id, t.artist_id, t.title, t.track_number, t.track_index, t.disc_number, t.duration_ms, t.file_key, t.file_size, t.format, t.bit_depth, t.sample_rate, t.channels, t.bitrate_kbps, t.seek_table, t.fingerprint, t.created_at, COALESCE(tf.replay_gain, 0) AS replay_gain_track, COALESCE(tf.bpm, 0) AS bpm, t.audio_layouts, t.has_atmos, t.audio_formats
-FROM tracks t
-LEFT JOIN track_features tf ON tf.track_id = t.id
-JOIN playlist_tracks pt ON pt.track_id = t.id
-LEFT JOIN (
-  SELECT track_id, COUNT(*) AS play_count
-  FROM play_history
-  GROUP BY track_id
-) ph ON ph.track_id = t.id
-WHERE pt.playlist_id = $1
-ORDER BY ph.play_count DESC NULLS LAST, pt.position ASC
-LIMIT 4`,
-		playlistID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanTracks(rows)
 }
 
 // ── Scan helpers ───────────────────────────────────────────────────────────

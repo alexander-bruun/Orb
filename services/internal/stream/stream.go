@@ -2,8 +2,12 @@
 package stream
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"log/slog"
 	"math"
@@ -14,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/image/draw"
 
 	"github.com/alexander-bruun/orb/services/internal/audiofmt"
 	"github.com/alexander-bruun/orb/services/internal/auth"
@@ -471,40 +477,91 @@ func (s *Service) ArtistImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // PlaylistCover serves playlist cover art.
+// If a custom cover is stored it is served directly; otherwise a 2×2 composite
+// is generated on-the-fly from up to 4 distinct album covers in the playlist.
 func (s *Service) PlaylistCover(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	s.serveCover(w, r, fmt.Sprintf("covers/playlist/%s", id))
-}
 
-// PlaylistCoverComposite generates and serves a composite cover for a playlist from its top 4 most played tracks.
-func (s *Service) PlaylistCoverComposite(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	// Fetch top 4 most played tracks in the playlist
-	tracks, err := s.db.ListPlaylistTopPlayedTracks(r.Context(), id)
-	if err != nil || len(tracks) == 0 {
+	// Try custom cover first.
+	if _, err := s.obj.Size(r.Context(), fmt.Sprintf("covers/playlist/%s", id)); err == nil {
+		s.serveCover(w, r, fmt.Sprintf("covers/playlist/%s", id))
+		return
+	}
+
+	// Generate composite from album covers (only when 4 distinct covers exist).
+	albumIDs, err := s.db.PlaylistAlbumIDs(r.Context(), id, 4)
+	if err != nil || len(albumIDs) < 4 {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
-	// Collect up to 4 cover paths (relative to the API, e.g. /covers/{albumID})
-	var coverURLs []string
-	for _, t := range tracks {
-		if t.AlbumID != nil {
-			coverURLs = append(coverURLs, "/covers/"+url.PathEscape(*t.AlbumID))
-		}
-		if len(coverURLs) == 4 {
-			break
-		}
-	}
+	s.serveComposite(w, r, albumIDs)
+}
 
-	if len(coverURLs) == 0 {
-		http.Error(w, "no covers", http.StatusNotFound)
+// serveComposite generates a 2×2 grid JPEG from up to 4 album cover images.
+func (s *Service) serveComposite(w http.ResponseWriter, r *http.Request, albumIDs []string) {
+	const size = 400
+	half := size / 2
+
+	composite := image.NewRGBA(image.Rect(0, 0, size, size))
+	draw.Draw(composite, composite.Bounds(), image.Black, image.Point{}, draw.Src)
+
+	// Load album cover bitmaps.
+	var imgs []image.Image
+	for _, aid := range albumIDs {
+		key := fmt.Sprintf("covers/%s.jpg", aid)
+		sz, err := s.obj.Size(r.Context(), key)
+		if err != nil {
+			continue
+		}
+		rc, err := s.obj.GetRange(r.Context(), key, 0, sz)
+		if err != nil {
+			continue
+		}
+		img, _, err := image.Decode(rc)
+		closeReadCloser(rc)
+		if err != nil {
+			continue
+		}
+		imgs = append(imgs, img)
+	}
+	if len(imgs) == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_ = json.NewEncoder(w).Encode(coverURLs)
+	// Pad to 4 slots.
+	padded := make([]image.Image, 4)
+	switch len(imgs) {
+	case 1:
+		padded[0], padded[1], padded[2], padded[3] = imgs[0], imgs[0], imgs[0], imgs[0]
+	case 2:
+		padded[0], padded[1], padded[2], padded[3] = imgs[0], imgs[1], imgs[1], imgs[0]
+	case 3:
+		padded[0], padded[1], padded[2], padded[3] = imgs[0], imgs[1], imgs[2], imgs[0]
+	default:
+		padded[0], padded[1], padded[2], padded[3] = imgs[0], imgs[1], imgs[2], imgs[3]
+	}
+
+	rects := [4]image.Rectangle{
+		image.Rect(0, 0, half, half),
+		image.Rect(half, 0, size, half),
+		image.Rect(0, half, half, size),
+		image.Rect(half, half, size, size),
+	}
+	for i, rect := range rects {
+		draw.CatmullRom.Scale(composite, rect, padded[i], padded[i].Bounds(), draw.Over, nil)
+	}
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, composite, &jpeg.Options{Quality: 85}); err != nil {
+		http.Error(w, "encode error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", coverMaxAge))
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+	w.Write(buf.Bytes())
 }
 
 // ServeCover serves album cover art by album ID — intended for use by other

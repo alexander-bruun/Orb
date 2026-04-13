@@ -65,5 +65,4 @@ coverage/
 .parcel-cache/
 .DS_Store
 *.jks
-orb
 site/

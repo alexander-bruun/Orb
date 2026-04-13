@@ -109,6 +109,21 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnQueueAdvanced(
     }
 }
 
+/// Emitted when Android Auto plays a track directly. Carries the track ID
+/// so the JS frontend can sync its player state.
+#[no_mangle]
+#[cfg(target_os = "android")]
+pub extern "system" fn Java_com_orb_app_MediaService_nativeOnExternalPlay(
+    _env: EnvUnowned,
+    _class: JClass,
+    track_id: jni::objects::JString,
+) {
+    use tauri::Emitter;
+    if let Some(handle) = APP_HANDLE.get() {
+        let _ = handle.emit("native-external-play", track_id.to_string());
+    }
+}
+
 #[no_mangle]
 #[cfg(target_os = "android")]
 pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPrevious(
@@ -249,6 +264,18 @@ pub extern "system" fn Java_com_orb_app_MediaService_nativeOnPodcastSpeedCycle(
     emit_to_frontend("native-pod-speed-cycle");
 }
 
+// ── JNI nullable-string helper ──────────────────────────────────────────────
+
+/// Convert an `Option<String>` to a JNI object: a `JString` for `Some`, null for `None`.
+/// The returned `JObject` is owned and must be kept alive for the duration of use.
+#[cfg(target_os = "android")]
+fn nullable_jstring<'a>(env: &mut Env<'a>, opt: &Option<String>) -> Result<JObject<'a>, jni::errors::Error> {
+    match opt {
+        Some(s) => Ok(env.new_string(s)?.into()),
+        None => Ok(JObject::null()),
+    }
+}
+
 // ── Playback commands: called from Rust Tauri commands ───────────────────────
 
 #[cfg(target_os = "android")]
@@ -261,31 +288,9 @@ pub fn play(
     with_jni(|env| {
         let cls = get_companion_class(env)?;
         let url_jstring = env.new_string(&url)?;
-        let null = JObject::null();
-
-        let title_jstring;
-        let title_val = if let Some(ref t) = title {
-            title_jstring = env.new_string(t)?;
-            JValue::Object(&title_jstring)
-        } else {
-            JValue::Object(&null)
-        };
-
-        let artist_jstring;
-        let artist_val = if let Some(ref a) = artist {
-            artist_jstring = env.new_string(a)?;
-            JValue::Object(&artist_jstring)
-        } else {
-            JValue::Object(&null)
-        };
-
-        let cover_jstring;
-        let cover_val = if let Some(ref c) = cover_url {
-            cover_jstring = env.new_string(c)?;
-            JValue::Object(&cover_jstring)
-        } else {
-            JValue::Object(&null)
-        };
+        let title_j = nullable_jstring(env, &title)?;
+        let artist_j = nullable_jstring(env, &artist)?;
+        let cover_j = nullable_jstring(env, &cover_url)?;
 
         env.call_static_method(
             cls,
@@ -293,9 +298,9 @@ pub fn play(
             jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"),
             &[
                 JValue::Object(&url_jstring),
-                title_val,
-                artist_val,
-                cover_val,
+                JValue::Object(&title_j),
+                JValue::Object(&artist_j),
+                JValue::Object(&cover_j),
             ],
         )?;
         Ok(())
@@ -435,18 +440,29 @@ pub fn set_playback_speed(speed: f32) -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
-pub fn set_api_credentials(base_url: String, token: String) -> Result<(), String> {
+pub fn clear_api_credentials() -> Result<(), String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        env.call_static_method(cls, jni_str!("clearApiCredentials"), jni_sig!("()V"), &[])?;
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
+pub fn set_api_credentials(base_url: String, token: String, refresh_token: String) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
         let base_url_jstring = env.new_string(&base_url)?;
         let token_jstring = env.new_string(&token)?;
+        let refresh_jstring = env.new_string(&refresh_token)?;
         env.call_static_method(
             cls,
             jni_str!("setApiCredentials"),
-            jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
+            jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"),
             &[
                 JValue::Object(&base_url_jstring),
                 JValue::Object(&token_jstring),
+                JValue::Object(&refresh_jstring),
             ],
         )?;
         Ok(())
@@ -497,14 +513,7 @@ pub fn download_track_native(
         let cls = get_companion_class(env)?;
         let id_jstring = env.new_string(&track_id)?;
         let url_jstring = env.new_string(&url)?;
-        let null_token = JObject::null();
-        let token_jstring;
-        let token_obj = if let Some(ref t) = token {
-            token_jstring = env.new_string(t)?;
-            JObject::from(token_jstring)
-        } else {
-            null_token
-        };
+        let token_j = nullable_jstring(env, &token)?;
         let result = env
             .call_static_method(
                 cls,
@@ -515,7 +524,7 @@ pub fn download_track_native(
                 &[
                     JValue::Object(&id_jstring),
                     JValue::Object(&url_jstring),
-                    JValue::Object(&token_obj),
+                    JValue::Object(&token_j),
                 ],
             )?
             .l()?;
@@ -634,68 +643,6 @@ pub fn set_eq_bands(enabled: bool, bands_json: String) -> Result<(), String> {
     })
 }
 
-/// Configure crossfade. When enabled, ExoPlayer fires nativeOnNext() [secs]
-/// seconds before the track ends; handlePlay() then cross-fades the volumes.
-#[cfg(target_os = "android")]
-pub fn preload_next_track(
-    url: String,
-    title: Option<String>,
-    artist: Option<String>,
-    cover_url: Option<String>,
-) -> Result<(), String> {
-    with_jni(|env| {
-        let cls = get_companion_class(env)?;
-        let url_jstring = env.new_string(&url)?;
-        let null = JObject::null();
-
-        let title_jstring;
-        let title_val = if let Some(ref t) = title {
-            title_jstring = env.new_string(t)?;
-            JValue::Object(&title_jstring)
-        } else {
-            JValue::Object(&null)
-        };
-
-        let artist_jstring;
-        let artist_val = if let Some(ref a) = artist {
-            artist_jstring = env.new_string(a)?;
-            JValue::Object(&artist_jstring)
-        } else {
-            JValue::Object(&null)
-        };
-
-        let cover_jstring;
-        let cover_val = if let Some(ref c) = cover_url {
-            cover_jstring = env.new_string(c)?;
-            JValue::Object(&cover_jstring)
-        } else {
-            JValue::Object(&null)
-        };
-
-        env.call_static_method(
-            cls,
-            jni_str!("setNextTrack"),
-            jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"),
-            &[
-                JValue::Object(&url_jstring),
-                title_val,
-                artist_val,
-                cover_val,
-            ],
-        )?;
-        Ok(())
-    })
-}
-
-#[cfg(target_os = "android")]
-pub fn clear_preloaded_next_track() -> Result<(), String> {
-    with_jni(|env| {
-        let cls = get_companion_class(env)?;
-        env.call_static_method(cls, jni_str!("clearNextTrack"), jni_sig!("()V"), &[])?;
-        Ok(())
-    })
-}
-
 #[cfg(target_os = "android")]
 pub fn set_playback_queue(queue_json: String, current_index: i32, repeat_mode: String) -> Result<(), String> {
     with_jni(|env| {
@@ -746,6 +693,18 @@ pub fn set_native_autoplay(enabled: bool) -> Result<(), String> {
 }
 
 #[cfg(target_os = "android")]
+pub fn get_playback_snapshot() -> Result<String, String> {
+    with_jni(|env| {
+        let cls = get_companion_class(env)?;
+        let result = env
+            .call_static_method(cls, jni_str!("getPlaybackSnapshot"), jni_sig!("()Ljava/lang/String;"), &[])?
+            .l()?;
+        let jstr = unsafe { jni::objects::JString::from_raw(env, result.as_raw()) };
+        Ok(jstr.to_string())
+    })
+}
+
+#[cfg(target_os = "android")]
 pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
     with_jni(|env| {
         let cls = get_companion_class(env)?;
@@ -754,21 +713,6 @@ pub fn set_crossfade_settings(enabled: bool, secs: f32) -> Result<(), String> {
             jni_str!("setCrossfadeSettings"),
             jni_sig!("(ZF)V"),
             &[JValue::Bool(enabled), JValue::Float(secs)],
-        )?;
-        Ok(())
-    })
-}
-
-/// Enable or disable gapless playback (reserved for future pre-buffering logic).
-#[cfg(target_os = "android")]
-pub fn set_gapless_enabled(enabled: bool) -> Result<(), String> {
-    with_jni(|env| {
-        let cls = get_companion_class(env)?;
-        env.call_static_method(
-            cls,
-            jni_str!("setGaplessEnabled"),
-            jni_sig!("(Z)V"),
-            &[JValue::Bool(enabled)],
         )?;
         Ok(())
     })

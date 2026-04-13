@@ -37,7 +37,7 @@ import {
 	DEFAULT_CROSSFADE_IN_CURVE
 } from '$lib/stores/settings/crossfade';
 import * as engine from './engine';
-import type { MusicContentProvider, ControlPayload, RemoteState } from './engine';
+import type { MusicContentProvider, ControlPayload, RemoteState, NativePlaybackSnapshot } from './engine';
 import { notifyTrackEnd as sleepTimerNotifyTrackEnd } from './musicSleepTimer';
 
 // ── Playback state ────────────────────────────────────────────────────────────
@@ -439,7 +439,11 @@ export async function playTrack(track: Track, trackList?: Track[], startSeconds 
 	try {
 		if (isAndroidNative) {
 			const streamUrl = await buildNativeStreamUrl(track.id);
-			const coverUrl = track.album_id ? `${getApiBase()}/covers/${track.album_id}?token=${encodeURIComponent(get(authStore).token ?? '')}` : undefined;
+			let coverUrl: string | undefined;
+			if (track.album_id) {
+				const token = get(authStore).token ?? '';
+				coverUrl = `${getApiBase()}/covers/${track.album_id}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+			}
 			await engine.play(streamUrl, {
 				id: track.id,
 				title: track.title,
@@ -923,6 +927,43 @@ const musicContentProvider: MusicContentProvider = {
 		libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => {});
 		scheduleScrobble(track);
 		recentlyPlayedIds.add(track.id);
+	},
+	onReconcileSnapshot(snapshot: NativePlaybackSnapshot) {
+		// Reconcile JS state from a native snapshot after WebView resumed.
+		// The native player is the source of truth — update JS stores to match.
+		const q = get(queue);
+		const snapshotIdx = snapshot.queueIndex;
+		const track = snapshotIdx >= 0 ? q[actualIndex(snapshotIdx)] : null;
+		const currentJs = get(currentTrack);
+
+		// If native advanced to a different track while we were frozen, sync up.
+		if (track && track.id !== currentJs?.id) {
+			queueIndex.set(snapshotIdx);
+			currentTrack.set(track);
+			durationMs.set(track.duration_ms);
+			positionMs.set(snapshot.positionMs);
+			engine._writableCurrentContent.set({
+				id: track.id,
+				title: track.title,
+				artist: track.artist_name,
+				album: track.album_id,
+				coverUrl: track.album_id
+					? `${getApiBase()}/covers/${track.album_id}`
+					: undefined,
+				durationMs: track.duration_ms,
+			});
+			// Record plays for tracks we skipped over while frozen.
+			// We don't know exactly which tracks played, but record the current one.
+			libraryApi.recordPlay(track.id, track.duration_ms ?? 0).catch(() => {});
+			scheduleScrobble(track);
+			recentlyPlayedIds.add(track.id);
+		} else {
+			// Same track — just sync position.
+			positionMs.set(snapshot.positionMs);
+		}
+
+		// Sync playback state.
+		playbackState.set(snapshot.isPlaying ? 'playing' : 'paused');
 	},
 	onPrevious() {
 		previous();

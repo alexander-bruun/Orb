@@ -13,8 +13,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.Futures
 
 class MainActivity : TauriActivity() {
+
+    private var controller: MediaController? = null
 
     companion object {
         private const val NOTIFICATION_PERMISSION_CODE = 1001
@@ -57,16 +60,25 @@ class MainActivity : TauriActivity() {
 
     private fun startMediaService() {
         val intent = Intent(this, MediaService::class.java)
+        // Note: startForegroundService should be used if starting from background,
+        // but since we are in onCreate of an Activity, startService is fine.
         startService(intent)
     }
 
     private fun connectMediaController() {
         val sessionToken = SessionToken(this, ComponentName(this, MediaService::class.java))
-        MediaController.Builder(this, sessionToken).buildAsync()
+        val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
+        controllerFuture.addListener({
+            try {
+                // This reference ensures the Activity stays in sync with the Service state
+                controller = controllerFuture.get()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }, ContextCompat.getMainExecutor(this))
     }
 
     private fun disableWebViewZoom() {
-        // Disable pinch-to-zoom and built-in zoom controls on the WebView
         try {
             val webView = findWebView(window.decorView)
             if (webView != null) {
@@ -81,17 +93,21 @@ class MainActivity : TauriActivity() {
     }
 
     private fun findWebView(view: android.view.View): WebView? {
-        if (view is WebView) {
-            return view
-        }
+        if (view is WebView) return view
         if (view is android.view.ViewGroup) {
             for (i in 0 until view.childCount) {
                 val child = findWebView(view.getChildAt(i))
-                if (child != null) {
-                    return child
-                }
+                if (child != null) return child
             }
         }
         return null
+    }
+
+    override fun onDestroy() {
+        // Release the controller when the activity is destroyed
+        controller?.let {
+            MediaController.releaseFuture(Futures.immediateFuture(it))
+        }
+        super.onDestroy()
     }
 }

@@ -59,6 +59,23 @@ export interface ContentProvider {
 	onRemoteSync?(state: RemoteState): void;
 }
 
+/** Snapshot of native playback state, returned by get_playback_snapshot. */
+export interface NativePlaybackSnapshot {
+	isPlaying: boolean;
+	positionMs: number;
+	durationMs: number;
+	queueIndex: number;
+	currentTrackId: string | null;
+	repeatMode: string;
+	volume: number;
+	autoplayEnabled: boolean;
+	crossfadeEnabled: boolean;
+	crossfadeSecs: number;
+	speed: number;
+	isAudiobook: boolean;
+	isPodcast: boolean;
+}
+
 /** Extended provider for music mode — includes music-specific native callbacks. */
 export interface MusicContentProvider extends ContentProvider {
 	onPrevious?(): void;
@@ -67,6 +84,8 @@ export interface MusicContentProvider extends ContentProvider {
 	onPlayCommand?(trackId: string, posMs: number, queue?: unknown[]): void;
 	/** Native auto-advanced to this queue index — sync state without replaying. */
 	onNativeQueueAdvanced?(index: number): void;
+	/** Reconcile JS state from a native snapshot after WebView resume. */
+	onReconcileSnapshot?(snapshot: NativePlaybackSnapshot): void;
 }
 
 /** Extended provider for audiobook mode — includes audiobook-specific native callbacks. */
@@ -274,6 +293,10 @@ async function initNativeListeners() {
 	listen<void>('native-previous', () => {
 		// Handled by music provider via registered callback
 		getMusicProvider()?.onPrevious?.();
+	});
+	// Android Auto played a track directly — sync JS player to that track.
+	listen<string>('native-external-play', (event) => {
+		if (get(_mode) === 'music') getMusicProvider()?.onPlayCommand?.(event.payload, 0);
 	});
 	listen<void>('native-shuffle-toggle', () => {
 		getMusicProvider()?.onShuffleToggle?.();
@@ -657,6 +680,55 @@ export function handlePlayCommand(trackId: string, posMs: number, queue?: unknow
 		switchMode('music');
 	}
 	getMusicProvider()?.onPlayCommand?.(trackId, posMs, queue);
+}
+
+// ── Native snapshot reconciliation ──────────────────────────────────────────
+
+/**
+ * Fetch a full state snapshot from the native player and reconcile JS state.
+ * Called on visibilitychange → visible to recover from WebView freeze.
+ */
+export async function reconcileFromNativeSnapshot(): Promise<void> {
+	if (!isAndroidNative) return;
+
+	try {
+		const { invoke } = await import('@tauri-apps/api/core');
+		const json = await invoke<string>('get_playback_snapshot');
+		const snapshot: NativePlaybackSnapshot = JSON.parse(json);
+
+		// Update engine-level state.
+		_volume.set(snapshot.volume);
+		_speed.set(snapshot.speed);
+		_positionMs.set(snapshot.positionMs);
+		if (snapshot.durationMs > 0) _durationMs.set(snapshot.durationMs);
+		_playbackState.set(snapshot.isPlaying ? 'playing' : 'paused');
+
+		// Restart or stop position polling based on native state.
+		if (snapshot.isPlaying && !snapshot.isAudiobook) {
+			startNativePositionPolling();
+		} else {
+			stopNativePositionPolling();
+		}
+
+		// Mark native player as ready if anything is playing/paused with content.
+		if (snapshot.currentTrackId) {
+			nativePlayerReady = true;
+		}
+
+		// Delegate content-specific reconciliation to the music provider.
+		const currentMode = get(_mode);
+		if (currentMode === 'music') {
+			getMusicProvider()?.onReconcileSnapshot?.(snapshot);
+		}
+	} catch {
+		// Snapshot not available — fall back to simple is_playing check.
+		try {
+			const { invoke } = await import('@tauri-apps/api/core');
+			const playing = await invoke<boolean>('get_is_playing');
+			_playbackState.set(playing ? 'playing' : 'paused');
+			if (playing) startNativePositionPolling();
+		} catch { /* ignore */ }
+	}
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────

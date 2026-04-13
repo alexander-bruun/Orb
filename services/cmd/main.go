@@ -154,7 +154,6 @@ func registerRoutes(
 	r.Get("/covers/{album_id}", streamSvc.Cover)
 	r.Get("/covers/artist/{artist_id}", streamSvc.ArtistImage)
 	r.Get("/covers/playlist/{id}", streamSvc.PlaylistCover)
-	r.Get("/covers/playlist/{id}/composite", streamSvc.PlaylistCoverComposite)
 	r.Get("/covers/audiobook/{id}", streamSvc.AudiobookCover)
 	r.Get("/covers/podcast/{id}", streamSvc.PodcastCover)
 	// Public avatar endpoint (no auth — used by profile pages)

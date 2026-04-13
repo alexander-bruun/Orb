@@ -13,14 +13,25 @@ interface AuthState {
 const STORAGE_KEY = STORAGE_KEYS.AUTH;
 import { getApiBase } from '$lib/api/base';
 
-/** Push server URL + JWT to the Android MediaService for Android Auto browsing. */
-async function syncCredentialsToAndroid(token: string | null) {
+/** Push server URL + JWT + refresh token to the Android MediaService for Android Auto browsing. */
+async function syncCredentialsToAndroid(token: string | null, refreshToken: string | null) {
 	if (nativePlatform() !== 'android' || !token) return;
 	try {
 		const { invoke } = await import('@tauri-apps/api/core');
-		await invoke('set_api_credentials', { baseUrl: getApiBase(), token });
+		await invoke('set_api_credentials', { baseUrl: getApiBase(), token, refreshToken: refreshToken ?? '' });
 	} catch {
 		// best-effort — service may not be running yet
+	}
+}
+
+/** Clear stored credentials on the Android MediaService (logout). */
+async function clearAndroidCredentials() {
+	if (nativePlatform() !== 'android') return;
+	try {
+		const { invoke } = await import('@tauri-apps/api/core');
+		await invoke('clear_api_credentials');
+	} catch {
+		// best-effort
 	}
 }
 
@@ -54,7 +65,7 @@ function createAuthStore() {
 	const { subscribe, set, update } = writable<AuthState>(initial);
 
 	// Sync existing credentials to Android on app start
-	syncCredentialsToAndroid(initial.token);
+	syncCredentialsToAndroid(initial.token, initial.refreshToken);
 
 	function doLogout() {
 		set({ token: null, refreshToken: null, user: null });
@@ -88,7 +99,7 @@ function createAuthStore() {
 			};
 			set(state);
 			saveToStorage(state);
-			syncCredentialsToAndroid(state.token);
+			syncCredentialsToAndroid(state.token, state.refreshToken);
 			return { totpRequired: false };
 		},
 		async verifyTOTP(tempToken: string, code: string, email: string) {
@@ -103,7 +114,7 @@ function createAuthStore() {
 			};
 			set(state);
 			saveToStorage(state);
-			syncCredentialsToAndroid(state.token);
+			syncCredentialsToAndroid(state.token, state.refreshToken);
 		},
 		async register(username: string, email: string, password: string, inviteToken?: string) {
 			await apiFetch('/auth/register', {
@@ -113,6 +124,7 @@ function createAuthStore() {
 		},
 		logout() {
 			apiFetch('/auth/logout', { method: 'POST' }).catch(() => { });
+			clearAndroidCredentials();
 			doLogout();
 		},
 		updateEmail(email: string) {
@@ -153,7 +165,7 @@ function createAuthStore() {
 					update((s) => {
 						const next = { ...s, token: data.access_token, refreshToken: data.refresh_token };
 						saveToStorage(next);
-						syncCredentialsToAndroid(next.token);
+						syncCredentialsToAndroid(next.token, next.refreshToken);
 						return next;
 					});
 					return true;

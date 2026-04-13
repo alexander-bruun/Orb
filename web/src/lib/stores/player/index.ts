@@ -396,14 +396,8 @@ if (typeof document !== 'undefined') {
 		refreshDevicesFromSession().catch(() => { });
 
 		if (isAndroidNative) {
-			invoke<boolean>('get_is_playing').then((playing: boolean) => {
-				const current = get(playbackState);
-				if (playing && current !== 'playing') {
-					playbackState.set('playing');
-				} else if (!playing && current === 'playing') {
-					playbackState.set('paused');
-				}
-			}).catch(() => { });
+			// Full snapshot reconciliation — recovers from WebView freeze.
+			engine.reconcileFromNativeSnapshot().catch(() => { });
 			return;
 		}
 
@@ -671,14 +665,9 @@ podcastDurationMs.subscribe(() => syncPositionState(currentPositionForMode(), cu
 		}
 
 		if (isAndroidNative) {
+			// Use snapshot reconciliation for a complete state sync on startup.
 			try {
-				const playing = await invoke<boolean>('get_is_playing');
-				if (playing) {
-					engine.setNativePlayerReady(true);
-					playbackState.set('playing');
-				} else {
-					playbackState.set('paused');
-				}
+				await engine.reconcileFromNativeSnapshot();
 			} catch {
 				playbackState.set('paused');
 			}

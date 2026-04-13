@@ -1,9 +1,23 @@
-// Returns up to 4 cover URLs for a playlist (for grid display)
+// Returns up to 4 individual album cover URLs for a playlist's tracks.
+// The frontend renders these as a 2x2 CSS grid — no server-side compositing needed.
 export async function getPlaylistCoverGrid(id: string): Promise<string[]> {
 	const { getApiBase } = await import('./base');
-	const paths = await apiFetch<string[]>(`/covers/playlist/${id}/composite`);
 	const base = getApiBase();
-	return paths.map(p => `${base}${p}`);
+	try {
+		const res = await apiFetch<{ tracks: Array<{ album_id?: string | null }> }>(`/playlists/${id}`);
+		const seen = new Set<string>();
+		const urls: string[] = [];
+		for (const t of res.tracks ?? []) {
+			if (t.album_id && !seen.has(t.album_id)) {
+				seen.add(t.album_id);
+				urls.push(`${base}/covers/${t.album_id}`);
+				if (urls.length >= 4) break;
+			}
+		}
+		return urls;
+	} catch {
+		return [];
+	}
 }
 import { apiFetch } from './client';
 import type { Playlist, Track } from '$lib/types';

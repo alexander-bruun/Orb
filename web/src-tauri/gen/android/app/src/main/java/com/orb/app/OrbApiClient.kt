@@ -11,17 +11,64 @@ import java.net.URL
  * Used by MediaLibraryService to populate the Android Auto browse tree.
  */
 class OrbApiClient(
-    private var baseUrl: String,
-    private var token: String
+    internal var baseUrl: String,
+    internal var token: String,
+    @Volatile var refreshToken: String = ""
 ) {
     companion object {
         private const val TAG = "OrbApiClient"
         private const val TIMEOUT = 8000
     }
 
+    /** Called after a successful token refresh so the caller can persist the new tokens. */
+    var onTokenRefreshed: ((newToken: String, newRefresh: String) -> Unit)? = null
+
+    @Volatile private var refreshing = false
+
     fun updateCredentials(baseUrl: String, token: String) {
         this.baseUrl = baseUrl.trimEnd('/')
         this.token = token
+    }
+
+    /**
+     * Attempt to exchange the refresh token for a new access + refresh token pair.
+     * Returns true on success.
+     */
+    @Synchronized
+    private fun tryRefreshToken(): Boolean {
+        if (refreshToken.isEmpty()) return false
+        if (refreshing) return false
+        refreshing = true
+        try {
+            val url = URL("$baseUrl/auth/refresh")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = TIMEOUT
+            conn.readTimeout = TIMEOUT
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.outputStream.use { it.write("""{"refresh_token":"$refreshToken"}""".toByteArray()) }
+
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val obj = JSONObject(body)
+                val newAccess = obj.getString("access_token")
+                val newRefresh = obj.getString("refresh_token")
+                token = newAccess
+                refreshToken = newRefresh
+                onTokenRefreshed?.invoke(newAccess, newRefresh)
+                Log.d(TAG, "Token refreshed successfully")
+                return true
+            } else {
+                Log.w(TAG, "Token refresh failed: ${conn.responseCode}")
+                return false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Token refresh error: ${e.message}")
+            return false
+        } finally {
+            refreshing = false
+        }
     }
 
     // ── Data classes ─────────────────────────────────────────────────────────
@@ -132,14 +179,32 @@ class OrbApiClient(
 
     fun artists(limit: Int = 100, offset: Int = 0): List<BrowseArtist> {
         val json = get("/library/artists?limit=$limit&offset=$offset") ?: return emptyList()
-        val obj = JSONObject(json)
-        val arr = obj.optJSONArray("items") ?: return emptyList()
-        return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            BrowseArtist(
-                id = o.getString("id"),
-                name = o.getString("name")
-            )
+        return try {
+            // Try to parse as JSONArray first (direct array response)
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                BrowseArtist(
+                    id = o.getString("id"),
+                    name = o.getString("name")
+                )
+            }
+        } catch (e: Exception) {
+            // Fallback: try to parse as JSONObject with "items" field
+            try {
+                val obj = JSONObject(json)
+                val arr = obj.optJSONArray("items") ?: return emptyList()
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    BrowseArtist(
+                        id = o.getString("id"),
+                        name = o.getString("name")
+                    )
+                }
+            } catch (fallbackErr: Exception) {
+                Log.w(TAG, "artists parse error: ${fallbackErr.message}")
+                emptyList()
+            }
         }
     }
 
@@ -198,11 +263,31 @@ class OrbApiClient(
         "$baseUrl/covers/artist/$artistId"
 
     fun playlistCoverUrl(playlistId: String): String =
-        "$baseUrl/covers/playlist/$playlistId/composite"
+        "$baseUrl/covers/playlist/$playlistId"
 
-    // ── HTTP helper ──────────────────────────────────────────────────────────
+    // ── Favorites ────────────────────────────────────────────────────────────
 
-    private fun get(path: String): String? {
+    /** Fetch the set of favorited track IDs for the current user. */
+    fun fetchFavoriteIds(): Set<String> {
+        val json = get("/library/favorites/ids") ?: return emptySet()
+        return try {
+            val arr = JSONArray(json)
+            (0 until arr.length()).map { arr.getString(it) }.toSet()
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchFavoriteIds parse error: ${e.message}")
+            emptySet()
+        }
+    }
+
+    /** Add a track to favorites. Returns true on success. */
+    fun addFavorite(trackId: String): Boolean = post("/library/favorites/$trackId")
+
+    /** Remove a track from favorites. Returns true on success. */
+    fun removeFavorite(trackId: String): Boolean = delete("/library/favorites/$trackId")
+
+    // ── HTTP helpers ─────────────────────────────────────────────────────────
+
+    private fun get(path: String, retried: Boolean = false): String? {
         return try {
             val url = URL("$baseUrl$path")
             val conn = url.openConnection() as HttpURLConnection
@@ -212,15 +297,70 @@ class OrbApiClient(
             conn.setRequestProperty("Authorization", "Bearer $token")
             conn.setRequestProperty("Accept", "application/json")
 
-            if (conn.responseCode == 200) {
+            val code = conn.responseCode
+            if (code == 200) {
                 conn.inputStream.bufferedReader().use { it.readText() }
+            } else if (code == 401 && !retried && tryRefreshToken()) {
+                // Token was expired — retry with the new one
+                get(path, retried = true)
             } else {
-                Log.w(TAG, "GET $path → ${conn.responseCode}")
+                Log.w(TAG, "GET $path → $code")
                 null
             }
         } catch (e: Exception) {
             Log.w(TAG, "GET $path failed: ${e.message}")
             null
+        }
+    }
+
+    /** Fire-and-forget POST (empty body). Returns true on 2xx. */
+    private fun post(path: String, retried: Boolean = false): Boolean {
+        return try {
+            val conn = URL("$baseUrl$path").openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = TIMEOUT
+            conn.readTimeout = TIMEOUT
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.setRequestProperty("Content-Length", "0")
+            conn.doOutput = true
+            conn.outputStream.close()
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code in 200..299) {
+                true
+            } else if (code == 401 && !retried && tryRefreshToken()) {
+                post(path, retried = true)
+            } else {
+                Log.w(TAG, "POST $path → $code")
+                false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "POST $path failed: ${e.message}")
+            false
+        }
+    }
+
+    /** Fire-and-forget DELETE. Returns true on 2xx. */
+    private fun delete(path: String, retried: Boolean = false): Boolean {
+        return try {
+            val conn = URL("$baseUrl$path").openConnection() as HttpURLConnection
+            conn.requestMethod = "DELETE"
+            conn.connectTimeout = TIMEOUT
+            conn.readTimeout = TIMEOUT
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            val code = conn.responseCode
+            conn.disconnect()
+            if (code in 200..299) {
+                true
+            } else if (code == 401 && !retried && tryRefreshToken()) {
+                delete(path, retried = true)
+            } else {
+                Log.w(TAG, "DELETE $path → $code")
+                false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "DELETE $path failed: ${e.message}")
+            false
         }
     }
 

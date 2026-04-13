@@ -41,6 +41,10 @@ Then open `http://localhost:8080` in your browser.
 
 See [Installation](installation.md) for full setup instructions, environment variables, and configuration options.
 
+## Development
+
+- [Android Auto Emulator Setup](android-auto-emulator.md) — Develop and test the Android app using the Android Auto desktop head unit on Linux
+
 ## Contributing
 
 Contributions are welcome. Open an issue to report a bug or suggest a feature, or submit a pull request directly on [GitHub](https://github.com/alexander-bruun/orb).
