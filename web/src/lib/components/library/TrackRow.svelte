@@ -1,7 +1,17 @@
 <script lang="ts">
   import type { Track } from "$lib/types";
   import { playTrack, currentTrack, playbackState } from "$lib/stores/player";
-  import { openContextMenu } from "$lib/stores/ui/contextMenu";
+  import {
+    openContextMenu,
+    openMultiContextMenu,
+  } from "$lib/stores/ui/contextMenu";
+  import {
+    selectedTrackIds,
+    lastClickedIndex,
+    clearSelection,
+    toggleTrack,
+    selectRange,
+  } from "$lib/stores/ui/trackSelection";
   import { downloads, deleteDownload } from "$lib/stores/offline/downloads";
   import { onMount } from "svelte";
   import { getArtistName, preloadArtists } from "$lib/stores/library/artists";
@@ -11,12 +21,14 @@
   export let track: Track;
   export let trackList: Track[] = [];
   export let index: number = 0;
+  export let flatIndex: number = 0;
   export let showCover: boolean = false;
   export let useRankIndex: boolean = false;
 
   import { getApiBase } from "$lib/api/base";
 
   $: isPlaying = $currentTrack?.id === track.id && $playbackState === "playing";
+  $: isSelected = $selectedTrackIds.has(track.id);
   $: dlStatus = $downloads.get(track.id)?.status;
 
   interface ArtistRef {
@@ -59,25 +71,61 @@
     const s = Math.floor(ms / 1000);
     return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
   }
+
+  function handleClick(e: MouseEvent) {
+    const el = e.target as HTMLElement | null;
+    if (el && el.closest && el.closest("a")) return;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      const last = $lastClickedIndex;
+      if (last === -1) {
+        toggleTrack(track.id, flatIndex);
+      } else {
+        selectRange(trackList, last, flatIndex);
+      }
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      toggleTrack(track.id, flatIndex);
+      return;
+    }
+
+    // Plain click: clear selection and play
+    clearSelection();
+    playTrack(track, trackList);
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      const el = e.target as HTMLElement | null;
+      if (el && el.closest && el.closest("a")) return;
+      clearSelection();
+      playTrack(track, trackList);
+    }
+  }
+
+  function handleContextMenu(e: MouseEvent) {
+    const selIds = $selectedTrackIds;
+    if (selIds.size > 1 && selIds.has(track.id)) {
+      const selectedTracks = trackList.filter((t) => selIds.has(t.id));
+      openMultiContextMenu(e, selectedTracks);
+    } else {
+      clearSelection();
+      openContextMenu(e, track);
+    }
+  }
 </script>
 
 <div
   class="track-row"
   class:playing={isPlaying}
-  on:click={(e) => {
-    // Don't trigger play when clicking on internal links (allow SvelteKit to handle navigation)
-    const el = e.target as HTMLElement | null;
-    if (el && el.closest && el.closest("a")) return;
-    playTrack(track, trackList);
-  }}
-  on:keydown={(e) => {
-    if (e.key === "Enter") {
-      const el = e.target as HTMLElement | null;
-      if (el && el.closest && el.closest("a")) return;
-      playTrack(track, trackList);
-    }
-  }}
-  on:contextmenu={(e) => openContextMenu(e, track)}
+  class:selected={isSelected}
+  on:click={handleClick}
+  on:keydown={handleKeydown}
+  on:contextmenu={handleContextMenu}
   role="button"
   tabindex="0"
 >
@@ -217,6 +265,7 @@
     border-radius: 6px;
     cursor: pointer;
     transition: background 0.1s;
+    user-select: none;
   }
   .track-row:hover {
     background: var(--bg-hover);
@@ -224,6 +273,15 @@
   .track-row.playing {
     background: var(--bg-hover);
     color: var(--accent);
+  }
+  .track-row.selected {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .track-row.selected:hover {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .track-row.selected.playing {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
   .index {
     width: 24px;

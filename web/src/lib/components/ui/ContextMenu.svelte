@@ -1,5 +1,6 @@
 <script lang="ts">
   import { contextMenu, closeContextMenu } from "$lib/stores/ui/contextMenu";
+  import { clearSelection } from "$lib/stores/ui/trackSelection";
   import { playTrack, playNext, addToQueue } from "$lib/stores/player";
   import { audioEngine } from "$lib/audio/engine";
   import { playlists as playlistsApi } from "$lib/api/playlists";
@@ -29,15 +30,43 @@
     sharingAlbum = false;
   }
 
+  $: isMulti = $contextMenu.tracks.length > 1;
   $: isFav = $contextMenu.track ? $favorites.has($contextMenu.track.id) : false;
+  $: multiAllFav =
+    isMulti && $contextMenu.tracks.every((t) => $favorites.has(t.id));
   $: dlEntry = $contextMenu.track
     ? $downloads.get($contextMenu.track.id)
     : undefined;
+
+  function closeAndClear() {
+    closeContextMenu();
+    clearSelection();
+  }
 
   async function handleFavorite() {
     const t = $contextMenu.track;
     if (!t) return;
     await favorites.toggle(t.id, t);
+  }
+
+  async function handleMultiFavorite() {
+    const tracks = $contextMenu.tracks;
+    if (multiAllFav) {
+      // All favorited → unfavorite all
+      await Promise.all(
+        tracks
+          .filter((t) => $favorites.has(t.id))
+          .map((t) => favorites.toggle(t.id, t)),
+      );
+    } else {
+      // Some not favorited → favorite all that aren't
+      await Promise.all(
+        tracks
+          .filter((t) => !$favorites.has(t.id))
+          .map((t) => favorites.toggle(t.id, t)),
+      );
+    }
+    closeAndClear();
   }
 
   async function loadPlaylists() {
@@ -51,39 +80,53 @@
   }
 
   async function handleAddToPlaylist(playlistId: string) {
-    const t = $contextMenu.track;
-    if (!t) return;
-    await playlistsApi.addTrack(playlistId, t.id);
+    const tracks = $contextMenu.tracks;
+    await Promise.all(tracks.map((t) => playlistsApi.addTrack(playlistId, t.id)));
     addedId = playlistId;
-    setTimeout(closeContextMenu, 800);
+    setTimeout(closeAndClear, 800);
   }
 
   function handlePlay() {
     const t = $contextMenu.track;
     if (t) playTrack(t, [t]);
-    closeContextMenu();
+    closeAndClear();
+  }
+
+  function handlePlayAll() {
+    const tracks = $contextMenu.tracks;
+    if (tracks.length) playTrack(tracks[0], tracks);
+    closeAndClear();
   }
 
   function handlePlayNext() {
     const t = $contextMenu.track;
     if (t) playNext(t);
-    closeContextMenu();
+    closeAndClear();
   }
 
   function handleAddToQueue() {
     const t = $contextMenu.track;
     if (t) addToQueue(t);
-    closeContextMenu();
+    closeAndClear();
+  }
+
+  function handleAddAllToQueue() {
+    for (const t of $contextMenu.tracks) addToQueue(t);
+    closeAndClear();
+  }
+
+  function handleDownloadAll() {
+    for (const t of $contextMenu.tracks) {
+      if (!$downloads.get(t.id)) downloadTrack(t);
+    }
+    closeAndClear();
   }
 
   async function handleStartRadio() {
     const t = $contextMenu.track;
     if (!t) return;
-    // Prime the AudioContext synchronously while still inside the user gesture.
-    // Without this, the async network fetch below breaks the browser's gesture
-    // activation window and audio is silently blocked.
     audioEngine.prime(t.sample_rate);
-    closeContextMenu();
+    closeAndClear();
     try {
       const similar = await recommend.similar(t.id, 30, t.album_id);
       const tracks = similar ?? [];
@@ -107,7 +150,7 @@
     } finally {
       sharingTrack = false;
     }
-    closeContextMenu();
+    closeAndClear();
   }
 
   async function handleShareAlbum() {
@@ -124,7 +167,7 @@
     } finally {
       sharingAlbum = false;
     }
-    closeContextMenu();
+    closeAndClear();
   }
 
   function onWindowPointerDown(e: PointerEvent) {
@@ -175,65 +218,26 @@
     on:touchmove={onTouchMove}
     on:touchend={onTouchEnd}
   >
-    {#if !showPlaylists}
-      <button class="item" on:click={handlePlay} role="menuitem">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <polygon points="5,3 19,12 5,21" />
-        </svg>
-        Play
-      </button>
-      <button class="item" on:click={handlePlayNext} role="menuitem">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <polygon points="4,3 14,12 4,21" fill="currentColor" stroke="none" />
-          <line x1="19" y1="3" x2="19" y2="21" />
-        </svg>
-        Play Next
-      </button>
-      <button class="item" on:click={handleAddToQueue} role="menuitem">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <line x1="9" y1="6" x2="21" y2="6" />
-          <line x1="9" y1="12" x2="21" y2="12" />
-          <line x1="9" y1="18" x2="21" y2="18" />
-          <circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none" />
-          <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" />
-          <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none" />
-        </svg>
-        Add to Queue
-      </button>
-
-      {#if dlEntry?.status === "done"}
-        <button
-          class="item"
-          role="menuitem"
-          on:click={() => {
-            if ($contextMenu.track) {
-              deleteDownload($contextMenu.track.id);
-              closeContextMenu();
-            }
-          }}
-        >
+    {#if isMulti}
+      <!-- ── Multi-select menu ── -->
+      {#if !showPlaylists}
+        <div class="multi-header">
+          {$contextMenu.tracks.length} tracks selected
+        </div>
+        <div class="sep"></div>
+        <button class="item" on:click={handlePlayAll} role="menuitem">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <polygon points="5,3 19,12 5,21" />
+          </svg>
+          Play All
+        </button>
+        <button class="item" on:click={handleAddAllToQueue} role="menuitem">
           <svg
             width="13"
             height="13"
@@ -243,40 +247,16 @@
             stroke-width="2"
             aria-hidden="true"
           >
-            <polyline points="3,6 5,6 21,6" />
-            <path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6" />
-            <path d="M10,11v6m4-6v6" />
+            <line x1="9" y1="6" x2="21" y2="6" />
+            <line x1="9" y1="12" x2="21" y2="12" />
+            <line x1="9" y1="18" x2="21" y2="18" />
+            <circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none" />
+            <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" />
+            <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none" />
           </svg>
-          Remove download
+          Add All to Queue
         </button>
-      {:else if dlEntry?.status === "downloading"}
-        <button class="item" role="menuitem" disabled>
-          <svg
-            class="spin"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="9" stroke-dasharray="44 13" />
-          </svg>
-          Downloading {dlEntry.progress}%…
-        </button>
-      {:else}
-        <button
-          class="item"
-          role="menuitem"
-          on:click={() => {
-            if ($contextMenu.track) {
-              downloadTrack($contextMenu.track);
-              closeContextMenu();
-            }
-          }}
-        >
+        <button class="item" on:click={handleDownloadAll} role="menuitem">
           <svg
             width="13"
             height="13"
@@ -290,84 +270,10 @@
             <polyline points="7,10 12,15 17,10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-          Download offline
+          Download All
         </button>
-      {/if}
-
-      <button class="item" on:click={handleStartRadio} role="menuitem">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M2 12a10 10 0 1 0 10-10" />
-          <polyline points="12 8 12 12 14 14" />
-          <polyline points="2 8 2 2 8 2" />
-        </svg>
-        Start Radio
-      </button>
-
-      <div class="sep"></div>
-
-      <button class="item" on:click={loadPlaylists} role="menuitem">
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <path d="M9 18V5l12-2v13" />
-          <circle cx="6" cy="18" r="3" />
-          <circle cx="18" cy="16" r="3" />
-        </svg>
-        Add to Playlist
-        <svg
-          class="ml-auto"
-          width="11"
-          height="11"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          aria-hidden="true"
-        >
-          <polyline points="9,18 15,12 9,6" />
-        </svg>
-      </button>
-
-      <div class="sep"></div>
-
-      <button
-        class="item"
-        class:fav={isFav}
-        on:click={handleFavorite}
-        role="menuitem"
-      >
-        {#if isFav}
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            stroke="currentColor"
-            stroke-width="2"
-            aria-hidden="true"
-          >
-            <polygon
-              points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
-            />
-          </svg>
-          Unfavorite
-        {:else}
+        <div class="sep"></div>
+        <button class="item" on:click={loadPlaylists} role="menuitem">
           <svg
             width="13"
             height="13"
@@ -377,41 +283,341 @@
             stroke-width="2"
             aria-hidden="true"
           >
-            <polygon
-              points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
-            />
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
           </svg>
-          Favorite
-        {/if}
-      </button>
-      <button
-        class="item"
-        on:click={handleShare}
-        disabled={sharingTrack}
-        role="menuitem"
-      >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          aria-hidden="true"
-        >
-          <circle cx="18" cy="5" r="3" />
-          <circle cx="6" cy="12" r="3" />
-          <circle cx="18" cy="19" r="3" />
-          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-        </svg>
-        {sharingTrack ? "Copying…" : "Share Track"}
-      </button>
-      {#if $contextMenu.track?.album_id}
+          Add to Playlist
+          <svg
+            class="ml-auto"
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <polyline points="9,18 15,12 9,6" />
+          </svg>
+        </button>
+        <div class="sep"></div>
         <button
           class="item"
-          on:click={handleShareAlbum}
-          disabled={sharingAlbum}
+          class:fav={multiAllFav}
+          on:click={handleMultiFavorite}
+          role="menuitem"
+        >
+          {#if multiAllFav}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <polygon
+                points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
+              />
+            </svg>
+            Unfavorite All
+          {:else}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <polygon
+                points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
+              />
+            </svg>
+            Favorite All
+          {/if}
+        </button>
+      {:else}
+        <button
+          class="item dim"
+          on:click={() => (showPlaylists = false)}
+          role="menuitem"
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <polyline points="15,18 9,12 15,6" />
+          </svg>
+          Add to Playlist
+        </button>
+        <div class="sep"></div>
+        {#if loadingPlaylists}
+          <div class="hint"><Spinner size={14} /></div>
+        {:else if playlists.length === 0}
+          <div class="hint">No playlists yet</div>
+        {:else}
+          {#each playlists as pl (pl.id)}
+            <button
+              class="item"
+              class:done={addedId === pl.id}
+              on:click={() => handleAddToPlaylist(pl.id)}
+              role="menuitem"
+            >
+              {#if addedId === pl.id}
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  aria-hidden="true"
+                >
+                  <polyline points="20,6 9,17 4,12" />
+                </svg>
+              {:else}
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              {/if}
+              <span class="pl-name">{pl.name}</span>
+            </button>
+          {/each}
+        {/if}
+      {/if}
+    {:else}
+      <!-- ── Single-track menu ── -->
+      {#if !showPlaylists}
+        <button class="item" on:click={handlePlay} role="menuitem">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <polygon points="5,3 19,12 5,21" />
+          </svg>
+          Play
+        </button>
+        <button class="item" on:click={handlePlayNext} role="menuitem">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <polygon points="4,3 14,12 4,21" fill="currentColor" stroke="none" />
+            <line x1="19" y1="3" x2="19" y2="21" />
+          </svg>
+          Play Next
+        </button>
+        <button class="item" on:click={handleAddToQueue} role="menuitem">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <line x1="9" y1="6" x2="21" y2="6" />
+            <line x1="9" y1="12" x2="21" y2="12" />
+            <line x1="9" y1="18" x2="21" y2="18" />
+            <circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none" />
+            <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" />
+            <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none" />
+          </svg>
+          Add to Queue
+        </button>
+
+        {#if dlEntry?.status === "done"}
+          <button
+            class="item"
+            role="menuitem"
+            on:click={() => {
+              if ($contextMenu.track) {
+                deleteDownload($contextMenu.track.id);
+                closeAndClear();
+              }
+            }}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <polyline points="3,6 5,6 21,6" />
+              <path d="M19,6l-1,14a2,2,0,0,1-2,2H8a2,2,0,0,1-2-2L5,6" />
+              <path d="M10,11v6m4-6v6" />
+            </svg>
+            Remove download
+          </button>
+        {:else if dlEntry?.status === "downloading"}
+          <button class="item" role="menuitem" disabled>
+            <svg
+              class="spin"
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" stroke-dasharray="44 13" />
+            </svg>
+            Downloading {dlEntry.progress}%…
+          </button>
+        {:else}
+          <button
+            class="item"
+            role="menuitem"
+            on:click={() => {
+              if ($contextMenu.track) {
+                downloadTrack($contextMenu.track);
+                closeAndClear();
+              }
+            }}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7,10 12,15 17,10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Download offline
+          </button>
+        {/if}
+
+        <button class="item" on:click={handleStartRadio} role="menuitem">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M2 12a10 10 0 1 0 10-10" />
+            <polyline points="12 8 12 12 14 14" />
+            <polyline points="2 8 2 2 8 2" />
+          </svg>
+          Start Radio
+        </button>
+
+        <div class="sep"></div>
+
+        <button class="item" on:click={loadPlaylists} role="menuitem">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+          </svg>
+          Add to Playlist
+          <svg
+            class="ml-auto"
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <polyline points="9,18 15,12 9,6" />
+          </svg>
+        </button>
+
+        <div class="sep"></div>
+
+        <button
+          class="item"
+          class:fav={isFav}
+          on:click={handleFavorite}
+          role="menuitem"
+        >
+          {#if isFav}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <polygon
+                points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
+              />
+            </svg>
+            Unfavorite
+          {:else}
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <polygon
+                points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
+              />
+            </svg>
+            Favorite
+          {/if}
+        </button>
+        <button
+          class="item"
+          on:click={handleShare}
+          disabled={sharingTrack}
           role="menuitem"
         >
           <svg
@@ -429,70 +635,95 @@
             <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
             <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
           </svg>
-          {sharingAlbum ? "Copying…" : "Share Album"}
+          {sharingTrack ? "Copying…" : "Share Track"}
         </button>
-      {/if}
-    {:else}
-      <button
-        class="item dim"
-        on:click={() => (showPlaylists = false)}
-        role="menuitem"
-      >
-        <svg
-          width="11"
-          height="11"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          aria-hidden="true"
-        >
-          <polyline points="15,18 9,12 15,6" />
-        </svg>
-        Add to Playlist
-      </button>
-      <div class="sep"></div>
-      {#if loadingPlaylists}
-        <div class="hint"><Spinner size={14} /></div>
-      {:else if playlists.length === 0}
-        <div class="hint">No playlists yet</div>
-      {:else}
-        {#each playlists as pl (pl.id)}
+        {#if $contextMenu.track?.album_id}
           <button
             class="item"
-            class:done={addedId === pl.id}
-            on:click={() => handleAddToPlaylist(pl.id)}
+            on:click={handleShareAlbum}
+            disabled={sharingAlbum}
             role="menuitem"
           >
-            {#if addedId === pl.id}
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                aria-hidden="true"
-              >
-                <polyline points="20,6 9,17 4,12" />
-              </svg>
-            {:else}
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                aria-hidden="true"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            {/if}
-            <span class="pl-name">{pl.name}</span>
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+            {sharingAlbum ? "Copying…" : "Share Album"}
           </button>
-        {/each}
+        {/if}
+      {:else}
+        <button
+          class="item dim"
+          on:click={() => (showPlaylists = false)}
+          role="menuitem"
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            aria-hidden="true"
+          >
+            <polyline points="15,18 9,12 15,6" />
+          </svg>
+          Add to Playlist
+        </button>
+        <div class="sep"></div>
+        {#if loadingPlaylists}
+          <div class="hint"><Spinner size={14} /></div>
+        {:else if playlists.length === 0}
+          <div class="hint">No playlists yet</div>
+        {:else}
+          {#each playlists as pl (pl.id)}
+            <button
+              class="item"
+              class:done={addedId === pl.id}
+              on:click={() => handleAddToPlaylist(pl.id)}
+              role="menuitem"
+            >
+              {#if addedId === pl.id}
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  aria-hidden="true"
+                >
+                  <polyline points="20,6 9,17 4,12" />
+                </svg>
+              {:else}
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              {/if}
+              <span class="pl-name">{pl.name}</span>
+            </button>
+          {/each}
+        {/if}
       {/if}
     {/if}
   </div>
@@ -522,6 +753,14 @@
       opacity: 1;
       transform: scale(1);
     }
+  }
+
+  .multi-header {
+    padding: 5px 10px 3px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-2);
+    letter-spacing: 0.03em;
   }
 
   .item {

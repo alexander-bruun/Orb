@@ -6,13 +6,25 @@ export const contextMenu = writable<{
 	x: number;
 	y: number;
 	track: Track | null;
-}>({ visible: false, x: 0, y: 0, track: null });
+	tracks: Track[];
+}>({ visible: false, x: 0, y: 0, track: null, tracks: [] });
 
 export function openContextMenu(e: MouseEvent, track: Track) {
 	e.preventDefault();
-	contextMenu.set({ visible: true, x: e.clientX, y: e.clientY, track });
+	contextMenu.set({ visible: true, x: e.clientX, y: e.clientY, track, tracks: [track] });
+}
+
+export function openMultiContextMenu(e: MouseEvent, tracks: Track[]) {
+	e.preventDefault();
+	contextMenu.set({
+		visible: true,
+		x: e.clientX,
+		y: e.clientY,
+		track: tracks[0] ?? null,
+		tracks
+	});
 }
 
 export function closeContextMenu() {
-	contextMenu.update((m) => ({ ...m, visible: false, track: null }));
+	contextMenu.update((m) => ({ ...m, visible: false, track: null, tracks: [] }));
 }

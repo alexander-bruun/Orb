@@ -1,6 +1,12 @@
 <script lang="ts">
   import type { Track } from "$lib/types";
   import TrackRow from "./TrackRow.svelte";
+  import {
+    selectAll,
+    invertSelection,
+    clearSelection,
+  } from "$lib/stores/ui/trackSelection";
+  import { onDestroy } from "svelte";
 
   export let tracks: Track[];
   export let showCover: boolean = false;
@@ -18,7 +24,41 @@
   })();
 
   $: isMultiDisc = discs.length > 1;
+
+  // Map track.id → flat index in the tracks array (for shift-select ranges)
+  $: flatIndexMap = new Map(tracks.map((t, i) => [t.id, i]));
+
+  // Clear selection whenever the track list changes (e.g. navigating to a different album)
+  let _prevTracks: Track[] | null = null;
+  $: if (tracks !== _prevTracks) {
+    _prevTracks = tracks;
+    clearSelection();
+  }
+
+  onDestroy(() => clearSelection());
+
+  function onKeydown(e: KeyboardEvent) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable
+    )
+      return;
+    if (e.key === "a" || e.key === "A") {
+      e.preventDefault();
+      selectAll(tracks);
+    } else if (e.key === "i" || e.key === "I") {
+      e.preventDefault();
+      invertSelection(tracks);
+    } else if (e.key === "Escape") {
+      clearSelection();
+    }
+  }
 </script>
+
+<svelte:window on:keydown={onKeydown} />
 
 {#if showDiscNumbers && isMultiDisc}
   {#each discs as [discNum, discTracks]}
@@ -41,7 +81,13 @@
       </div>
       <div class="track-list">
         {#each discTracks as track, i (track.id)}
-          <TrackRow {track} trackList={tracks} index={i} {showCover} />
+          <TrackRow
+            {track}
+            trackList={tracks}
+            index={i}
+            flatIndex={flatIndexMap.get(track.id) ?? i}
+            {showCover}
+          />
         {/each}
       </div>
     </div>
@@ -53,6 +99,7 @@
         {track}
         trackList={tracks}
         index={i}
+        flatIndex={i}
         {showCover}
         useRankIndex={!showDiscNumbers}
       />
