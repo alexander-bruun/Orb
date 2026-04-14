@@ -17,11 +17,13 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -647,6 +649,59 @@ class MediaService : MediaLibraryService() {
                 super.play()
             }
             override fun pause() { super.pause() }
+
+            // Expose the full nativeQueue to Android Auto's queue view.
+            // ExoPlayer only holds the current single item; overriding these
+            // lets the MediaSession build a multi-item timeline for display.
+            override fun getCurrentMediaItemIndex(): Int =
+                nativeQueueIndex.coerceAtLeast(0)
+
+            override fun getCurrentTimeline(): Timeline {
+                val snapshot: List<QueueTrack>
+                val idx: Int
+                synchronized(nativeQueue) {
+                    snapshot = nativeQueue.toList()
+                    idx = nativeQueueIndex
+                }
+                if (snapshot.isEmpty()) return super.getCurrentTimeline()
+                val currentMi = super.getCurrentMediaItem()
+                return object : Timeline() {
+                    override fun getWindowCount(): Int = snapshot.size
+                    override fun getWindow(windowIndex: Int, window: Window, defaultPositionProjectionUs: Long): Window {
+                        val track = snapshot[windowIndex]
+                        val mi = if (windowIndex == idx && currentMi != null) currentMi
+                                 else buildQueueMediaItem(track)
+                        return window.set(
+                            windowIndex,
+                            mi,
+                            null,
+                            C.TIME_UNSET,
+                            C.TIME_UNSET,
+                            C.TIME_UNSET,
+                            true,
+                            false,
+                            null,
+                            0L,
+                            C.TIME_UNSET,
+                            windowIndex,
+                            windowIndex,
+                            0L
+                        )
+                    }
+                    override fun getPeriodCount(): Int = snapshot.size
+                    override fun getPeriod(periodIndex: Int, period: Period, setIds: Boolean): Period =
+                        period.set(
+                            if (setIds) periodIndex else null,
+                            if (setIds) periodIndex.toLong() else null,
+                            periodIndex,
+                            C.TIME_UNSET,
+                            0L
+                        )
+                    override fun getIndexOfPeriod(uid: Any): Int =
+                        (uid as? Long)?.toInt() ?: (uid as? Int) ?: C.INDEX_UNSET
+                    override fun getUidOfPeriod(periodIndex: Int): Any = periodIndex.toLong()
+                }
+            }
         }
 
         val sessionActivityIntent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -960,8 +1015,10 @@ class MediaService : MediaLibraryService() {
                 // Look up metadata from the browse context cache
                 val browseTrack = lastBrowseContext?.tracks?.firstOrNull { it.trackId == trackId }
                 val albumId = browseTrack?.albumId ?: trackAlbumMap[trackId]
-                val api = apiClient
-                val artUri = albumId?.let { api?.let { a -> Uri.parse(a.coverUrl(it)) } }
+                // Use buildCoverUrlForAlbum so the offline cover file is checked first,
+                // returning a file:// URI instead of a network URL when available.
+                // This prevents the Now Playing artwork from going blank when offline.
+                val artUri = buildCoverUrlForAlbum(albumId)?.let { Uri.parse(it) }
 
                 val item = MediaItem.Builder().setMediaId(mediaId)
                     .setMediaMetadata(MediaMetadata.Builder()
@@ -1415,6 +1472,22 @@ class MediaService : MediaLibraryService() {
 
     private fun buildMetadata(title: String?, artist: String?): MediaMetadata = MediaMetadata.Builder()
         .setTitle(title ?: "Unknown").setArtist(artist ?: "Unknown").setIsPlayable(true).setIsBrowsable(false).build()
+
+    /** Build a display-only MediaItem for a queue entry (no playback URI needed). */
+    private fun buildQueueMediaItem(track: QueueTrack): MediaItem {
+        val artUri = track.albumId?.let { buildCoverUrlForAlbum(it)?.let { u -> Uri.parse(u) } }
+        return MediaItem.Builder()
+            .setMediaId("track:${track.trackId}")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setIsPlayable(true)
+                    .setArtworkUri(artUri)
+                    .build()
+            )
+            .build()
+    }
 
     // Artwork loading is now handled by AuthBitmapLoader on the MediaLibrarySession.
 
