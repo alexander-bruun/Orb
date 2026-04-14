@@ -55,18 +55,35 @@ self.addEventListener('install', (event: ExtendableEvent) => {
   );
 });
 
-// ── Cover art (unchanged from generateSW config) ─────────────────────────────
+// ── Cover art ────────────────────────────────────────────────────────────────
+//
+// Two-tier cache: a permanent bucket populated alongside track downloads
+// (never expires, tied to download lifecycle) and an expiring LRU bucket for
+// browse/search hits. The permanent bucket is checked first so downloaded
+// tracks keep their art indefinitely even after weeks offline.
+
+const OFFLINE_COVER_CACHE = 'orb-offline-covers';
+
+const coverArtExpiring = new CacheFirst({
+  cacheName: 'orb-cover-art',
+  plugins: [
+    new ExpirationPlugin({
+      maxEntries: 500,
+      maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+    }),
+  ],
+});
+
 registerRoute(
   ({ url }) => /\/api\/(covers|artists)\//.test(url.pathname),
-  new CacheFirst({
-    cacheName: 'orb-cover-art',
-    plugins: [
-      new ExpirationPlugin({
-        maxEntries: 500,
-        maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
-      }),
-    ],
-  })
+  async ({ event, request, url }) => {
+    if (url.pathname.startsWith('/api/covers/')) {
+      const cache = await caches.open(OFFLINE_COVER_CACHE);
+      const hit = await cache.match(url.origin + url.pathname);
+      if (hit) return hit.clone();
+    }
+    return coverArtExpiring.handle({ event: event as FetchEvent, request: request as Request });
+  }
 );
 
 // ── Offline audio range-request synthesiser ───────────────────────────────────

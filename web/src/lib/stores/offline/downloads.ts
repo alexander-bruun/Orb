@@ -25,6 +25,7 @@ export interface DownloadEntry {
 }
 
 const AUDIO_CACHE = IDB.NAME;
+const COVER_CACHE = 'orb-offline-covers';
 const META_KEY = STORAGE_KEYS.DOWNLOADS_META;
 const IDB_NAME = IDB.NAME;
 const IDB_STORE = IDB.STORE_BLOBS;
@@ -177,17 +178,55 @@ async function saveToNativeStorage(trackId: string, blob: Blob): Promise<void> {
   } catch { /* best-effort */ }
 }
 
-/** Download and save cover art to Android native storage for offline browsing. */
-async function saveCoverToNativeStorage(albumId: string): Promise<void> {
-  if (nativePlatform() !== 'android' || !albumId) return;
+/**
+ * Persist cover art alongside a downloaded track so it survives cache eviction
+ * and the 30-day workbox TTL. Writes to a non-expiring Cache API bucket on all
+ * platforms, plus Android native storage (for Android Auto's BitmapLoader).
+ *
+ * Keyed by the bare `/api/covers/{albumId}` pathname so the service worker
+ * fetch handler can match incoming `<img>` requests directly.
+ */
+async function persistCoverArt(albumId: string | undefined): Promise<void> {
+  if (!albumId) return;
+
+  const coverPath = `/api/covers/${albumId}`;
+
+  // Skip if we've already persisted this album's cover in a prior track
+  // download (common when downloading a whole album).
+  if (cacheAvailable) {
+    try {
+      const cache = await caches.open(COVER_CACHE);
+      if (await cache.match(coverPath)) return;
+    } catch { /* ignore */ }
+  }
+
   try {
-    const { invoke } = await import('@tauri-apps/api/core');
     const coverUrl = `${getApiBase()}/covers/${albumId}`;
     const res = await fetch(coverUrl);
     if (!res.ok) return;
     const blob = await res.blob();
-    const buffer = await blob.arrayBuffer();
-    await invoke('save_cover_art', { albumId, data: new Uint8Array(buffer) });
+
+    if (cacheAvailable) {
+      try {
+        const cache = await caches.open(COVER_CACHE);
+        const cacheResp = new Response(blob.slice(), {
+          headers: {
+            'Content-Type': blob.type || 'image/jpeg',
+            'Content-Length': String(blob.size),
+            'Cache-Control': 'public, max-age=31536000, immutable',
+          },
+        });
+        await cache.put(coverPath, cacheResp);
+      } catch { /* ignore */ }
+    }
+
+    if (nativePlatform() === 'android') {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const buffer = await blob.arrayBuffer();
+        await invoke('save_cover_art', { albumId, data: new Uint8Array(buffer) });
+      } catch { /* best-effort */ }
+    }
   } catch { /* best-effort */ }
 }
 
@@ -198,6 +237,26 @@ async function deleteFromNativeStorage(trackId: string): Promise<void> {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('delete_offline_file', { trackId });
   } catch { /* best-effort */ }
+}
+
+/**
+ * Remove a persisted cover from the offline cover cache (and Android native
+ * storage). Only call this when no other downloaded tracks from the same album
+ * remain — see `deleteDownload`.
+ */
+async function deletePersistedCover(albumId: string): Promise<void> {
+  if (cacheAvailable) {
+    try {
+      const cache = await caches.open(COVER_CACHE);
+      await cache.delete(`/api/covers/${albumId}`);
+    } catch { /* ignore */ }
+  }
+  if (nativePlatform() === 'android') {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('delete_cover_art', { albumId });
+    } catch { /* best-effort */ }
+  }
 }
 
 export function restoreDownloads(): void {
@@ -309,7 +368,7 @@ export async function downloadTrack(track: Track): Promise<void> {
       }
     }
 
-    // Cache lyrics and waveform for offline playback (best-effort).
+    // Cache lyrics, waveform, and cover art for offline playback (best-effort).
     const headers = { Authorization: auth.token ? `Bearer ${auth.token}` : '' };
     const base = getApiBase();
     await Promise.allSettled([
@@ -319,6 +378,7 @@ export async function downloadTrack(track: Track): Promise<void> {
       fetch(`${base}/library/tracks/${track.id}/waveform`, { headers })
         .then(r => r.ok ? r.json() : null)
         .then(data => Array.isArray(data?.peaks) && data.peaks.length ? idbPutTo(IDB_WAVE_STORE, track.id, data.peaks) : null),
+      persistCoverArt(track.album_id),
     ]);
 
     downloads.update(m => {
@@ -377,16 +437,10 @@ if (typeof window !== 'undefined' && nativePlatform() === 'android') {
 // ── Batch download (sequential to avoid hammering the server) ─────────────────
 
 export async function downloadAlbum(tracks: Track[]): Promise<void> {
-  const savedCovers = new Set<string>();
   for (const track of tracks) {
     const entry = get(downloads).get(track.id);
     if (entry?.status === 'done') continue;
     await downloadTrack(track);
-    // Save cover art once per album, not once per track.
-    if (track.album_id && !savedCovers.has(track.album_id)) {
-      savedCovers.add(track.album_id);
-      await saveCoverToNativeStorage(track.album_id);
-    }
   }
 }
 
@@ -509,6 +563,9 @@ export async function retryDownload(entry: DownloadEntry): Promise<void> {
 // ── Delete a downloaded track ────────────────────────────────────────────────
 
 export async function deleteDownload(trackId: string): Promise<void> {
+  const entry = get(downloads).get(trackId);
+  const albumId = entry?.albumId;
+
   // Remove from IDB (primary + lyrics + waveform)
   try { await idbDelete(trackId); } catch { /* ignore */ }
   try { await idbDeleteFrom(IDB_LYRICS_STORE, trackId); } catch { /* ignore */ }
@@ -530,6 +587,15 @@ export async function deleteDownload(trackId: string): Promise<void> {
     persist(m);
     return m;
   });
+
+  // Drop the persisted cover only when no other tracks from this album
+  // remain downloaded — otherwise siblings would lose their artwork.
+  if (albumId) {
+    const stillUsed = [...get(downloads).values()].some(
+      e => e.albumId === albumId && e.status === 'done',
+    );
+    if (!stillUsed) await deletePersistedCover(albumId);
+  }
 }
 
 // ── Delete ALL downloaded tracks ─────────────────────────────────────────────
@@ -542,7 +608,7 @@ export async function deleteAllDownloads(): Promise<void> {
   try { await idbClearStore(IDB_LYRICS_STORE); } catch { /* ignore */ }
   try { await idbClearStore(IDB_WAVE_STORE); } catch { /* ignore */ }
 
-  // Clear Cache API entries
+  // Clear Cache API entries (audio + covers)
   if (cacheAvailable) {
     try {
       const cache = await caches.open(AUDIO_CACHE);
@@ -550,6 +616,19 @@ export async function deleteAllDownloads(): Promise<void> {
         await cache.delete(`/api/stream/${id}`).catch(() => { });
       }
     } catch { /* ignore */ }
+    try { await caches.delete(COVER_CACHE); } catch { /* ignore */ }
+  }
+
+  // Clear Android native cover storage for every downloaded album.
+  if (nativePlatform() === 'android') {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const albumIds = new Set<string>();
+      for (const e of map.values()) if (e.albumId) albumIds.add(e.albumId);
+      for (const id of albumIds) {
+        await invoke('delete_cover_art', { albumId: id }).catch(() => {});
+      }
+    } catch { /* best-effort */ }
   }
 
   downloads.set(new Map());
