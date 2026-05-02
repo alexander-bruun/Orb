@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/fsnotify/fsnotify v1.10.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
